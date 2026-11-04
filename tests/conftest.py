@@ -1,0 +1,57 @@
+"""Shared fixtures. Mongo-backed tests use a throwaway database on the local dev container."""
+
+from __future__ import annotations
+
+import os
+import uuid
+
+import pytest
+from pymongo import MongoClient
+from pymongo.errors import PyMongoError
+
+from amorehiremepls.db import Store
+
+TEST_MONGO_URI = os.environ.get("AMORE_TEST_MONGODB_URI", "mongodb://127.0.0.1:27027")
+
+
+def _mongo_available() -> bool:
+    try:
+        MongoClient(TEST_MONGO_URI, serverSelectionTimeoutMS=1500).admin.command("ping")
+        return True
+    except PyMongoError:
+        return False
+
+
+MONGO_AVAILABLE = _mongo_available()
+
+
+def pytest_collection_modifyitems(config, items):
+    skip = pytest.mark.skip(reason=f"dev MongoDB not reachable at {TEST_MONGO_URI}")
+    for item in items:
+        if "mongo" in item.keywords and not MONGO_AVAILABLE:
+            item.add_marker(skip)
+
+
+@pytest.fixture
+def store():
+    client = MongoClient(TEST_MONGO_URI, serverSelectionTimeoutMS=3000)
+    name = f"amore_test_{uuid.uuid4().hex[:10]}"
+    s = Store(client, name)
+    s.ensure_indexes()
+    try:
+        yield s
+    finally:
+        client.drop_database(name)
+        client.close()
+
+
+@pytest.fixture
+def tmp_dirs(tmp_path):
+    d = {
+        "artifacts": tmp_path / "artifacts",
+        "private": tmp_path / "private",
+        "logs": tmp_path / "logs",
+    }
+    for p in d.values():
+        p.mkdir(parents=True, exist_ok=True)
+    return d
