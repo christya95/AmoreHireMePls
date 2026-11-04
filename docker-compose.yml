@@ -1,0 +1,81 @@
+# AmoreHireMePls. Default: use the existing NAS MongoDB by configuration (AMORE_MONGODB_URI).
+# Optional local development database: docker compose --profile dev-mongo up -d dev-mongo
+name: amorehiremepls
+
+x-app: &app
+  image: amorehiremepls:local
+  build: .
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    AMORE_ARTIFACT_DIR: /data/artifacts
+    AMORE_PRIVATE_DIR: /data/private
+    AMORE_LOG_DIR: /data/logs
+    AMORE_BROWSER_SESSION_DIR: /data/private/sessions
+    AMORE_TRACKER_CLONE_DIR: /data/private/job-application-records
+    AMORE_BIND_HOST: 0.0.0.0
+  volumes:
+    - amorehiremepls_data:/data
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  deploy:
+    resources:
+      limits:
+        cpus: "1.5"
+        memory: 1536M
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
+services:
+  web:
+    <<: *app
+    command: ["amore", "web"]
+    ports:
+      - "${AMORE_BIND_HOST:-127.0.0.1}:${AMORE_PORT:-8790}:8790"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8790/health', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  worker:
+    <<: *app
+    command: ["amore", "worker"]
+    # Chromium needs a larger /dev/shm than Docker's 64 MB default.
+    shm_size: 512m
+    healthcheck:
+      test: ["CMD", "amore", "worker-health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  dev-mongo:
+    profiles: ["dev-mongo"]
+    image: mongo:8.0
+    command: ["mongod", "--wiredTigerCacheSizeGB", "0.25"]
+    ports:
+      - "127.0.0.1:27027:27017"
+    volumes:
+      - amorehiremepls_dev_mongo:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok ? quit(0) : quit(1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  amorehiremepls_data:
+    name: amorehiremepls_data
+  amorehiremepls_dev_mongo:
+    name: amorehiremepls_dev_mongo

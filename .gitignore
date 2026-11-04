@@ -1,0 +1,34 @@
+# Local configuration and resolved secrets
+.env
+.env.*
+!.env.example
+!.env.references.example
+.env.references
+secrets/
+.secrets/
+
+# Private runtime data and authentication; archive records in the private tracker.
+runtime/
+private/
+artifacts/
+browser-profiles/
+playwright/.auth/
+auth-state*.json
+storage-state*.json
+*.log
+logs/
+traces/
+backups/
+mongo-data/
+
+# Generated development files
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/
+dist/
+build/
+.DS_Store
