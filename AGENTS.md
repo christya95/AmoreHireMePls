@@ -33,5 +33,15 @@
 - Verify meaningful failure paths with deterministic model/network doubles and local browser fixtures. Live applications/messages are not test fixtures; execute them only within authorized scope.
 - Report implemented versus fixture-tested versus live-verified capabilities, failed syncs, and blockers accurately. Continue independent work when one integration is blocked.
 
+## Repository commands and conventions (actual)
+- Layout: `src/amorehiremepls/` (config, db, profile, jobs, tracker, authorization, actions, ai, skills, discovery, tailoring, browser, applications, sync, outreach, orchestration, runtime, worker, backup, web + `templates/`, cli), `tests/` with `tests/fixtures/` (fixture ATS site, tracker seed, `records.py` snapshot, fictional resume), `docs/` (PROGRESS, workflow-sources, capability-map, backup-restore, troubleshooting, nas-deployment).
+- Setup: `uv sync && uv run playwright install chromium`; dev database `docker compose --profile dev up -d dev-mongo`; `uv run amore setup-db`.
+- Run: `uv run amore web`, `uv run amore worker` (or `--once`); Docker `docker compose build && docker compose up -d web worker`.
+- Test: `uv run pytest` (mongo-marked tests need 127.0.0.1:27027, browser-marked tests need Chromium; both skip otherwise). Lint: `uv run ruff check src tests && uv run ruff format --check src tests` (line length 180).
+- Private runtime data lives under `runtime/` (gitignored). The profile, base resume copies, browser sessions and tracker clone never enter this repository. Tests use fictional data only.
+- Add new model-backed steps as `SkillSpec` entries in `skills.py` with a version bump when the prompt changes; call them through `AIRunner` so caching, budgets and usage recording apply. Deterministic checks go before the model call.
+- Any new external action goes through `ActionStore.prepare/execute` with an idempotency key and an authorization `ScopeKind`; never call an adapter directly from a graph node or a web route.
+- Update `docs/PROGRESS.md` (done list, open questions, exact next step) at every increment boundary.
+
 ## Codex in Warp
 - For CLI sessions, if the terminal is not already identified, check `TERM_PROGRAM` once. If it is `WarpTerminal`, read and apply `/Users/joss/.codex/skills/warp-token-saver/SKILL.md` when available. This preference applies only to Codex in Warp unless explicitly requested elsewhere.

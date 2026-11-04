@@ -5,31 +5,40 @@ Keep this file current. A later session should be able to continue from the "Exa
 ## Decisions
 
 - Python 3.12 (not the Mac's 3.15) so Playwright, pydantic-core and the official Playwright Docker image match. `uv` manages the lockfile.
-- One image, two processes: `amore web` (FastAPI + dashboard) and `amore worker` (LangGraph runs, scheduler). Compose runs them as two services from the same image.
-- MongoDB is the only database. NAS target is the existing `mongo:8.0` standalone (no replica set, so no transactions or change streams are assumed). Dev profile `dev-mongo` runs the same image locally.
-- LangGraph checkpointer: `langgraph-checkpoint-mongodb` `MongoDBSaver(client, db_name=...)` in the application database (`amorehiremepls`), collections `lg_checkpoints` / `lg_checkpoint_writes`.
-- Side effects never happen inside a graph node directly on replay: nodes persist an `action` document with an idempotency key and reserve it atomically (`findOneAndUpdate` with state guard) before the adapter runs. Replaying a checkpoint re-enters the node, finds the reservation and reads the recorded outcome instead of acting again.
-- Interactive browser access: the chosen approach is a **Mac companion session export**. The authenticated browser is the Playwright Chromium launched locally by `amore browser login <site>` on the Mac; it saves a Playwright `storage_state` JSON under `runtime/private/sessions/` which the worker loads. On the NAS, the worker runs headless with that state; when a login challenge appears, the action becomes a `handoff` and the dashboard asks Joss to refresh the session from the Mac. No remote-control endpoint is exposed.
-- Secrets: `op run --env-file .env.references -- <cmd>` on the Mac; a read-only service-account token in a protected file on the NAS (same pattern as AmoreGymBro). `.env.example` holds non-secret config only.
-- Recipient exclusion "Jessica" is stored as an identity exclusion with `resolution: unresolved`; it blocks nothing until bound to a profile URL/employer, and it never matches by first name.
+- One image, two processes: `amore web` (FastAPI + dashboard) and `amore worker` (LangGraph runs, sync coordinator, scheduler). Compose runs them as two services from the same image.
+- MongoDB is the only database. NAS target is the existing `mongo:8.0` standalone (no replica set, so no transactions or change streams are assumed). Dev profile `dev-mongo` runs the same image locally on 127.0.0.1:27027.
+- LangGraph checkpointer: `langgraph-checkpoint-mongodb` `MongoDBSaver(client, db_name=...)` in the application database, collections `lg_checkpoints` / `lg_checkpoint_writes`.
+- Side effects never happen inside a graph node directly on replay: nodes persist an `action` document with an idempotency key and reserve it atomically (`findOneAndUpdate` with state guard) before the adapter runs. Replay finds the reservation and reads the recorded outcome.
+- Interactive browser access: **Mac companion session export**. `amore browser login <site> <url>` runs headed Chromium locally and saves Playwright `storage_state` under `runtime/private/sessions/`; the worker loads it headless. Login challenges become `handoff` interrupts. No remote-control endpoint exists.
+- Secrets: `op run --env-file .env.references -- <cmd>` on the Mac; read-only service-account token in a protected file on the NAS. `.env.example` holds non-secret config only.
+- Recipient exclusion "Jessica" is stored as an identity exclusion with `resolution: unresolved`; it never matches by first name; same-first-name recipients are held for reconciliation.
+- Ruff: line length 180, `ruff format` applied to the whole tree (commit a258e66).
 
-## Done
+## Done (local commits)
 
-- Increment 1: sources inspected; `docs/workflow-sources.md` written; project skeleton, lockfile, Compose, Dockerfile, `.env.example`.
+- 99ad8b8 Increment 1: sources inspected, `docs/workflow-sources.md`, skeleton, lockfile, Compose, Dockerfile, `.env.example`.
+- c08edce Increment 2: config, Mongo store, indexes, atomic reserve/release, logging redaction, util.
+- a4616ca Increment 3: private profile with provenance, experience computation, salary rule, base resume selection, tracker import preview/import (idempotent; verified read-only against the real clone: 39 records).
+- 15bf25d Increment 4a: authorization scopes, idempotent actions, emergency stop.
+- a6ae9ba Increments 5–7, 10: discovery adapters + dedup + deterministic filters + fit ranking; grounded tailoring (DOCX/PDF); Playwright adapter + fixture site; application review packages and execution; tracker sync coordinator/outbox; skill catalog, cache, budgets, pricing, usage.
+- cb8b468 / 2203dd4 Increments 4b, 8: LangGraph application graph with MongoDBSaver, interrupts, pause/cancel/restart; recruiter identities, dedup, drafts, channels.
+- a258e66 Increments 9–11: runtime wiring, worker with America/Toronto schedule slots, backup/restore, dashboard (auth + CSRF, all pages, controls), CLI, formatting; 62 tests.
+- (this commit) Increment 12: README, backup/restore, troubleshooting, NAS deployment, capability map, AGENTS commands. Docker image built locally (`amorehiremepls:local`, soffice present, uid 10001).
 
-## In progress / remaining (build-sequence order)
+## Verification status
 
-- Increment 2: config, Mongo access, index setup, health endpoints, logging.
-- Increment 3: private profile + tracker import preview/import.
-- Increment 4: orchestration (LangGraph + MongoDBSaver), reservations, authorization scopes, idempotent actions, emergency stop.
-- Increment 5: discovery adapters, dedup, filters, fit ranking, tailoring.
-- Increment 6: Playwright adapter + fixture site, review package, handoffs.
-- Increment 7: tracker sync coordinator/outbox against a local bare repo.
-- Increment 8: outreach identities, dedup, drafts, channels.
-- Increment 9: dashboard, auth/CSRF, scheduling, controls.
-- Increment 10: cost controls (catalog, cache, budgets, usage).
-- Increment 11: full test list; Mongo-backed tests.
-- Increment 12: docs (README, backup/restore, troubleshooting, NAS deployment, capability map).
+- `uv run pytest`: 62 passed (dev Mongo at 127.0.0.1:27027 and Chromium present). Without dev Mongo, mongo-marked tests skip.
+- `uv run ruff check src tests` and `ruff format --check`: clean.
+- `docker compose config`: valid. `docker compose build web`: ok.
+- Live: nothing. No application submitted, no message sent, no tracker push, no NAS deployment.
+
+## Remaining / not done
+
+- NAS deployment (host unreachable from this Mac during the build): follow `docs/nas-deployment.md`.
+- Real profile import (`amore profile import` with the private skill paths) and base resume selection: needs the approved DOCX.
+- `config/pricing.json` prices for the chosen model(s); until filled every cost reads "unknown".
+- Site-specific adapters beyond the generic form plan (Workday, LinkedIn Easy Apply) if wanted; currently handoffs.
+- Optional: email channel (SMTP) configuration for recruiter email; LinkedIn remains manual.
 
 ## Open questions for Joss
 
@@ -40,4 +49,4 @@ Keep this file current. A later session should be able to continue from the "Exa
 
 ## Exact next step
 
-Implement increment 2 (`src/amorehiremepls/config.py`, `db.py`, `web/app.py` health, logging) and run `uv run pytest`.
+Run the first real setup on the Mac against dev Mongo: `uv run amore profile import --facts-skill … --salary-skill …`, select the base resume once its DOCX location is known, `amore tracker clone && amore tracker import`, then start `amore web` + `amore worker` and import one real posting URL to review a package (no authorization granted). Deploy to the NAS when it is reachable.
