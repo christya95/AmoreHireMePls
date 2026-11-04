@@ -121,3 +121,20 @@ def test_apply_skill_parsing_is_generic_and_private_defaults_are_gone():
     src = inspect.getsource(profile_mod)
     assert "default_employment" not in src and "default_answers" not in src
     assert 'Employment(employer="' not in src.replace("employer=e.get", "")
+
+
+def test_merge_employment_does_not_double_count_the_same_job_written_differently():
+    from datetime import date
+
+    from amorehiremepls.profile import Employment, Provenance, compute_experience, merge_employment
+
+    prov = Provenance(source="test", confirmed_on="2026-01-01")
+    confirmed = [Employment(employer="Globex", title="(title from the approved base resume)", kind="full_time", start="2021-05", end="2025-03", end_known=True, provenance=prov)]
+    resume = [
+        Employment(employer="Globex Corporation Ltd.", title="Backend Developer", kind="full_time", start="2021-05", end=None, end_known=True, provenance=prov),
+        Employment(employer="Initech", title="Intern", kind="internship", start="2020-05", end="2020-08", end_known=True, provenance=prov),
+    ]
+    merged = merge_employment(confirmed, resume)
+    assert len(merged) == 2
+    assert merged[0].end == "2025-03" and merged[0].title == "Backend Developer"  # confirmed dates win, resume title fills the placeholder
+    assert compute_experience(merged, as_of=date(2026, 1, 1)).full_time_months == 46

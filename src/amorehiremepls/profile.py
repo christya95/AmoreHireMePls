@@ -289,7 +289,7 @@ class ProfileStore:
             parsed = parse_base_resume(target)
             entries = [{"employer": e.employer, "title": e.title, "dates": e.dates, "header": e.header} for e in parsed.experience]
             profile.employment = merge_employment(profile.employment, employment_from_base_resume(entries, approved_on, sha))
-            profile.unknowns = [u for u in profile.unknowns if "base resume" not in u]
+            profile.unknowns = refresh_unknowns(profile)
         except Exception as exc:  # pragma: no cover - depends on the real document layout
             profile.unknowns.append(f"base resume experience not parsed ({type(exc).__name__}); employment unchanged")
         return self.save(profile, actor="user")
@@ -523,14 +523,36 @@ def employment_from_base_resume(resume_text_entries: list[dict], confirmed_on: s
     return out
 
 
+def refresh_unknowns(profile: Profile) -> list[str]:
+    """Drop unknowns that later sources resolved (base resume selected, internships read from it)."""
+    out = []
+    for u in profile.unknowns:
+        if "base resume" in u and profile.base_resume:
+            continue
+        if "internship employers/dates" in u and any(e.kind == "internship" for e in profile.employment):
+            continue
+        out.append(u)
+    return out
+
+
 def merge_employment(primary: list[Employment], secondary: list[Employment]) -> list[Employment]:
-    """Primary rows (user-confirmed skill dates) win on employer+kind; secondary adds internships/titles."""
+    """Primary rows (user-confirmed skill dates) win; secondary adds internships/titles.
+
+    The same job is recognised by employer+kind, or by kind+start month when the employer is written
+    differently in the two sources (e.g. legal name in the resume, short name in the skill). Counting it
+    twice would inflate years of experience, so the confirmed row keeps its dates and only borrows the
+    title/employer wording from the resume when the skill left a placeholder."""
     merged = list(primary)
     for s in secondary:
-        match = next((p for p in merged if normalize_employer(p.employer) == normalize_employer(s.employer) and p.kind == s.kind), None)
+        match = next(
+            (p for p in merged if p.kind == s.kind and (normalize_employer(p.employer) == normalize_employer(s.employer) or (p.start and p.start == s.start))),
+            None,
+        )
         if match:
             if match.title.startswith("("):
                 match.title = s.title
+            if match.employer.startswith("("):
+                match.employer = s.employer
             continue
         merged.append(s)
     return merged

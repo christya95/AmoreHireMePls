@@ -107,7 +107,7 @@ def profile_import(
     replace: bool = False,
 ):
     """Import approved facts into the protected profile store (never into git). Nothing personal is defaulted in code."""
-    from .profile import build_profile_from_skills, merge_employment
+    from .profile import build_profile_from_skills, merge_employment, refresh_unknowns
 
     rt = _rt()
     existing = rt.profiles.load()
@@ -124,7 +124,7 @@ def profile_import(
     p.base_resume = existing.base_resume
     if existing.base_resume:  # keep base-resume-derived rows (titles/internships) across re-imports
         p.employment = merge_employment(p.employment, [e for e in existing.employment if e.provenance.source.startswith("base_resume:")])
-        p.unknowns = [u for u in p.unknowns if "base resume DOCX" not in u]
+        p.unknowns = refresh_unknowns(p)
     rt.profiles.save(p, actor="cli:import")
     _echo(
         {
