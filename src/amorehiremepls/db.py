@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from bson.codec_options import CodecOptions
 from pymongo import ASCENDING, MongoClient, ReturnDocument
 from pymongo.collection import Collection
 from pymongo.database import Database
@@ -70,7 +71,8 @@ INDEXES: dict[str, list[tuple[list[tuple[str, int]], dict[str, Any]]]] = {
 class Store:
     def __init__(self, client: MongoClient, db_name: str) -> None:
         self.client = client
-        self.db: Database = client[db_name]
+        # Always read datetimes back as UTC-aware so comparisons with utcnow() are safe.
+        self.db: Database = client.get_database(db_name, codec_options=CodecOptions(tz_aware=True, tzinfo=UTC))
 
     @classmethod
     def from_settings(cls, settings: Settings) -> Store:
