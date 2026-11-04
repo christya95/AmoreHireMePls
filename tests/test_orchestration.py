@@ -88,10 +88,8 @@ def test_pause_and_resume_do_not_redo_completed_nodes_and_cancel_stops(store):
     runner2.request(run2["_id"], "pause")  # pause lands while the operator is answering
     paused = runner2._invoke(store.c("runs").find_one({"_id": run2["_id"]}), Command(resume={"inputs": {"a": "b"}}))
     assert paused["status"] == "paused" and svc2.exec_calls == 0
-    # resume clears the pause; the review node re-runs from its checkpoint and asks again (the paused answer was not consumed)
-    again = runner2.resume(run2["_id"])
-    assert again["status"] == "waiting" and again["interrupt"]["type"] == "needs_input"
-    done = runner2.resume(run2["_id"], {"inputs": {"a": "b"}})
+    # resume clears the pause; the answer given with the paused invoke was kept as a pending write, so the run completes
+    done = runner2.resume(run2["_id"])
     assert done["status"] == "completed" and svc2.exec_calls == 1
     svc3 = FakeServices(store, needs_input=True, authorized=True)
     runner3 = _runner(store, svc3)
