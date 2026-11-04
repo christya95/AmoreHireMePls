@@ -4,7 +4,7 @@ from amorehiremepls.ai import AIRunner, FakeProvider, Pricing
 from amorehiremepls.outreach import OutreachService, RecipientStore, template_connect_note, validate_connect_note
 from amorehiremepls.profile import Provenance, RecipientExclusion, build_profile_from_skills
 from amorehiremepls.skills import catalog
-from tests.test_profile import FAKE_FACTS, FAKE_SALARY
+from tests.test_profile import FAKE_APPLY, FAKE_FACTS, FAKE_SALARY
 
 RULES = {"connect_note_max_chars": 300, "no_dashes": True, "no_layoff_mention": True, "mention_applied_role": True, "ask_other_permanent_backend_roles": True}
 
@@ -24,7 +24,7 @@ def test_connect_note_rules_enforced_in_code():
 
 @pytest.mark.mongo
 def test_aliases_prior_conversations_unknown_history_and_pending_actions_block_first_contact(store):
-    profile = build_profile_from_skills(FAKE_FACTS, FAKE_SALARY)
+    profile = build_profile_from_skills(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY)
     rs = RecipientStore(store, profile)
     a = rs.upsert(name="Sam Recruiter", employer="Acme", profile_url="https://www.linkedin.com/in/sam-recruiter/?trk=x", remit="Talent Acquisition, Engineering")
     b = rs.upsert(name="S. Recruiter", employer="Acme Inc", profile_url="https://linkedin.com/in/sam-recruiter", email="sam@acme.example")
@@ -51,11 +51,16 @@ def test_aliases_prior_conversations_unknown_history_and_pending_actions_block_f
 
 @pytest.mark.mongo
 def test_identity_exclusions_resolved_only_and_employer_exclusions(store):
-    profile = build_profile_from_skills(FAKE_FACTS, FAKE_SALARY)
+    profile = build_profile_from_skills(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY)
     rs = RecipientStore(store, profile)
     jess_unknown = rs.upsert(name="Jessica Someone", employer="Acme", profile_url="https://linkedin.com/in/jessica-someone")
+    # no default named exclusions: unknown history alone fails closed until reconciled
+    assert not rs.history_check(rs.coll.find_one({"_id": jess_unknown["_id"]}))["first_contact_allowed"]
     rs.mark_reconciled(jess_unknown["_id"])
-    h = rs.history_check(rs.coll.find_one({"_id": jess_unknown["_id"]}))
+    assert rs.history_check(rs.coll.find_one({"_id": jess_unknown["_id"]}))["first_contact_allowed"]
+    # an unresolved identity exclusion (if the user adds one) holds same-first-name recipients for reconciliation
+    profile.preferences.recipient_exclusions = [RecipientExclusion(label="Jessica", resolution="unresolved", provenance=Provenance(source="user"))]
+    h = RecipientStore(store, profile).history_check(rs.coll.find_one({"_id": jess_unknown["_id"]}))
     assert not h["first_contact_allowed"] and any("unresolved identity exclusion" in r for r in h["reasons"])  # reconcile, do not guess
     profile.preferences.recipient_exclusions = [
         RecipientExclusion(label="Jessica", resolution="resolved", profile_url="https://linkedin.com/in/jessica-other", provenance=Provenance(source="user"))
@@ -70,7 +75,7 @@ def test_identity_exclusions_resolved_only_and_employer_exclusions(store):
 
 @pytest.mark.mongo
 def test_draft_rejects_bad_model_output_and_send_is_handoff_or_scoped(store):
-    profile = build_profile_from_skills(FAKE_FACTS, FAKE_SALARY)
+    profile = build_profile_from_skills(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY)
     provider = FakeProvider({"OutreachOutput": lambda u: {"text": "Hi Sam, I was laid-off recently. Any roles?"}})
     svc = OutreachService(store, profile, AIRunner(store, provider, catalog, Pricing(None)))
     rec = svc.recipients.upsert(name="Sam Recruiter", employer="Acme", profile_url="https://linkedin.com/in/sam-recruiter")

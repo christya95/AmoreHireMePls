@@ -50,6 +50,7 @@ class Outcome:
     evidence: dict = field(default_factory=dict)
     action_id: str | None = None
     adapter_ran: bool = False
+    retryable: bool = False  # failed before any irreversible step; the action is back in `ready`
 
     @property
     def ok(self) -> bool:
@@ -113,14 +114,25 @@ class ActionStore:
         if not decision.allowed:
             self.store.audit("action_denied", action_id, reason=decision.reason)
             return Outcome("denied", decision.reason, action_id=action_id)
-        reserved = self.store.reserve("actions", {"_id": action_id}, owner, ["ready", "blocked"], "executing", lease_seconds, extra={"scope_id": decision.scope_id})
+        reserved = self.store.reserve(
+            "actions", {"_id": action_id}, owner, ["ready", "blocked"], "executing", lease_seconds, extra={"scope_id": decision.scope_id}, allow_takeover=False
+        )
         if reserved is None:
             current = self.get(action_id) or {}
             if current.get("status") in terminal:
                 return Outcome(current["status"], "recorded outcome (replay)", current.get("evidence", {}), action_id)
+            if current.get("status") == "executing" and current.get("reserved_until") and current["reserved_until"] < utcnow():
+                # Another worker's lease expired mid-execution. The side effect may or may not have happened:
+                # never take it over and run the adapter again.
+                swept = self._expire_lease(current)
+                if swept:
+                    return Outcome("needs_verification", swept["outcome_reason"], swept.get("evidence", {}), action_id)
+                current = self.get(action_id) or {}
+                return Outcome(current.get("status", "in_progress"), "recorded outcome (replay)", current.get("evidence", {}), action_id)
             return Outcome("in_progress", f"held by {current.get('reserved_by')}", action_id=action_id)
         attempt = {"owner": owner, "started_at": utcnow()}
         self.coll.update_one({"_id": action_id}, {"$push": {"attempts": attempt}})
+        retryable = False
         try:
             evidence = adapter(reserved)
             if not isinstance(evidence, dict) or not evidence.get("verified"):
@@ -129,14 +141,58 @@ class ActionStore:
         except AmbiguousOutcome as exc:
             evidence, status, reason = exc.evidence, "needs_verification", str(exc)
         except ActionFailed as exc:
-            evidence, status, reason = exc.evidence, "failed", str(exc)
+            evidence, status, reason, retryable = exc.evidence, "failed", str(exc), exc.retryable
         except Exception as exc:  # unknown exception after the adapter may have acted: never assume it did not
             log.exception("adapter raised; recording needs_verification")
             evidence, status, reason = {"exception": type(exc).__name__}, "needs_verification", f"unexpected error: {exc}"
-        self.store.release("actions", {"_id": action_id}, owner, status, extra={"evidence": evidence, "outcome_reason": reason, "finished_at": utcnow()})
-        self.auth.consume(decision.scope_id, status)
-        self.store.audit("action_finished", action_id, status=status, reason=reason)
-        return Outcome(status, reason, evidence, action_id, adapter_ran=True)
+        # A retryable failure happened before any irreversible step: the action returns to `ready` keeping
+        # its attempts, so a later execute() can run the adapter again under a fresh authorization check.
+        stored_status = "ready" if retryable else status
+        released = self.store.release(
+            "actions",
+            {"_id": action_id},
+            owner,
+            stored_status,
+            extra={"evidence": evidence, "outcome_reason": reason, "finished_at": utcnow(), "last_failure": reason if retryable else None},
+        )
+        if released is None:
+            # Our lease expired and was swept to needs_verification while the adapter ran. Keep that state
+            # (a human must reconcile) but attach what we observed.
+            self.coll.update_one({"_id": action_id}, {"$set": {"late_outcome": {"owner": owner, "status": status, "reason": reason, "evidence": evidence, "at": utcnow()}}})
+            self.store.audit("action_late_outcome", action_id, status=status, owner=owner)
+            return Outcome("needs_verification", "lease expired during execution; late result recorded for reconciliation", evidence, action_id, adapter_ran=True)
+        self.auth.consume(decision.scope_id, "failed_retryable" if retryable else status)
+        self.store.audit("action_finished", action_id, status=status, reason=reason, retryable=retryable)
+        return Outcome(status, reason, evidence, action_id, adapter_ran=True, retryable=retryable)
+
+    def _expire_lease(self, action: dict) -> dict | None:
+        """Move one `executing` action whose lease expired to needs_verification (atomic on the lease)."""
+        from pymongo import ReturnDocument
+
+        reason = f"worker lease expired while executing (held by {action.get('reserved_by')}); outcome unknown"
+        swept = self.coll.find_one_and_update(
+            {"_id": action["_id"], "status": "executing", "reserved_until": {"$lt": utcnow()}},
+            {
+                "$set": {"status": "needs_verification", "outcome_reason": reason, "lease_expired": True, "updated_at": utcnow()},
+                "$unset": {"reserved_by": "", "reserved_until": ""},
+            },
+            return_document=ReturnDocument.AFTER,
+        )
+        if swept:
+            self.store.audit("action_lease_expired", action["_id"], owner=action.get("reserved_by"))
+        return swept
+
+    def sweep_expired_leases(self) -> int:
+        """Worker housekeeping: expired `executing` leases become needs_verification, never re-runs."""
+        n = 0
+        for doc in self.coll.find({"status": "executing", "reserved_until": {"$lt": utcnow()}}):
+            if self._expire_lease(doc):
+                n += 1
+        return n
+
+    def prior_terminal_for_target(self, kind: str, target_id: str) -> dict | None:
+        """Any earlier action of this kind for the target that succeeded or is unresolved blocks new attempts."""
+        return self.coll.find_one({"kind": kind, "target_id": target_id, "status": {"$in": ["succeeded", "needs_verification"]}})
 
     def reconcile(self, action_id: str, resolved_status: str, evidence: dict, by: str = "user") -> None:
         """Resolve a needs_verification action after inspecting the external state."""

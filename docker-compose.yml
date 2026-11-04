@@ -20,6 +20,10 @@ x-app: &app
   restart: unless-stopped
   security_opt:
     - no-new-privileges:true
+    # Playwright's seccomp profile: allows the user-namespace syscalls Chromium's sandbox needs while
+    # keeping Docker's default denylist for everything else. Vendored from microsoft/playwright
+    # utils/docker/seccomp_profile.json. Verified with `docker compose run --rm worker ...` (see docs/capability-map.md).
+    - seccomp:./deploy/seccomp_profile.json
   cap_drop:
     - ALL
   deploy:

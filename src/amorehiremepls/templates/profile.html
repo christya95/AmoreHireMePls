@@ -2,7 +2,7 @@
 <div class="grid">
 <div class="card"><h3>Base resume</h3>
 {% if p.base_resume %}<p>{{ p.base_resume.path }}<br><small>sha256 {{ p.base_resume.sha256[:16] }}… approved {{ p.base_resume.approved_on }} ({{ p.base_resume.source }})</small></p>{% else %}<p class="badge bad">Not selected. Old tailored copies are never used as the base.</p>{% endif %}
-<form method="post" action="/profile/base-resume"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="path" placeholder="/path/on/server/Joss_Christyanton_Resume.docx" size="48" required> <input name="note" placeholder="note"> <button>Select approved DOCX</button></form></div>
+<form method="post" action="/profile/base-resume"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="path" placeholder="/path/on/server/approved_base_resume.docx" size="48" required> <input name="note" placeholder="note"> <button>Select approved DOCX</button></form></div>
 <div class="card"><h3>Experience (computed from dates)</h3><pre>{{ exp|json }}</pre>
 <table><tr><th>Employer</th><th>Title</th><th>Kind</th><th>Dates</th><th>Provenance</th></tr>{% for e in p.employment %}<tr><td>{{ e.employer }}</td><td>{{ e.title }}</td><td>{{ e.kind }}</td><td>{{ e.start }} – {{ e.end or ('present' if e.end_known else '?') }}</td><td><small>{{ e.provenance.source }} {{ e.provenance.confirmed_on }}</small></td></tr>{% endfor %}</table></div>
 </div>

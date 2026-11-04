@@ -26,7 +26,19 @@ FAKE_FACTS = """
 - Phone: 555 000 0000 (format as required by the form; Canadian +1)
 """
 
-FAKE_SALARY = "Personal floor remains CAD 95,000 to decide whether to apply. Personal target CAD 100,000 is a preference."
+FAKE_SALARY = "Personal floor remains CAD 123,000 to decide whether to apply. Personal target CAD 130,000 is a preference."
+
+FAKE_APPLY = """# Apply skill (fictional)
+
+Saved preferences:
+
+- Permanent backend software development.
+- Authorized to work in Canada without sponsorship now or in the future.
+- Globex full-time employment ended March 3, 2025; month/year dates are May 2021\u2013March 2025. Calculate experience from dates.
+- Preserve the actual education credential. Degree on forms is Diploma of Example Studies. If the school typeahead cannot find Example Technical College, pick Other.
+
+When asked about AI workflow, use the confirmed answer: Example Assistant for drafting; every change reviewed before merge. This does not establish production LLM experience.
+"""
 
 
 def test_parse_facts_with_provenance():
@@ -42,11 +54,11 @@ def test_parse_facts_with_provenance():
 def test_experience_separates_internships_and_full_time():
     prov = Provenance(source="test")
     emp = [
-        Employment(employer="Bank", title="Dev", kind="full_time", start="2023-07", end="2026-10", provenance=prov),
+        Employment(employer="Bank", title="Dev", kind="full_time", start="2021-05", end="2024-08", provenance=prov),
         Employment(employer="Startup", title="Intern", kind="internship", start="2022-05", end="2022-08", provenance=prov),
         Employment(employer="Unknown", title="Dev", kind="full_time", start=None, end=None, provenance=prov),
     ]
-    s = compute_experience(emp, as_of=date(2026, 11, 4))
+    s = compute_experience(emp, as_of=date(2024, 9, 4))
     assert s.full_time_years_completed == 3  # 39 months -> 3 completed, never rounded up
     assert s.full_time_months == 39
     assert s.internship_months == 3
@@ -55,7 +67,7 @@ def test_experience_separates_internships_and_full_time():
 
 
 def test_salary_rule_requires_matching_base_band():
-    comp = Compensation(floor_base=95000, target_base=100000, provenance=Provenance(source="t"))
+    comp = Compensation(floor_base=110000, target_base=120000, provenance=Provenance(source="t"))
     assert desired_salary(comp, None).outcome == "needs_input"
     band = BandEvidence(min_base=115000, max_base=125000, currency="CAD", title_matches=True, location_matches=True)
     d = desired_salary(comp, band, "fair")
@@ -73,11 +85,39 @@ def test_salary_rule_requires_matching_base_band():
 
 def test_exclusions_are_rules_not_first_names():
     prefs = default_preferences()
-    jess = prefs.recipient_exclusions[0]
-    assert jess.resolution == "unresolved" and jess.profile_url is None
+    assert prefs.recipient_exclusions == []  # no named recipient exclusions by default; first-contact gate handles history
     profile = build_profile_from_skills(FAKE_FACTS, FAKE_SALARY)
     assert profile.is_excluded_employer("Royal Bank of Canada") is not None
     assert profile.is_excluded_employer("Amazon Web Services") is not None
     assert profile.is_excluded_employer("Shopify") is None
-    assert profile.compensation.floor_base == 95000
+    assert profile.compensation.floor_base == 123000
     assert "base_resume" in profile.missing_essentials()
+
+
+def test_apply_skill_parsing_is_generic_and_private_defaults_are_gone():
+    import inspect
+
+    from amorehiremepls import profile as profile_mod
+    from amorehiremepls.profile import apply_private_overrides, parse_apply_skill
+
+    employment, answers = parse_apply_skill(FAKE_APPLY, "2026-01-01")
+    assert len(employment) == 1 and employment[0].employer == "Globex" and employment[0].start == "2021-05" and employment[0].end == "2025-03"
+    keys = {a.key: a.value for a in answers}
+    assert keys["work_authorization"].startswith("Authorized to work in Canada")
+    assert keys["requires_sponsorship"] == "No"
+    assert keys["degree_level"] == "Diploma of Example Studies"
+    assert keys["school"] == "Example Technical College"
+    assert keys["ai_workflow"].startswith("Example Assistant")
+    assert keys["employment_preference"] == "Permanent"
+    # without any private source the profile has no employment/answers at all
+    empty = build_profile_from_skills(None, None)
+    assert empty.employment == [] and empty.answers == [] and empty.education == []
+    assert any("employment history" in u for u in empty.unknowns)
+    full = build_profile_from_skills(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY)
+    assert full.employment[0].provenance.source == "skill:apply-joss-jobs"
+    apply_private_overrides(full, {"employment": [{"employer": "Initech", "title": "Intern", "kind": "internship", "start": "2020-05", "end": "2020-08"}], "skills": ["Java"]})
+    assert any(e.kind == "internship" for e in full.employment) and full.skills[0].name == "Java"
+    # the module source must not carry employment rows, degrees or schools as literals
+    src = inspect.getsource(profile_mod)
+    assert "default_employment" not in src and "default_answers" not in src
+    assert 'Employment(employer="' not in src.replace("employer=e.get", "")

@@ -14,7 +14,7 @@ def make_base_resume(path: Path) -> Path:
     doc.add_paragraph("Technical Skills")
     doc.add_paragraph("Java, Spring Boot, Python, REST APIs, PostgreSQL, Docker, Kafka, Git")
     doc.add_paragraph("Professional Experience")
-    doc.add_paragraph("Software Developer at Big Bank | July 2023 – October 2026")
+    doc.add_paragraph("Software Developer at Big Bank | May 2021 – March 2025")
     doc.add_paragraph("Built REST APIs in Java and Spring Boot serving 2 million daily requests.", style="List Bullet")
     doc.add_paragraph("Reduced batch processing time by 40% by tuning PostgreSQL queries.", style="List Bullet")
     doc.add_paragraph("Led a hackathon health monitoring project that expanded into a working group.", style="List Bullet")

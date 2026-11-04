@@ -214,7 +214,15 @@ class SyncCoordinator:
         if behind and not ahead:
             git(self.root, "merge", "--ff-only", f"{self.remote}/{self.branch}")
         elif behind and ahead:
+            self._rebase_or_conflict()
+
+    def _rebase_or_conflict(self) -> None:
+        """Rebase local ledger commits onto the remote; a conflict aborts cleanly and is surfaced, never left half-applied."""
+        try:
             git(self.root, "rebase", f"{self.remote}/{self.branch}")
+        except GitError as exc:
+            git(self.root, "rebase", "--abort", check=False)
+            raise RecordConflict(f"rebase conflict against {self.remote}/{self.branch}; resolve in the clone: {str(exc)[-200:]}") from exc
 
     def _record_exists_with_same_artifacts(self, record_id: str, resume_sha: str | None) -> bool:
         data_path = self.root / "data/applications.json"
@@ -282,7 +290,7 @@ class SyncCoordinator:
         except GitError as exc:
             if "rejected" in str(exc) or "non-fast-forward" in str(exc) or "fetch first" in str(exc):
                 git(self.root, "fetch", self.remote, self.branch)
-                git(self.root, "rebase", f"{self.remote}/{self.branch}")
+                self._rebase_or_conflict()
                 git(self.root, "push", self.remote, f"HEAD:{self.branch}")
             else:
                 raise
@@ -316,7 +324,8 @@ class SyncCoordinator:
         # nothing landed: discard partial working-tree changes to tracker paths and retry from scratch
         if git(self.root, "status", "--porcelain", "--", *TRACKER_PATHS):
             git(self.root, "checkout", "--", *[p for p in TRACKER_PATHS if (self.root / p).exists()])
-            git(self.root, "clean", "-fdq", "--", "artifacts", "records")
+            if record_id:  # remove only this record's untracked files, never other untracked work in the clone
+                git(self.root, "clean", "-fdq", "--", f"artifacts/{record_id}", f"records/{record_id}.md", check=False)
         self.outbox.set(item["_id"], "sync_pending", note="recovered: nothing committed; retrying")
         return {"id": item["_id"], "status": "sync_pending"}
 

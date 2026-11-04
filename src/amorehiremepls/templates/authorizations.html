@@ -1,7 +1,7 @@
 {% extends "base.html" %}{% block content %}
 <div class="card"><h3>Bounded batch authorization</h3>
 <form method="post" action="/authorizations/batch"><input type="hidden" name="csrf" value="{{ csrf }}">
-Kind <select name="kind"><option>application_submit</option><option>outreach_first_contact</option><option>connection_request</option><option>follow_up</option><option>email_send</option></select>
+Kind: application submissions only (outreach, email and connection requests are approved one at a time).<br>
 Employers <input name="employers" placeholder="Acme, Globex"> Sites <input name="sites" placeholder="boards.greenhouse.io, jobs.lever.co"> Max fit rank <input name="max_fit_rank" type="number" value="2" style="width:3rem">
 Max count <input name="max_count" type="number" value="3" style="width:3rem"> Hours <input name="hours" type="number" value="48" style="width:4rem"> <input name="note" placeholder="note"> <button>Grant batch scope</button></form>
 <p><small>Stops on the first needs_verification or failure and never covers packages with outstanding unknowns.</small></p></div>

@@ -9,6 +9,7 @@ import secrets
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -60,7 +61,7 @@ def create_app(rt: Runtime) -> FastAPI:
         if not token or not hmac.compare_digest(session.get("csrf", ""), token):
             raise HTTPException(status_code=403, detail="CSRF token mismatch")
         origin = request.headers.get("origin") or request.headers.get("referer")
-        if origin and request.headers.get("host") and request.headers["host"] not in origin:
+        if origin and request.headers.get("host") and urlsplit(origin).netloc.lower() != request.headers["host"].lower():
             raise HTTPException(status_code=403, detail="cross-site request refused")
 
     def render(request: Request, template: str, session: dict | None = None, **ctx: Any) -> HTMLResponse:
@@ -78,8 +79,9 @@ def create_app(rt: Runtime) -> FastAPI:
         q = []
         if rt.profile.base_resume is None:
             q.append("Approved base resume DOCX not selected. Where is the current approved base DOCX?")
-        if any(x.resolution == "unresolved" for x in rt.profile.preferences.recipient_exclusions):
-            q.append("Recipient exclusion 'Jessica' is unresolved: bind it to a LinkedIn profile URL/employer.")
+        for x in rt.profile.preferences.recipient_exclusions:
+            if x.resolution == "unresolved":
+                q.append(f"Recipient exclusion '{x.label}' is unresolved: bind it to a LinkedIn profile URL/employer.")
         if not rt.settings.provider_configured:
             q.append("No model provider configured (AMORE_MODEL + key). Deterministic paths only.")
         if not (rt.settings.tracker_clone_dir / ".git").exists():
@@ -89,9 +91,16 @@ def create_app(rt: Runtime) -> FastAPI:
     # -- public -----------------------------------------------------------------------------
     @app.get("/health")
     def health():
+        # Unauthenticated liveness only: no versions, names or operational state are disclosed here.
+        ok = bool(rt.health().get("ok"))
+        return JSONResponse({"ok": ok}, status_code=200 if ok else 503)
+
+    @app.get("/status")
+    def status_detail(session: dict = Depends(require_session)):
         h = rt.health()
         h["worker_healthy"] = worker_healthy(rt) if h["ok"] else None
-        return JSONResponse(h, status_code=200 if h["ok"] else 503)
+        h["emergency_stop"] = rt.store.emergency_stop_active()
+        return JSONResponse(h)
 
     @app.get("/login", response_class=HTMLResponse)
     def login_form(request: Request):
@@ -507,7 +516,6 @@ def create_app(rt: Runtime) -> FastAPI:
         request: Request,
         session: dict = Depends(require_session),
         csrf: str = Form(...),
-        kind: str = Form("application_submit"),
         employers: str = Form(""),
         sites: str = Form(""),
         max_fit_rank: int = Form(2),
@@ -516,6 +524,7 @@ def create_app(rt: Runtime) -> FastAPI:
         note: str = Form(""),
     ):
         require_csrf(request, session, csrf)
+        kind = "application_submit"  # the only kind that may be batch-authorized; outreach/email are per action
         filters = {"max_fit_rank": max_fit_rank}
         if employers.strip():
             filters["employers"] = [e.strip() for e in employers.split(",") if e.strip()]

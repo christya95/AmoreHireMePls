@@ -25,7 +25,7 @@ class FitInput(BaseModel):
     job_title: str
     employer: str
     posting_text: str  # untrusted
-    candidate_facts: list[str]  # compact fact strings with ids, e.g. "emp_1: RBC Software Developer full_time 2023-07..2026-10"
+    candidate_facts: list[str]  # compact fact strings with ids, e.g. "emp_1: Globex Backend Developer full_time 2021-05..2025-03"
     experience_summary: dict
     role_rules: dict
 

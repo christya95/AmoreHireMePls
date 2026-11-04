@@ -14,7 +14,7 @@ See `docs/` for the capability map, backup/restore, troubleshooting and NAS depl
 ```bash
 uv sync                                  # Python 3.12 virtualenv from uv.lock
 uv run playwright install chromium       # browser for the adapter and fixture tests
-docker compose --profile dev up -d dev-mongo
+docker compose --profile dev-mongo up -d dev-mongo
 cp .env.example .env                     # edit AMORE_APP_PASSWORD (>= 12 chars) and AMORE_APP_SECRET (>= 32 chars)
 uv run amore setup-db                    # indexes + checkpointer check
 ```
@@ -33,7 +33,7 @@ Docker (same image for both processes):
 
 ```bash
 docker compose build
-docker compose up -d web worker          # add --profile dev and dev-mongo locally
+docker compose up -d web worker          # locally: docker compose --profile dev-mongo up -d dev-mongo web worker
 curl -s http://127.0.0.1:8790/health
 ```
 
@@ -44,7 +44,7 @@ curl -s http://127.0.0.1:8790/health
 uv run amore profile import --facts-skill ~/workspace/agent-skills-library/skills/career/joss-application-facts/SKILL.md \
                             --salary-skill ~/workspace/agent-skills-library/skills/career/joss-desired-salary/SKILL.md
 # approved base resume (DOCX only; copied into AMORE_PRIVATE_DIR/base_resume and hashed)
-uv run amore profile base-resume /path/to/Joss_Christyanton_Resume.docx --approved-on 2026-10-15
+uv run amore profile base-resume /path/to/approved_base_resume.docx --approved-on 2026-10-15
 # tracker history
 uv run amore tracker clone               # into AMORE_TRACKER_CLONE_DIR (needs your git credentials)
 uv run amore tracker preview             # counts, duplicates, conflicts, missing artifacts; nothing written

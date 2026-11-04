@@ -116,20 +116,27 @@ class Store:
         self.audit("emergency_stop", None, active=active, reason=reason)
 
     # -- atomic reservations ------------------------------------------------
-    def reserve(self, collection: str, filter_: dict, owner: str, from_states: Iterable[str], to_state: str, lease_seconds: int = 900, extra: dict | None = None) -> dict | None:
+    def reserve(
+        self,
+        collection: str,
+        filter_: dict,
+        owner: str,
+        from_states: Iterable[str],
+        to_state: str,
+        lease_seconds: int = 900,
+        extra: dict | None = None,
+        allow_takeover: bool = True,
+    ) -> dict | None:
         """Move one document from one of `from_states` to `to_state` for `owner`, atomically.
 
-        Returns the updated document, or None when another worker already holds it. Expired leases
-        (reserved_until in the past) can be taken over so a crashed worker does not block forever.
+        Returns the updated document, or None when another worker already holds it. With
+        `allow_takeover` (default) an expired lease (reserved_until in the past) can be taken over so a
+        crashed worker does not block forever. External actions pass `allow_takeover=False`: an expired
+        lease there means the outcome is unknown and must become `needs_verification`, never a re-run.
         """
         now = utcnow()
-        query = {
-            **filter_,
-            "$or": [
-                {"status": {"$in": list(from_states)}},
-                {"status": to_state, "reserved_until": {"$lt": now}},
-            ],
-        }
+        states = {"status": {"$in": list(from_states)}}
+        query = {**filter_, "$or": [states, {"status": to_state, "reserved_until": {"$lt": now}}]} if allow_takeover else {**filter_, **states}
         update = {
             "$set": {"status": to_state, "reserved_by": owner, "reserved_at": now, "reserved_until": now + timedelta(seconds=lease_seconds), "updated_at": now, **(extra or {})}
         }

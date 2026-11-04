@@ -78,6 +78,11 @@ class AuthorizationStore:
     ) -> Scope:
         if mode == "single" and (not binding.target_id or not binding.material_hash):
             raise ValueError("single-action scope requires target_id and material_hash")
+        if mode == "batch":
+            if kind != "application_submit":
+                raise ValueError("batch scopes exist only for application_submit; outreach, email and connection requests need per-action approval")
+            if not binding.job_filters:
+                raise ValueError("batch scope requires job filters (employers, sites or max_fit_rank)")
         scope = Scope(kind=kind, mode=mode, binding=binding, max_count=max_count, expires_at=utcnow() + ttl, created_by=created_by, note=note, stop=stop or StopConditions())
         self.coll.insert_one({"_id": scope.id, **scope.model_dump(exclude={"id"})})
         self.store.audit("authorization_granted", scope.id, kind=kind, mode=mode, target=binding.target_id, max_count=max_count)
@@ -121,10 +126,13 @@ class AuthorizationStore:
                 if b.material_hash != material:
                     return Decision(allowed=False, reason="material content changed since authorization; renew it", scope_id=scope.id)
                 return Decision(allowed=True, reason="exact single-action authorization", scope_id=scope.id)
-            # batch
+            # batch: only application submissions can be batch-authorized, and only against a concrete job
+            # that matches the scope's filters. Without a job there is nothing to match, so deny.
+            if kind != "application_submit" or job is None:
+                continue
             if has_material_unknowns and scope.stop.stop_on_material_unknowns:
                 continue
-            if job is not None and not _job_matches(job, b.job_filters):
+            if not _job_matches(job, b.job_filters):
                 continue
             if b.target_id and b.target_id != target_id:
                 continue
@@ -132,6 +140,13 @@ class AuthorizationStore:
         return Decision(allowed=False, reason="no matching active authorization")
 
     def consume(self, scope_id: str, outcome: str) -> None:
+        if outcome == "failed_retryable":
+            # nothing irreversible happened and the action is back in `ready`; the scope stays usable, but
+            # repeated transient failures stop it so a retry loop cannot run unattended.
+            doc = self.coll.find_one_and_update({"_id": scope_id}, {"$inc": {"retryable_failures": 1}}, return_document=True)
+            if doc and doc.get("retryable_failures", 0) >= 3:
+                self.coll.update_one({"_id": scope_id}, {"$set": {"status": "stopped", "stopped_reason": "repeated retryable failures"}})
+            return
         inc = {"used_count": 1}
         if outcome in ("failed",):
             inc["failures"] = 1

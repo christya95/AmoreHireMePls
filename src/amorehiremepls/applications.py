@@ -296,10 +296,13 @@ class ApplicationService:
         app = self.apps.find_one({"_id": app_id})
         if app is None:
             return Outcome("not_found", "unknown application")
-        if app["status"] not in ("ready_for_review", "authorized", "executing", "needs_verification", "submitted"):
+        if app["status"] not in ("ready_for_review", "authorized", "executing", "needs_verification", "submitted", "failed"):
             return Outcome("denied", f"application is {app['status']}; not executable")
         job = self.jobs.get(app["job_id"])
         pkg = app["review_package"]
+        prior = self.actions.prior_terminal_for_target("application_submit", job["_id"])
+        if prior is not None and prior.get("material_hash") != app["material_hash"]:
+            return Outcome(prior["status"], "an earlier submission for this job already exists; reconcile first", action_id=prior["_id"])
         host = (pkg.get("apply_url") or "").split("/")[2].lower() if pkg.get("apply_url") and "://" in pkg["apply_url"] else None
         builder = self._builder_for(host, pkg.get("apply_route"))
         if builder is None or run_adapter is None:
@@ -311,14 +314,18 @@ class ApplicationService:
             )
             self.store.audit("application_handoff", app_id, host=host)
             return Outcome("handoff", "manual completion required", action_id=None)
-        reserved = self.store.reserve("jobs", {"_id": job["_id"]}, worker, [job["status"]], "executing") if job["status"] != "executing" else self.jobs.get(job["_id"])
+        if job["status"] == "executing" and job.get("reserved_by") == worker:
+            reserved = job  # re-entry by the same worker after an interrupt/resume
+        else:
+            # never treat an `executing` job held by someone else as free; only its expired lease can be taken
+            reserved = self.store.reserve("jobs", {"_id": job["_id"]}, worker, [s for s in [job["status"]] if s != "executing"], "executing")
         if reserved is None:
             return Outcome("in_progress", "job reserved by another worker")
         action = self.actions.prepare(
             "application_submit", job["_id"], f"submit:{job['_id']}", {"application_id": app_id, "apply_url": pkg["apply_url"]}, app["material_hash"], host=host
         )
         if action.get("material_hash") != app["material_hash"] and action["status"] in ("succeeded", "needs_verification"):
-            self.store.release("jobs", {"_id": job["_id"]}, worker, job["status"])
+            self.store.release("jobs", {"_id": job["_id"]}, worker, job["status"] if job["status"] != "executing" else "qualified")
             return Outcome(action["status"], "an earlier submission for this job already exists; reconcile first", action_id=action["_id"])
 
         def adapter(action_doc: dict) -> dict:
@@ -352,7 +359,9 @@ class ApplicationService:
                     "receipt_text": (ev.get("receipt_text") or "")[:1000],
                     "final_url": ev.get("final_url"),
                     "screenshots": ev.get("screenshots", []),
-                    "verified_identifiers": [job.get("requisition_id")],
+                    # only identifiers the adapter actually observed in the receipt; never assumed from the job
+                    "verified_identifiers": list(ev.get("matched_identifiers") or []),
+                    "expected_identifiers": [x for x in [job.get("requisition_id")] if x],
                     "action_id": outcome.action_id,
                 },
                 evidence_basis="receipt_screenshot_reviewed" if ev.get("screenshots") else "employer_status_reviewed",
@@ -368,7 +377,8 @@ class ApplicationService:
             self._set(app_id, "needs_verification", reason=outcome.reason, evidence=outcome.evidence, next_action="inspect the employer account/email, then reconcile the action")
             self.store.release("jobs", {"_id": job["_id"]}, worker, "needs_verification")
         elif outcome.status == "failed":
-            self._set(app_id, "failed", reason=outcome.reason, evidence=outcome.evidence, next_action="fix the reported problem and prepare again")
+            nxt = "retry is allowed: the action returned to ready before any irreversible step" if outcome.retryable else "fix the reported problem and prepare again"
+            self._set(app_id, "failed", reason=outcome.reason, evidence=outcome.evidence, retryable=outcome.retryable, next_action=nxt)
             self.store.release("jobs", {"_id": job["_id"]}, worker, "qualified")
         elif outcome.status in ("denied", "blocked"):
             self._set(

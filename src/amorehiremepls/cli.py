@@ -101,11 +101,13 @@ def emergency_stop(active: bool = True, reason: str = "cli"):
 def profile_import(
     facts_skill: Path | None = typer.Option(None, help="Path to the private joss-application-facts SKILL.md"),
     salary_skill: Path | None = typer.Option(None, help="Path to the private joss-desired-salary SKILL.md"),
+    apply_skill: Path | None = typer.Option(None, help="Path to the private apply-joss-jobs SKILL.md (employment dates, work authorization, degree, confirmed answers)"),
+    overrides: Path | None = typer.Option(None, help="Private JSON under runtime/ with employment/education/answers/skills not expressible in the skills"),
     confirmed_on: str = "2026-10-15",
     replace: bool = False,
 ):
-    """Import approved facts/compensation/preferences into the protected profile store (never into git)."""
-    from .profile import build_profile_from_skills
+    """Import approved facts into the protected profile store (never into git). Nothing personal is defaulted in code."""
+    from .profile import build_profile_from_skills, merge_employment
 
     rt = _rt()
     existing = rt.profiles.load()
@@ -113,16 +115,24 @@ def profile_import(
         typer.echo("profile already has facts; pass --replace to rebuild from the skill files", err=True)
         raise typer.Exit(1)
     p = build_profile_from_skills(
-        facts_skill.read_text(encoding="utf-8") if facts_skill else None, salary_skill.read_text(encoding="utf-8") if salary_skill else None, confirmed_on
+        facts_skill.read_text(encoding="utf-8") if facts_skill else None,
+        salary_skill.read_text(encoding="utf-8") if salary_skill else None,
+        confirmed_on,
+        apply_text=apply_skill.read_text(encoding="utf-8") if apply_skill else None,
+        overrides=json.loads(overrides.read_text(encoding="utf-8")) if overrides else None,
     )
     p.base_resume = existing.base_resume
+    if existing.base_resume:  # keep base-resume-derived rows (titles/internships) across re-imports
+        p.employment = merge_employment(p.employment, [e for e in existing.employment if e.provenance.source.startswith("base_resume:")])
+        p.unknowns = [u for u in p.unknowns if "base resume DOCX" not in u]
     rt.profiles.save(p, actor="cli:import")
     _echo(
         {
             "facts": len(p.facts),
             "answers": len(p.answers),
+            "education": len(p.education),
             "employment": len(p.employment),
-            "floor": p.compensation.floor_base,
+            "floor_set": bool(p.compensation.floor_base),
             "unknowns": p.unknowns,
             "base_resume": bool(p.base_resume),
         }

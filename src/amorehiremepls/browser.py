@@ -61,6 +61,7 @@ class BrowserConfig:
     session_dir: Path | None = None
     screenshot_dir: Path | None = None
     default_timeout_ms: int = 15000
+    upload_root: Path | None = None  # uploads must live under this directory (tailored artifacts only)
 
 
 class BrowserAdapter:
@@ -123,7 +124,10 @@ class BrowserAdapter:
                     raise AmbiguousOutcome("receipt not observed before timeout after final action", evidence) from exc
                 body = page.inner_text("body")[:4000]
                 evidence.update(receipt_text=body, final_url=page.url, observed_at=utcnow().isoformat())
-                missing = [m for m in plan.receipt_must_include if m and m.lower() not in body.lower()]
+                expected = [m for m in plan.receipt_must_include if m]
+                matched = [m for m in expected if m.lower() in body.lower()]
+                evidence["matched_identifiers"] = matched  # only what was really seen on the receipt
+                missing = [m for m in expected if m not in matched]
                 if missing:
                     self._snapshot(page, evidence, "receipt_mismatch")
                     raise AmbiguousOutcome(f"receipt does not reference expected identifiers: {missing}", evidence)
@@ -153,9 +157,7 @@ class BrowserAdapter:
         elif step.type == "check":
             page.check(step.selector, timeout=step.timeout_ms)
         elif step.type == "upload":
-            path = Path(step.value)
-            if not path.is_file():
-                raise ActionFailed(f"upload file missing: {path.name}")
+            path = self.check_upload_path(step.value)
             page.set_input_files(step.selector, str(path), timeout=step.timeout_ms)
             shown = page.evaluate("sel => { const el = document.querySelector(sel); return el && el.files && el.files[0] ? el.files[0].name : null }", step.selector)
             if shown != path.name:
@@ -172,6 +174,17 @@ class BrowserAdapter:
                 raise ActionFailed(f"review state mismatch for {step.selector}: '{actual}' != '{step.value}'")
         else:
             raise ActionFailed(f"unknown step type {step.type}")
+
+    def check_upload_path(self, value: str) -> Path:
+        """Only files under the configured artifact directory may be uploaded (never arbitrary host paths)."""
+        path = Path(value).expanduser().resolve()
+        if self.config.upload_root is not None:
+            root = self.config.upload_root.resolve()
+            if root != path and root not in path.parents:
+                raise ActionFailed(f"upload path outside artifact directory: {path.name}", {"path": str(path)})
+        if not path.is_file():
+            raise ActionFailed(f"upload file missing: {path.name}")
+        return path
 
     def _detect_login(self, page, evidence: dict) -> None:
         try:

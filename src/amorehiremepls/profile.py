@@ -279,7 +279,19 @@ class ProfileStore:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(path.read_bytes())
         profile = self.load()
-        profile.base_resume = BaseResume(path=str(target), sha256=sha256_file(target), approved_on=approved_on, source=source, note=note)
+        sha = sha256_file(target)
+        profile.base_resume = BaseResume(path=str(target), sha256=sha, approved_on=approved_on, source=source, note=note)
+        # Employment titles/internships come from the approved base itself (evidence), merged under the
+        # user-confirmed skill dates. Parsing failures leave the profile unchanged rather than guessing.
+        try:
+            from .tailoring import parse_base_resume
+
+            parsed = parse_base_resume(target)
+            entries = [{"employer": e.employer, "title": e.title, "dates": e.dates, "header": e.header} for e in parsed.experience]
+            profile.employment = merge_employment(profile.employment, employment_from_base_resume(entries, approved_on, sha))
+            profile.unknowns = [u for u in profile.unknowns if "base resume" not in u]
+        except Exception as exc:  # pragma: no cover - depends on the real document layout
+            profile.unknowns.append(f"base resume experience not parsed ({type(exc).__name__}); employment unchanged")
         return self.save(profile, actor="user")
 
 
@@ -340,12 +352,11 @@ def parse_salary_skill(text: str, confirmed_on: str | None = None) -> Compensati
 
 def default_preferences(confirmed_on: str = "2026-10-15") -> Preferences:
     """Saved preferences reconciled from apply-joss-jobs / joss-linkedin-outreach and the user's rules."""
-    prov = Provenance(source="skill:apply-joss-jobs;user-rules", confirmed_on=confirmed_on)
     faang = [
         ExcludedEmployer(name=n, aliases=a, reason="FAANG exclusion")
         for n, a in (("Meta", ["Facebook", "Meta Platforms"]), ("Apple", []), ("Amazon", ["AWS", "Amazon Web Services"]), ("Netflix", []), ("Google", ["Alphabet"]))
     ]
-    rbc = ExcludedEmployer(name="RBC", aliases=["Royal Bank of Canada", "RBC Capital Markets"], reason="former employer; excluded for outreach and applications per saved filters")
+    rbc = ExcludedEmployer(name="RBC", aliases=["Royal Bank of Canada", "RBC Capital Markets"], reason="saved rule: excluded for outreach and applications")
     return Preferences(
         employment_types=["permanent"],
         role_families=[
@@ -386,7 +397,9 @@ def default_preferences(confirmed_on: str = "2026-10-15") -> Preferences:
         locations=["Toronto", "GTA", "Mississauga", "Milton", "Oakville", "Markham", "Vaughan", "Ontario", "Canada"],
         remote_rule="remote must be explicitly open to Ontario residents",
         excluded_employers=[rbc, *faang],
-        recipient_exclusions=[RecipientExclusion(label="Jessica", resolution="unresolved", reason="saved rule 'skip Jessica'; identity not yet bound", provenance=prov)],
+        # No named recipient exclusions by default (Joss, 2026-11-04): prior-contact checks are handled by the
+        # first-contact gate, which fails closed until contact history is imported or confirmed per recipient.
+        recipient_exclusions=[],
         small_startup_rule="needs_review",
         work_authorization="Authorized to work in Canada without sponsorship now or in the future",
         outreach_rules={
@@ -401,40 +414,154 @@ def default_preferences(confirmed_on: str = "2026-10-15") -> Preferences:
     )
 
 
-def default_employment(confirmed_on: str = "2026-10-15") -> list[Employment]:
-    prov = Provenance(source="skill:apply-joss-jobs", confirmed_on=confirmed_on, note="month/year dates from skill; internships need dates from the base resume")
-    return [Employment(employer="RBC", title="Software Developer", kind="full_time", start="2023-07", end="2026-10", provenance=prov)]
+_MONTHS = {m: i for i, m in enumerate(["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"], 1)}
 
 
-def default_answers(confirmed_on: str = "2026-10-15") -> list[Fact]:
+def _to_ym(text: str) -> str | None:
+    """'May 2021' / 'May 2021' / '2021-05' / '05/2021' -> '2021-05'. Returns None when not a month/year."""
+    t = text.strip().lower()
+    m = re.match(r"([a-z]+)\.?\s+(\d{4})$", t)
+    if m:
+        mon = next((v for k, v in _MONTHS.items() if k.startswith(m.group(1)[:3])), None)
+        return f"{m.group(2)}-{mon:02d}" if mon else None
+    m = re.match(r"(\d{4})-(\d{2})$", t) or re.match(r"(\d{2})/(\d{4})$", t)
+    if m:
+        y, mo = (m.group(1), m.group(2)) if len(m.group(1)) == 4 else (m.group(2), m.group(1))
+        return f"{y}-{int(mo):02d}"
+    return None
+
+
+def parse_apply_skill(text: str, confirmed_on: str | None = None) -> tuple[list[Employment], list[Fact]]:
+    """Generic extraction from the private apply skill: employment dates, work authorization, degree,
+    school and the confirmed AI-workflow answer. Patterns match sentence shapes, never specific values."""
     prov = Provenance(source="skill:apply-joss-jobs", confirmed_on=confirmed_on)
-    return [
-        Fact(category="answer", key="work_authorization", value="Authorized to work in Canada without sponsorship now or in the future", provenance=prov),
-        Fact(category="answer", key="requires_sponsorship", value="No", provenance=prov),
-        Fact(
-            category="answer",
-            key="ai_workflow",
-            value="Copilot and Devin; approximately 95% AI-generated code reviewed against acceptance criteria and functional requirements",
-            provenance=prov,
-        ),
-        Fact(category="education", key="degree_level", value="Associate's Degree / Honours Associates", provenance=prov),
-        Fact(category="education", key="school", value="Sheridan College", provenance=prov),
-        Fact(category="answer", key="employment_preference", value="Permanent", provenance=prov),
-    ]
+    employment: list[Employment] = []
+    answers: list[Fact] = []
+    employment_re = (
+        r"(?P<employer>[A-Z][\w&.' ]{0,40}?) full[- ]time employment ended[^;.\n]*;\s*month/year dates are "
+        r"(?P<start>[A-Za-z]+\.? \d{4})\s*[\u2013\u2014-]\s*(?P<end>[A-Za-z]+\.? \d{4}|present)"
+    )
+    m = re.search(employment_re, text)
+    if m:
+        start, end = _to_ym(m.group("start")), (None if m.group("end").lower() == "present" else _to_ym(m.group("end")))
+        if start:
+            employment.append(
+                Employment(
+                    employer=m.group("employer").strip(),
+                    title="(title from the approved base resume)",
+                    kind="full_time",
+                    start=start,
+                    end=end,
+                    end_known=True,
+                    provenance=Provenance(
+                        source="skill:apply-joss-jobs", confirmed_on=confirmed_on, note="month/year dates from the skill; title/internships come from the base resume"
+                    ),
+                )
+            )
+    m = re.search(r"^[-*]?\s*(Authorized to work in [^.\n]+?(?:now or in the future)?)\.?$", text, re.M | re.I)
+    if m:
+        answers.append(Fact(category="answer", key="work_authorization", value=m.group(1).strip(), provenance=prov))
+        answers.append(Fact(category="answer", key="requires_sponsorship", value="No" if "without sponsorship" in m.group(1).lower() else None, provenance=prov))
+    m = re.search(r"Degree on forms is ([^.\n]+?)\.", text)
+    if m:
+        answers.append(Fact(category="education", key="degree_level", value=m.group(1).strip(), provenance=prov))
+    m = re.search(r"cannot find ([A-Z][\w' ]+?(?:College|University|Institute|Polytechnic|School))", text)
+    if m:
+        answers.append(Fact(category="education", key="school", value=m.group(1).strip(), provenance=prov))
+    m = re.search(r"asked about AI workflow, use the confirmed answer:\s*([^\n]+?)\.(?:\s|$)", text)
+    if m:
+        answers.append(Fact(category="answer", key="ai_workflow", value=m.group(1).strip(), provenance=prov))
+    if re.search(r"^\s*[-*]\s*Permanent\b", text, re.M | re.I):
+        answers.append(Fact(category="answer", key="employment_preference", value="Permanent", provenance=prov))
+    return employment, answers
 
 
-def build_profile_from_skills(facts_text: str | None, salary_text: str | None, confirmed_on: str = "2026-10-15") -> Profile:
+def apply_private_overrides(profile: Profile, data: dict, confirmed_on: str | None = None) -> Profile:
+    """Merge a private JSON document (kept under runtime/, never in git) with keys `employment`, `education`,
+    `answers`, `skills`. Each entry may carry its own provenance; otherwise the file is the source."""
+    prov = Provenance(source="private:profile_overrides.json", confirmed_on=confirmed_on)
+    for e in data.get("employment", []):
+        emp = Employment.model_validate({"provenance": prov.model_dump(), **e})
+        profile.employment = [x for x in profile.employment if not (x.employer == emp.employer and x.start == emp.start)] + [emp]
+    for cat in ("education", "answers"):
+        for f in data.get(cat, []):
+            fact = Fact.model_validate({"category": "education" if cat == "education" else "answer", "provenance": prov.model_dump(), **f})
+            target = profile.education if cat == "education" else profile.answers
+            target[:] = [x for x in target if x.key != fact.key] + [fact]
+    for sname in data.get("skills", []):
+        if isinstance(sname, str):
+            profile.skills = [x for x in profile.skills if x.name != sname] + [Skill(name=sname, provenance=prov)]
+    return profile
+
+
+def employment_from_base_resume(resume_text_entries: list[dict], confirmed_on: str | None, base_sha256: str) -> list[Employment]:
+    """Build employment rows from the approved base resume's experience headers (employer/title/dates).
+    Internships are detected from the title text. Unparseable dates stay unknown instead of being guessed."""
+    prov = Provenance(source=f"base_resume:{base_sha256[:12]}", confirmed_on=confirmed_on)
+    out: list[Employment] = []
+    for e in resume_text_entries:
+        dates = e.get("dates", "")
+        parts = re.split(r"\s*[\u2013\u2014-]\s*|\s+to\s+", dates, maxsplit=1)
+        start = _to_ym(parts[0]) if parts else None
+        end_raw = parts[1].strip().lower() if len(parts) > 1 else ""
+        present = end_raw in ("present", "current", "now")
+        end = None if present or not end_raw else _to_ym(end_raw)
+        kind = "internship" if re.search(r"intern|co-?op", (e.get("title") or "") + " " + (e.get("header") or ""), re.I) else "full_time"
+        if not start:
+            continue
+        out.append(
+            Employment(
+                employer=e.get("employer", "").strip() or "(see base resume)",
+                title=e.get("title", "").strip() or "(see base resume)",
+                kind=kind,
+                start=start,
+                end=end,
+                end_known=present or end is not None,
+                provenance=prov,
+            )
+        )
+    return out
+
+
+def merge_employment(primary: list[Employment], secondary: list[Employment]) -> list[Employment]:
+    """Primary rows (user-confirmed skill dates) win on employer+kind; secondary adds internships/titles."""
+    merged = list(primary)
+    for s in secondary:
+        match = next((p for p in merged if normalize_employer(p.employer) == normalize_employer(s.employer) and p.kind == s.kind), None)
+        if match:
+            if match.title.startswith("("):
+                match.title = s.title
+            continue
+        merged.append(s)
+    return merged
+
+
+def build_profile_from_skills(
+    facts_text: str | None, salary_text: str | None, confirmed_on: str = "2026-10-15", apply_text: str | None = None, overrides: dict | None = None
+) -> Profile:
+    """Private sources -> Profile. Nothing personal is defaulted in code: employment, education and answers
+    come from the apply skill text, the private overrides JSON, or the approved base resume."""
     profile = Profile()
     if facts_text:
         profile.facts = parse_facts_skill(facts_text, confirmed_on)
     if salary_text:
         profile.compensation = parse_salary_skill(salary_text, confirmed_on)
     profile.preferences = default_preferences(confirmed_on)
-    profile.employment = default_employment(confirmed_on)
-    profile.answers = default_answers(confirmed_on)
+    if apply_text:
+        employment, answers = parse_apply_skill(apply_text, confirmed_on)
+        profile.employment = employment
+        profile.answers = [a for a in answers if a.category == "answer"]
+        profile.education = [a for a in answers if a.category == "education"]
+    if overrides:
+        apply_private_overrides(profile, overrides, confirmed_on)
     profile.unknowns = [
-        "internship employers/dates (read from the approved base resume once selected)",
-        "education dates and GPA (never invented)",
-        "base resume DOCX not selected",
+        u
+        for u in [
+            None if profile.employment else "employment history (import the apply skill, a private overrides JSON, or select the base resume)",
+            "internship employers/dates (read from the approved base resume once selected)" if not any(e.kind == "internship" for e in profile.employment) else None,
+            "education dates and GPA (never invented)",
+            "base resume DOCX not selected",
+        ]
+        if u
     ]
     return profile

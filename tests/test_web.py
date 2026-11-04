@@ -90,11 +90,11 @@ def test_review_page_and_single_scope_authorization(client, tmp_path):
     from amorehiremepls.profile import build_profile_from_skills
     from amorehiremepls.worker import Worker
     from tests.fixtures.make_resume import make_base_resume
-    from tests.test_profile import FAKE_FACTS, FAKE_SALARY
+    from tests.test_profile import FAKE_APPLY, FAKE_FACTS, FAKE_SALARY
 
     csrf = _login(client)
     rt = client.app.state.rt
-    rt.profiles.save(build_profile_from_skills(FAKE_FACTS, FAKE_SALARY), actor="test")
+    rt.profiles.save(build_profile_from_skills(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY), actor="test")
     base = make_base_resume(tmp_path / "base.docx")
     rt.profiles.select_base_resume(base, "2026-10-01", "test", rt.settings.private_dir)
     rt.reload_profile()

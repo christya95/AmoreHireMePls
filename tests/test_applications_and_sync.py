@@ -15,7 +15,7 @@ from amorehiremepls.tailoring import Tailor
 from amorehiremepls.util import sha256_file
 from tests.fixtures.make_resume import make_base_resume
 from tests.fixtures.tracker_seed import build_bare_remote, build_tracker_clone
-from tests.test_profile import FAKE_FACTS, FAKE_SALARY
+from tests.test_profile import FAKE_APPLY, FAKE_FACTS, FAKE_SALARY
 
 pytestmark = pytest.mark.mongo
 
@@ -35,7 +35,7 @@ FIELDS = [
 
 
 def _profile(tmp_path, with_base=True):
-    p = build_profile_from_skills(FAKE_FACTS, FAKE_SALARY)
+    p = build_profile_from_skills(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY)
     p.version = 3
     if with_base:
         base = make_base_resume(tmp_path / "base.docx")

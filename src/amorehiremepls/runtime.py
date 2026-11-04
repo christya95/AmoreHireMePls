@@ -39,7 +39,7 @@ def generic_plan_builder(job: dict, pkg: dict, answers: list[dict]) -> Plan:
             continue
         t = f.get("type", "text")
         if t == "file":
-            steps.append(Step("upload", f["selector"], a["value"]))
+            steps.append(Step("upload", f["selector"], a["value"]))  # path is constrained to the artifact dir by the adapter
         elif t == "select":
             steps.append(Step("select", f["selector"], a["value"]))
         elif t in ("checkbox", "radio"):
@@ -53,7 +53,8 @@ def generic_plan_builder(job: dict, pkg: dict, answers: list[dict]) -> Plan:
         start_url=pkg["apply_url"],
         steps=steps,
         receipt_text=fp.get("receipt_text", "thank you"),
-        receipt_must_include=[x for x in [job.get("requisition_id")] if x and fp.get("receipt_includes_requisition", False)],
+        # a known requisition id must appear in the receipt unless the plan explicitly says the site never shows it
+        receipt_must_include=[x for x in [job.get("requisition_id")] if x and fp.get("receipt_includes_requisition", True)],
     )
 
 
@@ -74,6 +75,7 @@ class Runtime:
                 headless=settings.browser_headless,
                 session_dir=settings.browser_session_dir,
                 screenshot_dir=settings.artifact_dir / "screenshots",
+                upload_root=settings.artifact_dir,
             )
         )
         self.sync = SyncCoordinator(self.store, settings.tracker_clone_dir, settings.tracker_remote, settings.tracker_branch, settings.tracker_push_enabled)

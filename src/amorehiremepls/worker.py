@@ -34,6 +34,10 @@ class Worker:
         signal.signal(signal.SIGINT, lambda *_: self.stop_event.set())
         self.rt.store.ensure_indexes()
         try:
+            self.recover_interrupted_runs()
+        except Exception:
+            log.exception("run recovery at startup failed")
+        try:
             self.rt.sync.reconcile_all()
         except Exception:
             log.exception("sync reconciliation at startup failed")
@@ -46,12 +50,41 @@ class Worker:
 
     def heartbeat(self) -> None:
         self.rt.store.set_control("worker_heartbeat", {"at": utcnow(), "name": self.name})
+        self.rt.store.set_control(f"worker_heartbeat:{self.name}", {"at": utcnow()})
+
+    def recover_interrupted_runs(self, stale_after_seconds: int = 180) -> int:
+        """A hard crash leaves runs in `running`/`claimed` with no process behind them. At startup, any such
+        run whose owner is this worker name, whose lease expired, or whose owner heartbeat is stale becomes
+        failed("interrupted") so resume() can continue it from the last checkpoint. External actions are
+        protected separately (expired action leases become needs_verification, never re-run)."""
+        now = utcnow()
+        n = 0
+        for run in self.rt.store.c("runs").find({"status": {"$in": ["running", "claimed"]}}):
+            owner = run.get("reserved_by") or (run.get("state") or {}).get("worker") or run.get("params", {}).get("worker")
+            lease_expired = bool(run.get("reserved_until")) and run["reserved_until"] < now
+            hb = self.rt.store.get_control(f"worker_heartbeat:{owner}") if owner else None
+            stale_owner = owner is None or hb is None or (now - hb["at"]).total_seconds() > stale_after_seconds
+            if owner == self.name or lease_expired or stale_owner:
+                self.rt.store.c("runs").update_one(
+                    {"_id": run["_id"], "status": run["status"]},
+                    {
+                        "$set": {"status": "failed", "error": "interrupted: worker stopped while the run was active; resume to continue from the checkpoint", "updated_at": now},
+                        "$unset": {"reserved_by": "", "reserved_until": ""},
+                    },
+                )
+                self.rt.store.run_event(run["_id"], "interrupted (recovered at worker startup)")
+                n += 1
+        swept = self.rt.actions.sweep_expired_leases()
+        if n or swept:
+            log.warning("recovered %d interrupted runs; %d expired action leases marked needs_verification", n, swept)
+        return n
 
     def tick(self) -> dict[str, Any]:
         self.heartbeat()
         self.rt.reload_profile()
         done: dict[str, Any] = {"runs": 0, "sync": 0, "scheduled": 0}
         self.rt.auth.expire_stale()
+        self.rt.actions.sweep_expired_leases()
         for run in self.rt.store.c("runs").find({"status": "queued", "kind": "application"}).sort("created_at", 1).limit(self.rt.settings.worker_concurrency):
             if self.rt.store.emergency_stop_active():
                 break

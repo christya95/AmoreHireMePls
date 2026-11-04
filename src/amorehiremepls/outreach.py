@@ -16,6 +16,7 @@ import re
 import smtplib
 from dataclasses import dataclass
 from email.message import EmailMessage
+from email.utils import make_msgid
 from typing import Any
 
 from .actions import ActionFailed, ActionStore
@@ -31,7 +32,8 @@ log = logging.getLogger(__name__)
 DASH_RE = re.compile(r"[-\u2010-\u2015\u2212]")
 LAYOFF_RE = re.compile(r"(laid off|lay-?off|let go|downsiz|redundan|terminated|job loss)", re.I)
 PLACEHOLDER_RE = re.compile(r"[\[{<][^\]}>]{1,40}[\]}>]|TODO|XXX|lorem", re.I)
-INTERNAL_RE = re.compile(r"(salary floor|CAD ?95|exclu(de|sion)|FAANG|filter|research note|citation|\bRBC exclusion)", re.I)
+# internal notes must never leak into a message: salary figures, filter/exclusion vocabulary, research notes
+INTERNAL_RE = re.compile(r"(salary floor|\b(CAD|USD|C\$|\$)\s?\d{2,3}(,?\d{3})?\b|exclu(de|sion)|FAANG|filter|research note|citation|\bexclusion\b)", re.I)
 
 
 def normalize_alias(value: str) -> str | None:
@@ -244,6 +246,23 @@ class OutreachService:
         self.ai = ai
         self.smtp = smtp or {}
 
+    def _candidate_points(self) -> list[str]:
+        """Grounded talking points derived from the private profile at runtime (never hardcoded)."""
+        from .profile import compute_experience
+
+        points: list[str] = []
+        exp = compute_experience(self.profile.employment)
+        if exp.full_time_years_completed >= 1:
+            fam = (self.profile.preferences.role_families[:1] or ["software"])[0]
+            points.append(f"{exp.full_time_years_completed} completed years of full time {fam} work")
+        for e in self.profile.employment:
+            if e.kind == "full_time":
+                points.append(f"{e.title} at {e.employer}")
+        skills = [s.name for s in self.profile.skills][:4]
+        if skills:
+            points.append("hands on with " + ", ".join(skills))
+        return points[:4]
+
     def candidates_for_employer(self, employer: str) -> list[dict]:
         return list(self.recipients.coll.find({"employer_norm": normalize_employer(employer), "status": "active"}))
 
@@ -263,7 +282,7 @@ class OutreachService:
                         employer=employer,
                         applied_role_title=applied_role,
                         channel="connect_note" if kind == "connection_request" else "message",
-                        candidate_points=["backend services in Java and Python", "three years of full time backend work at a large bank"],
+                        candidate_points=self._candidate_points(),
                         rules=rules,
                     ),
                     fact_version=self.profile.version,
@@ -344,6 +363,7 @@ class OutreachService:
     def _smtp_send(self, to_addr: str, subject: str, body: str) -> dict:
         em = EmailMessage()
         em["From"], em["To"], em["Subject"] = self.smtp["from"], to_addr, subject
+        em["Message-ID"] = make_msgid(domain=(self.smtp["from"].split("@")[-1] if "@" in self.smtp["from"] else None))
         em.set_content(body)
         try:
             with smtplib.SMTP(self.smtp["host"], int(self.smtp.get("port", 587)), timeout=30) as s:

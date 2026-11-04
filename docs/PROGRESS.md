@@ -42,7 +42,7 @@ Keep this file current. A later session should be able to continue from the "Exa
 
 ## Open questions for Joss
 
-1. Base resume: only `iCloud Drive/Downloads/Joss_Christyanton_Resume.pdf` (2026-07-28) was found; no DOCX. Where is the current approved base DOCX, or should a new base be built from the PDF text after your review?
+1. Base resume: resolved 2026-11-04 (Joss selected the approved DOCX in chat; registered via `amore profile base-resume`).
 2. NAS: `192.168.2.49` was unreachable (SSH 22 and 8787 closed, no tunnel). Is the NAS online, and is SSH enabled in UGOS for the deployment window?
 3. Which provider/model should be the default (OpenAI or Anthropic), and which 1Password vault holds this project's keys?
 4. Recipient exclusion "Jessica": which LinkedIn profile URL/employer is meant?

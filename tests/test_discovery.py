@@ -8,7 +8,7 @@ from amorehiremepls.discovery import Discovery, GreenhouseSource, LeverSource, d
 from amorehiremepls.profile import build_profile_from_skills
 from amorehiremepls.skills import catalog
 
-PROFILE = build_profile_from_skills(None, "Personal floor remains CAD 95,000 to decide. Personal target CAD 100,000 is a preference.")
+PROFILE = build_profile_from_skills(None, "Personal floor remains CAD 123,000 to decide. Personal target CAD 130,000 is a preference.")
 
 
 def _job(title="Backend Developer", employer="Acme", location="Toronto, Ontario"):
@@ -22,10 +22,12 @@ def test_filters_run_before_inference():
     assert qualify(_job(location="Austin, Texas"), {}, PROFILE).decision == "excluded"
     below = qualify(_job(), {"salary_min": 70000, "salary_max": 90000, "salary_currency": "CAD", "employment_type": "permanent"}, PROFILE)
     assert below.decision == "excluded" and below.salary_outcome == "below_floor"
-    usd = qualify(_job(), {"salary_min": 100000, "salary_max": 120000, "salary_currency": "USD", "employment_type": "permanent"}, PROFILE)
+    usd = qualify(_job(), {"salary_min": 101000, "salary_max": 121000, "salary_currency": "USD", "employment_type": "permanent"}, PROFILE)
     assert usd.decision == "needs_review" and usd.salary_outcome == "foreign_currency"
-    ok = qualify(_job(), {"salary_min": 110000, "salary_max": 130000, "salary_currency": "CAD", "employment_type": "permanent"}, PROFILE)
+    ok = qualify(_job(), {"salary_min": 125000, "salary_max": 145000, "salary_currency": "CAD", "employment_type": "permanent"}, PROFILE)
     assert ok.decision == "eligible" and ok.salary_outcome == "meets_floor"
+    overlap = qualify(_job(), {"salary_min": 110000, "salary_max": 130000, "salary_currency": "CAD", "employment_type": "permanent"}, PROFILE)
+    assert overlap.salary_outcome == "overlaps_floor"
     remote = qualify(_job(location="Remote"), {"employment_type": "permanent"}, PROFILE, "Remote role, US only")
     assert remote.decision == "needs_review"
     unknown = qualify(_job(), {}, PROFILE, "We are hiring a permanent backend developer in Toronto.")
@@ -91,7 +93,7 @@ def test_board_adapters_ingest_dedupe_qualify_and_rank(store):
         {
             "FitOutput": lambda u: {"rank": 2, "fit_points": ["emp_x supports Java", "keyword only point"], "genuine_gaps": ["Spring Batch"], "missing_evidence": []},
             "ExtractOutput": lambda u: json.loads(
-                '{"employment_type": "permanent", "salary_min": 110000, "salary_max": 130000, "salary_currency": "CAD", "salary_period": "annual"}'
+                '{"employment_type": "permanent", "salary_min": 125000, "salary_max": 145000, "salary_currency": "CAD", "salary_period": "annual"}'
             ),
         }
     )

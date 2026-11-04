@@ -22,4 +22,4 @@
 | Duplicate job appears twice | Different identities (new requisition ID vs LinkedIn ID) | Jobs page shows `possible duplicates`; merge by reconciling the status manually. Exact identities are unique-indexed and cannot duplicate. |
 | Recipient blocked: "unknown contact history" | No reconciliation recorded | Check LinkedIn/email for prior contact, record it, then "Mark reconciled". First contact needs this. |
 | Browser test skipped | Chromium missing | `uv run playwright install chromium`. |
-| Mongo tests skipped | dev container down | `docker compose --profile dev up -d dev-mongo`. |
+| Mongo tests skipped | dev container down | `docker compose --profile dev-mongo up -d dev-mongo`. |
