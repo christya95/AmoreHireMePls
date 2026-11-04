@@ -101,10 +101,14 @@ def validate_message(text: str, applied_role: str | None, rules: dict[str, Any])
 
 def template_connect_note(first_name: str, employer: str, applied_role: str | None) -> str:
     if applied_role:
-        return (f"Hi {first_name}, I recently applied for the {applied_role} role at {employer}. I build backend services in Java and Python. "
-                f"Do you know of other permanent backend roles at {employer} that may fit? Thanks, Joss")
-    return (f"Hi {first_name}, I build backend services in Java and Python and noticed you recruit for {employer}. "
-            f"Would you be open to a quick note about permanent backend roles that may fit? Thanks, Joss")
+        return (
+            f"Hi {first_name}, I recently applied for the {applied_role} role at {employer}. I build backend services in Java and Python. "
+            f"Do you know of other permanent backend roles at {employer} that may fit? Thanks, Joss"
+        )
+    return (
+        f"Hi {first_name}, I build backend services in Java and Python and noticed you recruit for {employer}. "
+        f"Would you be open to a quick note about permanent backend roles that may fit? Thanks, Joss"
+    )
 
 
 class RecipientStore:
@@ -113,19 +117,47 @@ class RecipientStore:
         self.profile = profile
         self.coll = store.c("recipients")
 
-    def upsert(self, *, name: str, employer: str, profile_url: str | None = None, email: str | None = None, remit: str = "", source_url: str | None = None,
-               channel: str = "linkedin", provenance: str = "manual") -> dict:
+    def upsert(
+        self,
+        *,
+        name: str,
+        employer: str,
+        profile_url: str | None = None,
+        email: str | None = None,
+        remit: str = "",
+        source_url: str | None = None,
+        channel: str = "linkedin",
+        provenance: str = "manual",
+    ) -> dict:
         aliases = [a for a in (normalize_alias(profile_url or ""), normalize_alias(email or "")) if a]
         existing = self.coll.find_one({"aliases": {"$in": aliases}}) if aliases else None
         now = utcnow()
         if existing:
             merged = sorted(set(existing.get("aliases", [])) | set(aliases))
-            self.coll.update_one({"_id": existing["_id"]}, {"$set": {"aliases": merged, "last_checked_at": now, "remit": remit or existing.get("remit", ""), "updated_at": now},
-                                                             "$addToSet": {"names": name, "sources": source_url or provenance}})
+            self.coll.update_one(
+                {"_id": existing["_id"]},
+                {
+                    "$set": {"aliases": merged, "last_checked_at": now, "remit": remit or existing.get("remit", ""), "updated_at": now},
+                    "$addToSet": {"names": name, "sources": source_url or provenance},
+                },
+            )
             return self.coll.find_one({"_id": existing["_id"]})
-        doc = {"_id": new_id("rcp"), "names": [name], "display_name": name, "employer": employer, "employer_norm": normalize_employer(employer), "aliases": aliases,
-               "remit": remit, "channel": channel, "sources": [source_url or provenance], "identity_confidence": "verified" if aliases else "name_only",
-               "status": "active", "created_at": now, "updated_at": now, "last_checked_at": now}
+        doc = {
+            "_id": new_id("rcp"),
+            "names": [name],
+            "display_name": name,
+            "employer": employer,
+            "employer_norm": normalize_employer(employer),
+            "aliases": aliases,
+            "remit": remit,
+            "channel": channel,
+            "sources": [source_url or provenance],
+            "identity_confidence": "verified" if aliases else "name_only",
+            "status": "active",
+            "created_at": now,
+            "updated_at": now,
+            "last_checked_at": now,
+        }
         self.coll.insert_one(doc)
         return doc
 
@@ -136,11 +168,25 @@ class RecipientStore:
             return None
         rec = self.coll.find_one({"aliases": a})
         if rec is None:
-            rec = {"_id": new_id("rcp"), "names": [], "display_name": alias, "employer": "", "employer_norm": "", "aliases": [a], "remit": "", "channel": "linkedin",
-                   "sources": [source], "identity_confidence": "verified", "status": "active", "created_at": utcnow(), "updated_at": utcnow()}
+            rec = {
+                "_id": new_id("rcp"),
+                "names": [],
+                "display_name": alias,
+                "employer": "",
+                "employer_norm": "",
+                "aliases": [a],
+                "remit": "",
+                "channel": "linkedin",
+                "sources": [source],
+                "identity_confidence": "verified",
+                "status": "active",
+                "created_at": utcnow(),
+                "updated_at": utcnow(),
+            }
             self.coll.insert_one(rec)
-        self.store.c("outreach").insert_one({"_id": new_id("msg"), "recipient_id": rec["_id"], "kind": kind, "status": "imported", "sent_at": when, "note": note,
-                                             "source": source, "created_at": utcnow()})
+        self.store.c("outreach").insert_one(
+            {"_id": new_id("msg"), "recipient_id": rec["_id"], "kind": kind, "status": "imported", "sent_at": when, "note": note, "source": source, "created_at": utcnow()}
+        )
         return rec
 
     def exclusion_for(self, rec: dict) -> str | None:
@@ -170,8 +216,11 @@ class RecipientStore:
             reasons.append("a pending action already targets this recipient")
         if any(p.get("kind") == "connection_request" and p.get("status") in ("sent", "imported", "pending") for p in prior):
             reasons.append("connection request already pending or sent")
-        unresolved = [rx.label for rx in self.profile.preferences.recipient_exclusions if rx.resolution == "unresolved"
-                      and any(rx.label.lower() == n.split()[0].lower() for n in rec.get("names", []) if n)]
+        unresolved = [
+            rx.label
+            for rx in self.profile.preferences.recipient_exclusions
+            if rx.resolution == "unresolved" and any(rx.label.lower() == n.split()[0].lower() for n in rec.get("names", []) if n)
+        ]
         if unresolved:
             reasons.append(f"unresolved identity exclusion '{unresolved[0]}' shares this first name; reconcile before contacting")
         ex = self.exclusion_for(rec)
@@ -206,10 +255,20 @@ class OutreachService:
         text, method = None, "template"
         if self.ai is not None:
             try:
-                res = self.ai.run("draft_outreach", OutreachInput(recipient_first_name=first, recipient_remit=rec.get("remit", ""), employer=employer, applied_role_title=applied_role,
-                                                                  channel="connect_note" if kind == "connection_request" else "message",
-                                                                  candidate_points=["backend services in Java and Python", "three years of full time backend work at a large bank"],
-                                                                  rules=rules), fact_version=self.profile.version, untrusted_fields=("recipient_remit",))
+                res = self.ai.run(
+                    "draft_outreach",
+                    OutreachInput(
+                        recipient_first_name=first,
+                        recipient_remit=rec.get("remit", ""),
+                        employer=employer,
+                        applied_role_title=applied_role,
+                        channel="connect_note" if kind == "connection_request" else "message",
+                        candidate_points=["backend services in Java and Python", "three years of full time backend work at a large bank"],
+                        rules=rules,
+                    ),
+                    fact_version=self.profile.version,
+                    untrusted_fields=("recipient_remit",),
+                )
                 text, method = res.output["text"], "model"
             except ProviderUnavailable:
                 pass
@@ -223,9 +282,19 @@ class OutreachService:
             text = template_connect_note(first, employer, applied_role) if kind == "connection_request" else template_connect_note(first, employer, applied_role)
             v = validator(text, applied_role, rules)
         history = self.recipients.history_check(rec)
-        doc = {"_id": new_id("msg"), "recipient_id": recipient_id, "kind": kind, "status": "draft", "text": text, "method": method, "applied_role": applied_role,
-               "validation": {"ok": v.ok, "problems": v.problems, "length": v.length}, "history": history, "created_at": utcnow(),
-               "material_hash": material_hash(message=text, recipient=recipient_id, extra=kind)}
+        doc = {
+            "_id": new_id("msg"),
+            "recipient_id": recipient_id,
+            "kind": kind,
+            "status": "draft",
+            "text": text,
+            "method": method,
+            "applied_role": applied_role,
+            "validation": {"ok": v.ok, "problems": v.problems, "length": v.length},
+            "history": history,
+            "created_at": utcnow(),
+            "material_hash": material_hash(message=text, recipient=recipient_id, extra=kind),
+        }
         self.store.c("outreach").insert_one(doc)
         return doc
 
@@ -251,14 +320,24 @@ class OutreachService:
 
             out = self.actions.execute(action["_id"], worker, adapter)
             new_status = {"succeeded": "sent", "needs_verification": "needs_verification", "failed": "failed"}.get(out.status, msg["status"])
-            self.store.c("outreach").update_one({"_id": message_id}, {"$set": {"status": new_status, "channel": "email", "sent_at": utcnow() if out.ok else None, "evidence": out.evidence, "action_id": out.action_id}})
+            self.store.c("outreach").update_one(
+                {"_id": message_id},
+                {"$set": {"status": new_status, "channel": "email", "sent_at": utcnow() if out.ok else None, "evidence": out.evidence, "action_id": out.action_id}},
+            )
             return {"status": out.status, "reason": out.reason, "evidence": out.evidence}
         # LinkedIn messages / Connect notes have no supported API: manual handoff with exact text
         self.store.c("outreach").update_one({"_id": message_id}, {"$set": {"status": "handoff", "channel": channel}})
-        return {"status": "handoff", "text": msg["text"], "recipient": rec.get("display_name"), "reasons": ["LinkedIn has no supported sending integration; paste this text manually and then record the send"]}
+        return {
+            "status": "handoff",
+            "text": msg["text"],
+            "recipient": rec.get("display_name"),
+            "reasons": ["LinkedIn has no supported sending integration; paste this text manually and then record the send"],
+        }
 
     def record_manual_send(self, message_id: str, confirmation: str) -> dict:
-        self.store.c("outreach").update_one({"_id": message_id}, {"$set": {"status": "sent", "sent_at": utcnow(), "evidence": {"basis": "explicit_user_confirmation", "confirmation": confirmation}}})
+        self.store.c("outreach").update_one(
+            {"_id": message_id}, {"$set": {"status": "sent", "sent_at": utcnow(), "evidence": {"basis": "explicit_user_confirmation", "confirmation": confirmation}}}
+        )
         self.store.audit("outreach_manual_send_recorded", message_id)
         return self.store.c("outreach").find_one({"_id": message_id})
 
@@ -292,5 +371,9 @@ class OutreachService:
         if self.profile.is_excluded_employer(job["employer"]):
             return {"employer": job["employer"], "skipped": "employer excluded for outreach"}
         recs = self.candidates_for_employer(job["employer"])
-        return {"employer": job["employer"], "applied_role": job["title"], "recipients": [{"id": r["_id"], "name": r["display_name"], "remit": r.get("remit"), "history": self.recipients.history_check(r)} for r in recs],
-                "note": "recruiter discovery on LinkedIn is manual: add in-house recruiters/talent acquisition profiles here, then draft"}
+        return {
+            "employer": job["employer"],
+            "applied_role": job["title"],
+            "recipients": [{"id": r["_id"], "name": r["display_name"], "remit": r.get("remit"), "history": self.recipients.history_check(r)} for r in recs],
+            "note": "recruiter discovery on LinkedIn is manual: add in-house recruiters/talent acquisition profiles here, then draft",
+        }

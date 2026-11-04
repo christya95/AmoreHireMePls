@@ -1,0 +1,5 @@
+{% extends "base.html" %}{% block content %}
+<div class="card"><h3>Runs</h3><table><tr><th>Run</th><th>Kind</th><th>Status</th><th>Interrupt</th><th>Usage</th><th>Created</th></tr>
+{% for r in runs %}<tr><td><a href="/runs/{{ r._id }}">{{ r._id }}</a></td><td>{{ r.kind }} {{ r.params.job_id or '' }}</td><td><span class="badge">{{ r.status }}</span> {{ r.requested or '' }}</td><td>{{ r.interrupt.type if r.interrupt else '' }}</td>
+<td><small>{{ r.usage.calls }} calls, {{ r.usage.input_tokens }}/{{ r.usage.output_tokens }} tok{% if r.usage.cost_known %}, ${{ '%.4f'|format(r.usage.cost_usd or 0) }}{% else %}, cost unknown{% endif %}</small></td><td>{{ r.created_at|toronto }}</td></tr>{% endfor %}</table></div>
+{% endblock %}

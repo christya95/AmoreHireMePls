@@ -21,10 +21,20 @@ def test_grounding_rejects_invented_tech_years_and_unknown_sources(tmp_path):
     base = parse_base_resume(make_base_resume(tmp_path / "base.docx"))
     good = deterministic_tailor(base, "Java Spring Boot PostgreSQL")
     assert check_grounding(good, base).ok
-    bad = {"summary": "Backend developer", "skills": ["Java", "Kubernetes"],
-           "experience": [{"experience_id": "exp_1", "bullets": [{"source_id": "b_1", "text": "Built REST APIs in Java with Kubernetes and Terraform."},
-                                                                 {"source_id": "b_99", "text": "Led a team."},
-                                                                 {"source_id": "b_2", "text": "Over 7 years tuning PostgreSQL."}]}]}
+    bad = {
+        "summary": "Backend developer",
+        "skills": ["Java", "Kubernetes"],
+        "experience": [
+            {
+                "experience_id": "exp_1",
+                "bullets": [
+                    {"source_id": "b_1", "text": "Built REST APIs in Java with Kubernetes and Terraform."},
+                    {"source_id": "b_99", "text": "Led a team."},
+                    {"source_id": "b_2", "text": "Over 7 years tuning PostgreSQL."},
+                ],
+            }
+        ],
+    }
     report = check_grounding(bad, base)
     assert not report.ok
     joined = " ".join(report.violations)
@@ -41,10 +51,22 @@ def test_docx_build_is_single_column_with_standard_headings(tmp_path):
 @pytest.mark.mongo
 def test_tailor_service_falls_back_when_model_output_is_ungrounded_and_records_hashes(store, tmp_path):
     base_path = make_base_resume(tmp_path / "base.docx")
-    job = {"_id": "job_1", "employer": "Acme Inc", "title": "Backend Developer", "requisition_id": "R1",
-           "latest_snapshot": {"text": "Java Spring Boot APIs Kubernetes", "posting_hash": "abcd"}}
-    provider = FakeProvider({"TailorOutput": lambda u: {"summary": "Backend developer with Kubernetes experience", "skills": ["Kubernetes"],
-                                                         "experience": [{"experience_id": "exp_1", "bullets": [{"source_id": "b_1", "text": "Ran Kubernetes clusters."}]}]}})
+    job = {
+        "_id": "job_1",
+        "employer": "Acme Inc",
+        "title": "Backend Developer",
+        "requisition_id": "R1",
+        "latest_snapshot": {"text": "Java Spring Boot APIs Kubernetes", "posting_hash": "abcd"},
+    }
+    provider = FakeProvider(
+        {
+            "TailorOutput": lambda u: {
+                "summary": "Backend developer with Kubernetes experience",
+                "skills": ["Kubernetes"],
+                "experience": [{"experience_id": "exp_1", "bullets": [{"source_id": "b_1", "text": "Ran Kubernetes clusters."}]}],
+            }
+        }
+    )
     t = Tailor(store, tmp_path / "artifacts", AIRunner(store, provider, catalog, Pricing(None)))
     art = t.tailor_for_job(job, base_path, sha256_file(base_path), fact_version=3, display_name="Alex Example")
     assert art["method"] == "deterministic_after_rejection" and art["grounding"]["ok"]

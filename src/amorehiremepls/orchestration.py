@@ -117,7 +117,9 @@ def build_application_graph(services: Services, store: Store | None, checkpointe
                 services.record_manual(state["application_id"], manual["manual"])
                 return {"status": "submitted", "outcome": {"status": "succeeded", "basis": "explicit_user_confirmation"}}
             return {"status": "handoff", "outcome": outcome}
-        status = {"succeeded": "submitted", "needs_verification": "needs_verification", "failed": "failed", "denied": "ready_for_review", "blocked": "blocked"}.get(outcome["status"], outcome["status"])
+        status = {"succeeded": "submitted", "needs_verification": "needs_verification", "failed": "failed", "denied": "ready_for_review", "blocked": "blocked"}.get(
+            outcome["status"], outcome["status"]
+        )
         return {"status": status, "outcome": outcome}
 
     def route_after_execute(state: AppState) -> str:
@@ -145,8 +147,15 @@ def build_application_graph(services: Services, store: Store | None, checkpointe
 
 def _compact_package(app: dict) -> dict:
     pkg = app.get("review_package") or {}
-    return {"employer": pkg.get("employer"), "title": pkg.get("title"), "requisition_id": pkg.get("requisition_id"), "document": pkg.get("document"),
-            "answers": [{"label": a["label"], "value": a["value"]} for a in pkg.get("answers", []) if a.get("value")], "gaps": pkg.get("gaps"), "outstanding": pkg.get("outstanding")}
+    return {
+        "employer": pkg.get("employer"),
+        "title": pkg.get("title"),
+        "requisition_id": pkg.get("requisition_id"),
+        "document": pkg.get("document"),
+        "answers": [{"label": a["label"], "value": a["value"]} for a in pkg.get("answers", []) if a.get("value")],
+        "gaps": pkg.get("gaps"),
+        "outstanding": pkg.get("outstanding"),
+    }
 
 
 class Runner:

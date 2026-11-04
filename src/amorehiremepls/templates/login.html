@@ -1,0 +1,5 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Sign in</title>
+<style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;background:#f6f7f9}form{background:#fff;padding:2rem;border-radius:8px;border:1px solid #e5e7eb}input,button{font:inherit;padding:.4rem;margin-top:.5rem;width:100%}</style></head>
+<body><form method="post" action="/login"><h2>AmoreHireMePls</h2>{% if error %}<p style="color:#b91c1c">{{ error }}</p>{% endif %}
+<label>Password<input type="password" name="password" autofocus required></label><button>Sign in</button>
+<p><small>Private dashboard. Keep it on localhost, LAN or VPN.</small></p></form></body></html>

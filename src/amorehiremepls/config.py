@@ -10,9 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_prefix="AMORE_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_prefix="AMORE_", env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     mongodb_uri: str = "mongodb://127.0.0.1:27027"
     mongodb_database: str = "amorehiremepls"

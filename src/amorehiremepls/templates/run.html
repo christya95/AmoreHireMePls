@@ -1,0 +1,11 @@
+{% extends "base.html" %}{% block content %}
+<div class="card"><h2>Run {{ run._id }}</h2><p><span class="badge">{{ run.status }}</span> {{ run.kind }} · thread {{ run.thread_id }} · requested: {{ run.requested or 'none' }}</p>
+<form class="inline" method="post" action="/runs/{{ run._id }}/pause"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Pause</button></form>
+<form class="inline" method="post" action="/runs/{{ run._id }}/resume"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Resume</button></form>
+<form class="inline" method="post" action="/runs/{{ run._id }}/cancel"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Cancel</button></form>
+{% if run.interrupt %}<div class="card"><h3>Waiting: {{ run.interrupt.type }}</h3>
+{% if run.interrupt.application_id %}<p><a href="/applications/{{ run.interrupt.application_id }}">Open the review package</a> to supply inputs, authorize, or record a manual completion; the worker resumes automatically.</p>{% endif %}
+<pre>{{ run.interrupt|json }}</pre></div>{% endif %}
+{% if run.error %}<p class="badge bad">{{ run.error }}</p>{% endif %}
+<h3>Usage</h3><pre>{{ run.usage|json }}</pre><h3>Events</h3><pre>{{ run.events|json }}</pre>{% if run.summary %}<h3>Summary</h3><pre>{{ run.summary|json }}</pre>{% endif %}</div>
+{% endblock %}

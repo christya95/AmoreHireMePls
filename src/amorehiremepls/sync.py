@@ -30,8 +30,15 @@ class GitError(Exception):
 
 
 def git(root: Path, *args: str, check: bool = True) -> str:
-    env = {"PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", "GIT_TERMINAL_PROMPT": "0", "HOME": str(Path.home()),
-           "GIT_AUTHOR_NAME": "AmoreHireMePls", "GIT_AUTHOR_EMAIL": "amore@localhost", "GIT_COMMITTER_NAME": "AmoreHireMePls", "GIT_COMMITTER_EMAIL": "amore@localhost"}
+    env = {
+        "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
+        "GIT_TERMINAL_PROMPT": "0",
+        "HOME": str(Path.home()),
+        "GIT_AUTHOR_NAME": "AmoreHireMePls",
+        "GIT_AUTHOR_EMAIL": "amore@localhost",
+        "GIT_COMMITTER_NAME": "AmoreHireMePls",
+        "GIT_COMMITTER_EMAIL": "amore@localhost",
+    }
     r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, env=env, timeout=120)
     if check and r.returncode != 0:
         raise GitError((r.stderr or r.stdout).strip()[:500])
@@ -44,19 +51,36 @@ class SyncOutbox:
         self.coll = store.c("sync_outbox")
 
     def enqueue(self, application_id: str, kind: str = "record_submission") -> dict:
-        doc = {"_id": new_id("sync"), "application_id": application_id, "kind": kind, "status": "sync_pending", "attempts": 0,
-               "next_attempt_at": utcnow(), "created_at": utcnow(), "updated_at": utcnow(), "history": []}
+        doc = {
+            "_id": new_id("sync"),
+            "application_id": application_id,
+            "kind": kind,
+            "status": "sync_pending",
+            "attempts": 0,
+            "next_attempt_at": utcnow(),
+            "created_at": utcnow(),
+            "updated_at": utcnow(),
+            "history": [],
+        }
         if not self.store.insert_unique("sync_outbox", doc):
             return self.coll.find_one({"application_id": application_id, "kind": kind})
         return doc
 
     def pending(self, limit: int = 10) -> list[dict]:
-        return list(self.coll.find({"status": {"$in": ["sync_pending", "local_only", "committing", "committed_local"]}, "next_attempt_at": {"$lte": utcnow()}})
-                    .sort("created_at", 1).limit(limit))
+        return list(
+            self.coll.find({"status": {"$in": ["sync_pending", "local_only", "committing", "committed_local"]}, "next_attempt_at": {"$lte": utcnow()}})
+            .sort("created_at", 1)
+            .limit(limit)
+        )
 
     def set(self, item_id: str, status: str, **fields: Any) -> None:
-        self.coll.update_one({"_id": item_id}, {"$set": {"status": status, "updated_at": utcnow(), **fields},
-                                                 "$push": {"history": {"at": utcnow(), "status": status, "note": fields.get("error") or fields.get("note", "")}}})
+        self.coll.update_one(
+            {"_id": item_id},
+            {
+                "$set": {"status": status, "updated_at": utcnow(), **fields},
+                "$push": {"history": {"at": utcnow(), "status": status, "note": fields.get("error") or fields.get("note", "")}},
+            },
+        )
 
     def summary(self) -> dict[str, int]:
         out: dict[str, int] = {}
@@ -80,12 +104,22 @@ def build_record(app: dict, job: dict) -> dict:
         confirmation = next((ln.strip() for ln in confirmation.splitlines() if ln.strip()), confirmation)[:300]
     doc_name = (pkg.get("document") or {}).get("filename")
     return {
-        "id": rid, "employer": job["employer"], "role": job["title"], "requisition_id": job.get("requisition_id") or "",
-        "linkedin_job_id": job.get("linkedin_job_id") or "", "posting_url": job.get("posting_url") or pkg.get("apply_url") or "",
-        "status": "submitted", "application_date": app.get("application_date"), "date_basis": app.get("date_basis", ""),
-        "confirmation": confirmation, "evidence_basis": app.get("evidence_basis", ""),
-        "resume_match_basis": f"exact file uploaded by AmoreHireMePls: {doc_name}" if doc_name and ev.get("basis") == "receipt_observed" else ("user-reported upload" if doc_name else "not recovered"),
-        "source_log": f"AmoreHireMePls application {app['_id']}", "notes": "Recorded by AmoreHireMePls from observed evidence; see MongoDB application record for screenshots.",
+        "id": rid,
+        "employer": job["employer"],
+        "role": job["title"],
+        "requisition_id": job.get("requisition_id") or "",
+        "linkedin_job_id": job.get("linkedin_job_id") or "",
+        "posting_url": job.get("posting_url") or pkg.get("apply_url") or "",
+        "status": "submitted",
+        "application_date": app.get("application_date"),
+        "date_basis": app.get("date_basis", ""),
+        "confirmation": confirmation,
+        "evidence_basis": app.get("evidence_basis", ""),
+        "resume_match_basis": f"exact file uploaded by AmoreHireMePls: {doc_name}"
+        if doc_name and ev.get("basis") == "receipt_observed"
+        else ("user-reported upload" if doc_name else "not recovered"),
+        "source_log": f"AmoreHireMePls application {app['_id']}",
+        "notes": "Recorded by AmoreHireMePls from observed evidence; see MongoDB application record for screenshots.",
         "artifacts": [],
     }
 
@@ -105,7 +139,9 @@ class SyncCoordinator:
         now = utcnow()
         res = self.store.c("controls").find_one_and_update(
             {"key": "sync_coordinator_lock", "$or": [{"value.until": {"$lt": now}}, {"value": None}, {"value.owner": owner}]},
-            {"$set": {"value": {"owner": owner, "until": now + timedelta(minutes=10)}, "updated_at": now}}, upsert=False)
+            {"$set": {"value": {"owner": owner, "until": now + timedelta(minutes=10)}, "updated_at": now}},
+            upsert=False,
+        )
         if res is None:
             existing = self.store.c("controls").find_one({"key": "sync_coordinator_lock"})
             if existing is None:
@@ -142,7 +178,9 @@ class SyncCoordinator:
                 record = build_record(app, job)
                 self.outbox.set(item["_id"], "committing", record_id=record["id"])
                 sha = self._write_and_commit(app, record)
-                self.store.c("applications").update_one({"_id": app["_id"]}, {"$set": {"tracker_record_id": record["id"], "sync.commit_sha": sha, "sync.state": "committed_local", "updated_at": utcnow()}})
+                self.store.c("applications").update_one(
+                    {"_id": app["_id"]}, {"$set": {"tracker_record_id": record["id"], "sync.commit_sha": sha, "sync.state": "committed_local", "updated_at": utcnow()}}
+                )
                 self.outbox.set(item["_id"], "committed_local", commit_sha=sha, record_id=record["id"])
                 item = self.outbox.coll.find_one({"_id": item["_id"]})
             if item["status"] in ("committing",):
@@ -156,7 +194,7 @@ class SyncCoordinator:
             return {"id": item["_id"], "status": "conflict", "error": str(exc)}
         except (GitError, subprocess.SubprocessError, OSError) as exc:
             attempts = item.get("attempts", 0) + 1
-            delay = min(2 ** attempts, 60)
+            delay = min(2**attempts, 60)
             status = "local_only" if item.get("commit_sha") else "sync_pending"
             self.outbox.set(item["_id"], status, error=str(exc)[:400], attempts=attempts, next_attempt_at=utcnow() + timedelta(minutes=delay))
             self.store.c("applications").update_one({"_id": app["_id"]}, {"$set": {"sync.state": status, "sync.error": str(exc)[:400]}})
@@ -198,7 +236,12 @@ class SyncCoordinator:
         if not self._record_exists_with_same_artifacts(record["id"], resume_sha):
             # duplicate employer/requisition under a different id is a conflict, not a second record
             for r in json.loads((self.root / "data/applications.json").read_text(encoding="utf-8")):
-                if r["id"] != record["id"] and record.get("requisition_id") and r.get("employer", "").casefold() == record["employer"].casefold() and r.get("requisition_id") == record["requisition_id"]:
+                if (
+                    r["id"] != record["id"]
+                    and record.get("requisition_id")
+                    and r.get("employer", "").casefold() == record["employer"].casefold()
+                    and r.get("requisition_id") == record["requisition_id"]
+                ):
                     raise RecordConflict(f"employer/requisition already recorded as {r['id']}")
             if resume_path is None:
                 record["resume_unavailable_reason"] = "tailored file not present in artifact storage at sync time"
@@ -316,7 +359,11 @@ def ensure_clone(clone_dir: Path, url: str) -> None:
     if (clone_dir / ".git").exists():
         return
     clone_dir.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "clone", "--quiet", url, str(clone_dir)], check=True, env={"PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", "GIT_TERMINAL_PROMPT": "0", "HOME": str(Path.home())})
+    subprocess.run(
+        ["git", "clone", "--quiet", url, str(clone_dir)],
+        check=True,
+        env={"PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", "GIT_TERMINAL_PROMPT": "0", "HOME": str(Path.home())},
+    )
 
 
 def remove_clone(clone_dir: Path) -> None:

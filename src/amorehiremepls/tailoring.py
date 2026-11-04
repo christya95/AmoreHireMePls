@@ -35,7 +35,10 @@ HEADINGS = {
     "education": ("education",),
     "certifications": ("certifications", "certificates", "awards", "certifications & awards"),
 }
-DATE_RE = re.compile(r"((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{4}|\d{4})\s*[-–—to]+\s*((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{4}|\d{4}|present|current)", re.I)
+DATE_RE = re.compile(
+    r"((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{4}|\d{4})\s*[-–—to]+\s*((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{4}|\d{4}|present|current)",
+    re.I,
+)
 
 
 @dataclass
@@ -71,10 +74,16 @@ class BaseResume:
 
     def as_sections(self) -> dict[str, Any]:
         return {
-            "summary": self.summary, "skills": self.skills,
-            "experience": [{"id": e.id, "employer": e.employer, "title": e.title, "dates": e.dates, "bullets": [{"id": b.id, "text": b.text} for b in e.bullets]} for e in self.experience],
-            "projects": [{"id": e.id, "employer": e.employer, "title": e.title, "dates": e.dates, "bullets": [{"id": b.id, "text": b.text} for b in e.bullets]} for e in self.projects],
-            "education": self.education, "certifications": self.certifications,
+            "summary": self.summary,
+            "skills": self.skills,
+            "experience": [
+                {"id": e.id, "employer": e.employer, "title": e.title, "dates": e.dates, "bullets": [{"id": b.id, "text": b.text} for b in e.bullets]} for e in self.experience
+            ],
+            "projects": [
+                {"id": e.id, "employer": e.employer, "title": e.title, "dates": e.dates, "bullets": [{"id": b.id, "text": b.text} for b in e.bullets]} for e in self.projects
+            ],
+            "education": self.education,
+            "certifications": self.certifications,
         }
 
 
@@ -137,8 +146,14 @@ def parse_base_resume(path: Path) -> BaseResume:
                     if sep in head:
                         title, employer = head.split(sep, 1)
                         break
-                current = Experience(id=f"{'proj' if section == 'projects' else 'exp'}_{counters['exp']}", header=head, employer=employer.strip(), title=title.strip(),
-                                     dates=dates.group(0) if dates else "", is_internship="intern" in text.lower() or "co-op" in text.lower())
+                current = Experience(
+                    id=f"{'proj' if section == 'projects' else 'exp'}_{counters['exp']}",
+                    header=head,
+                    employer=employer.strip(),
+                    title=title.strip(),
+                    dates=dates.group(0) if dates else "",
+                    is_internship="intern" in text.lower() or "co-op" in text.lower(),
+                )
                 bucket.append(current)
             else:
                 counters["b"] += 1
@@ -158,7 +173,41 @@ def parse_base_resume(path: Path) -> BaseResume:
 
 
 TECH_TOKEN_RE = re.compile(r"\b([A-Z][A-Za-z0-9+#.]{1,}|[a-z]+(?:\.js|\.NET)|SQL|AWS|GCP|CI/CD)\b")
-COMMON_WORDS = {"I", "The", "A", "An", "Built", "Led", "Designed", "Developed", "Delivered", "Improved", "Reduced", "Implemented", "Worked", "Collaborated", "Owned", "Created", "Maintained", "Supported", "Migrated", "Automated", "Wrote", "Backend", "Summary", "Senior", "Software", "Developer", "Engineer", "Team", "Toronto", "Canada", "Ontario", "Java", "Python"}
+COMMON_WORDS = {
+    "I",
+    "The",
+    "A",
+    "An",
+    "Built",
+    "Led",
+    "Designed",
+    "Developed",
+    "Delivered",
+    "Improved",
+    "Reduced",
+    "Implemented",
+    "Worked",
+    "Collaborated",
+    "Owned",
+    "Created",
+    "Maintained",
+    "Supported",
+    "Migrated",
+    "Automated",
+    "Wrote",
+    "Backend",
+    "Summary",
+    "Senior",
+    "Software",
+    "Developer",
+    "Engineer",
+    "Team",
+    "Toronto",
+    "Canada",
+    "Ontario",
+    "Java",
+    "Python",
+}
 
 
 @dataclass
@@ -290,8 +339,14 @@ def build_docx(base: BaseResume, tailored: dict, out_path: Path, font: str = "Ca
 def verify_docx_structure(path: Path) -> dict[str, Any]:
     doc = Document(str(path))
     texts = [p.text for p in doc.paragraphs if p.text.strip()]
-    return {"tables": len(doc.tables), "paragraphs": len(texts), "has_summary": any(t.strip().upper() == "SUMMARY" for t in texts),
-            "has_experience": any("EXPERIENCE" in t.upper() for t in texts), "single_column": len(doc.tables) == 0, "first_line": texts[0] if texts else ""}
+    return {
+        "tables": len(doc.tables),
+        "paragraphs": len(texts),
+        "has_summary": any(t.strip().upper() == "SUMMARY" for t in texts),
+        "has_experience": any("EXPERIENCE" in t.upper() for t in texts),
+        "single_column": len(doc.tables) == 0,
+        "first_line": texts[0] if texts else "",
+    }
 
 
 # -- PDF render ----------------------------------------------------------------------------
@@ -312,8 +367,13 @@ def render_pdf(docx_path: Path, timeout: int = 120) -> dict[str, Any]:
         return {"pdf_path": None, "pages": None, "verified": False, "reason": "no LibreOffice renderer available"}
     outdir = docx_path.parent
     try:
-        subprocess.run([exe, "--headless", "--convert-to", "pdf", "--outdir", str(outdir), str(docx_path)], check=True, capture_output=True, timeout=timeout,
-                       env={"HOME": str(outdir), "PATH": "/usr/bin:/bin:/usr/local/bin"})
+        subprocess.run(
+            [exe, "--headless", "--convert-to", "pdf", "--outdir", str(outdir), str(docx_path)],
+            check=True,
+            capture_output=True,
+            timeout=timeout,
+            env={"HOME": str(outdir), "PATH": "/usr/bin:/bin:/usr/local/bin"},
+        )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         return {"pdf_path": None, "pages": None, "verified": False, "reason": f"render failed: {type(exc).__name__}"}
     pdf = docx_path.with_suffix(".pdf")
@@ -324,8 +384,13 @@ def render_pdf(docx_path: Path, timeout: int = 120) -> dict[str, Any]:
     reader = PdfReader(str(pdf))
     pages = len(reader.pages)
     selectable = bool((reader.pages[0].extract_text() or "").strip())
-    return {"pdf_path": str(pdf), "pages": pages, "verified": pages <= 2 and selectable, "selectable_text": selectable,
-            "reason": "" if pages <= 2 else f"{pages} pages exceeds two"}
+    return {
+        "pdf_path": str(pdf),
+        "pages": pages,
+        "verified": pages <= 2 and selectable,
+        "selectable_text": selectable,
+        "reason": "" if pages <= 2 else f"{pages} pages exceeds two",
+    }
 
 
 # -- service ------------------------------------------------------------------------------------
@@ -345,9 +410,18 @@ class Tailor:
         method = "deterministic"
         if self.ai is not None:
             try:
-                res = self.ai.run("tailor_resume", TailorInput(posting_summary=posting_text[:8000], base_resume_sections=base.as_sections(),
-                                                               allowed_fact_ids=sorted(base.bullet_ids()), target_role_terms=[job.get("title", "")]),
-                                  fact_version=fact_version, posting_hash=snapshot.get("posting_hash"), untrusted_fields=("posting_summary",))
+                res = self.ai.run(
+                    "tailor_resume",
+                    TailorInput(
+                        posting_summary=posting_text[:8000],
+                        base_resume_sections=base.as_sections(),
+                        allowed_fact_ids=sorted(base.bullet_ids()),
+                        target_role_terms=[job.get("title", "")],
+                    ),
+                    fact_version=fact_version,
+                    posting_hash=snapshot.get("posting_hash"),
+                    untrusted_fields=("posting_summary",),
+                )
                 tailored, method = res.output, "model"
             except ProviderUnavailable:
                 tailored = deterministic_tailor(base, posting_text)
@@ -366,12 +440,27 @@ class Tailor:
         structure = verify_docx_structure(docx_path)
         pdf = render_pdf(docx_path)
         docx_hash = sha256_file(docx_path)
-        artifact = {"_id": new_id("art"), "owner_id": job["_id"], "kind": "resume_tailored", "path": str(docx_path), "filename": fname, "sha256": docx_hash,
-                    "pdf_path": pdf.get("pdf_path"), "pdf_sha256": sha256_file(Path(pdf["pdf_path"])) if pdf.get("pdf_path") else None, "pages": pdf.get("pages"),
-                    "page_limit_verified": pdf.get("verified", False), "render_note": pdf.get("reason", ""), "structure": structure, "method": method,
-                    "grounding": {"ok": report.ok, "violations": report.violations, "checked_bullets": report.checked_bullets},
-                    "base_sha256": base_sha256, "fact_version": fact_version, "posting_hash": snapshot.get("posting_hash"), "created_at": utcnow(),
-                    "unsupported_requirements_note": tailored.get("unsupported_requirements_note", "")}
+        artifact = {
+            "_id": new_id("art"),
+            "owner_id": job["_id"],
+            "kind": "resume_tailored",
+            "path": str(docx_path),
+            "filename": fname,
+            "sha256": docx_hash,
+            "pdf_path": pdf.get("pdf_path"),
+            "pdf_sha256": sha256_file(Path(pdf["pdf_path"])) if pdf.get("pdf_path") else None,
+            "pages": pdf.get("pages"),
+            "page_limit_verified": pdf.get("verified", False),
+            "render_note": pdf.get("reason", ""),
+            "structure": structure,
+            "method": method,
+            "grounding": {"ok": report.ok, "violations": report.violations, "checked_bullets": report.checked_bullets},
+            "base_sha256": base_sha256,
+            "fact_version": fact_version,
+            "posting_hash": snapshot.get("posting_hash"),
+            "created_at": utcnow(),
+            "unsupported_requirements_note": tailored.get("unsupported_requirements_note", ""),
+        }
         self.store.c("artifacts").insert_one(artifact)
         self.store.audit("resume_tailored", job["_id"], sha256=docx_hash, method=method, verified_pages=pdf.get("verified", False))
         return artifact

@@ -65,9 +65,19 @@ def test_reimport_detects_conflict_with_local_edits_and_updates_clean_changes(st
 
 def test_job_merge_by_changed_url_and_city(store):
     jobs = JobStore(store)
-    a, created = jobs.upsert(employer="Acme", title="Backend Developer", posting_url="https://acme.wd3.myworkdayjobs.com/en-US/Acme/job/Toronto/Backend_R123?source=li",
-                             requisition_id="R123", location="Toronto")
-    b, created2 = jobs.upsert(employer="ACME Inc", title="Backend Developer", posting_url="https://acme.wd3.myworkdayjobs.com/en-US/Acme/job/Vancouver/Backend_R123",
-                              requisition_id="R123", location="Vancouver")
+    a, created = jobs.upsert(
+        employer="Acme",
+        title="Backend Developer",
+        posting_url="https://acme.wd3.myworkdayjobs.com/en-US/Acme/job/Toronto/Backend_R123?source=li",
+        requisition_id="R123",
+        location="Toronto",
+    )
+    b, created2 = jobs.upsert(
+        employer="ACME Inc",
+        title="Backend Developer",
+        posting_url="https://acme.wd3.myworkdayjobs.com/en-US/Acme/job/Vancouver/Backend_R123",
+        requisition_id="R123",
+        location="Vancouver",
+    )
     assert created and not created2 and a["_id"] == b["_id"]
     assert store.c("jobs").count_documents({}) == 1

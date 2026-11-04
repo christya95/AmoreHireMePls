@@ -55,10 +55,8 @@ class Decision(BaseModel):
     scope_id: str | None = None
 
 
-def material_hash(answers: Any = None, document_hashes: list[str] | None = None, message: str | None = None,
-                  recipient: str | None = None, extra: Any = None) -> str:
-    return sha256_json({"answers": answers, "documents": sorted(document_hashes or []), "message": message,
-                        "recipient": recipient, "extra": extra})
+def material_hash(answers: Any = None, document_hashes: list[str] | None = None, message: str | None = None, recipient: str | None = None, extra: Any = None) -> str:
+    return sha256_json({"answers": answers, "documents": sorted(document_hashes or []), "message": message, "recipient": recipient, "extra": extra})
 
 
 class AuthorizationStore:
@@ -66,13 +64,21 @@ class AuthorizationStore:
         self.store = store
         self.coll = store.c("authorizations")
 
-    def grant(self, kind: ScopeKind, binding: ScopeBinding, *, mode: str = "single", max_count: int = 1,
-              ttl: timedelta = timedelta(hours=24), created_by: str = "user", note: str = "",
-              stop: StopConditions | None = None) -> Scope:
+    def grant(
+        self,
+        kind: ScopeKind,
+        binding: ScopeBinding,
+        *,
+        mode: str = "single",
+        max_count: int = 1,
+        ttl: timedelta = timedelta(hours=24),
+        created_by: str = "user",
+        note: str = "",
+        stop: StopConditions | None = None,
+    ) -> Scope:
         if mode == "single" and (not binding.target_id or not binding.material_hash):
             raise ValueError("single-action scope requires target_id and material_hash")
-        scope = Scope(kind=kind, mode=mode, binding=binding, max_count=max_count, expires_at=utcnow() + ttl,
-                      created_by=created_by, note=note, stop=stop or StopConditions())
+        scope = Scope(kind=kind, mode=mode, binding=binding, max_count=max_count, expires_at=utcnow() + ttl, created_by=created_by, note=note, stop=stop or StopConditions())
         self.coll.insert_one({"_id": scope.id, **scope.model_dump(exclude={"id"})})
         self.store.audit("authorization_granted", scope.id, kind=kind, mode=mode, target=binding.target_id, max_count=max_count)
         return scope
@@ -98,8 +104,7 @@ class AuthorizationStore:
             out.append(Scope.model_validate(doc))
         return out
 
-    def check(self, kind: ScopeKind, target_id: str, material: str, host: str | None = None,
-              job: dict | None = None, has_material_unknowns: bool = False) -> Decision:
+    def check(self, kind: ScopeKind, target_id: str, material: str, host: str | None = None, job: dict | None = None, has_material_unknowns: bool = False) -> Decision:
         """Find one active scope that authorizes exactly this action. Any mismatch denies."""
         now = utcnow()
         for scope in self.active(kind):

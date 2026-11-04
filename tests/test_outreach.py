@@ -2,7 +2,7 @@ import pytest
 
 from amorehiremepls.ai import AIRunner, FakeProvider, Pricing
 from amorehiremepls.outreach import OutreachService, RecipientStore, template_connect_note, validate_connect_note
-from amorehiremepls.profile import RecipientExclusion, Provenance, build_profile_from_skills
+from amorehiremepls.profile import Provenance, RecipientExclusion, build_profile_from_skills
 from amorehiremepls.skills import catalog
 from tests.test_profile import FAKE_FACTS, FAKE_SALARY
 
@@ -57,7 +57,9 @@ def test_identity_exclusions_resolved_only_and_employer_exclusions(store):
     rs.mark_reconciled(jess_unknown["_id"])
     h = rs.history_check(rs.coll.find_one({"_id": jess_unknown["_id"]}))
     assert not h["first_contact_allowed"] and any("unresolved identity exclusion" in r for r in h["reasons"])  # reconcile, do not guess
-    profile.preferences.recipient_exclusions = [RecipientExclusion(label="Jessica", resolution="resolved", profile_url="https://linkedin.com/in/jessica-other", provenance=Provenance(source="user"))]
+    profile.preferences.recipient_exclusions = [
+        RecipientExclusion(label="Jessica", resolution="resolved", profile_url="https://linkedin.com/in/jessica-other", provenance=Provenance(source="user"))
+    ]
     rs2 = RecipientStore(store, profile)
     assert rs2.history_check(rs.coll.find_one({"_id": jess_unknown["_id"]}))["first_contact_allowed"]  # different identity, same first name
     other = rs2.upsert(name="J Other", employer="Acme", profile_url="https://www.linkedin.com/in/jessica-other/")

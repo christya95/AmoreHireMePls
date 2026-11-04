@@ -49,8 +49,7 @@ class TrackerClone:
         for a in record.get("artifacts", []):
             p = self.root / a.get("path", "")
             exists = p.is_file()
-            out.append({"path": a.get("path"), "kind": a.get("kind"), "exists": exists,
-                        "hash_ok": exists and sha256_file(p) == a.get("sha256"), "sha256": a.get("sha256")})
+            out.append({"path": a.get("path"), "kind": a.get("kind"), "exists": exists, "hash_ok": exists and sha256_file(p) == a.get("sha256"), "sha256": a.get("sha256")})
         return out
 
 
@@ -74,9 +73,25 @@ class ImportPreview:
         return self.__dict__.copy()
 
 
-KNOWN_FIELDS = {"id", "employer", "role", "requisition_id", "linkedin_job_id", "posting_url", "status", "application_date",
-                "date_basis", "confirmation", "evidence_basis", "resume_match_basis", "source_log", "notes", "artifacts",
-                "history", "resume_unavailable_reason"}
+KNOWN_FIELDS = {
+    "id",
+    "employer",
+    "role",
+    "requisition_id",
+    "linkedin_job_id",
+    "posting_url",
+    "status",
+    "application_date",
+    "date_basis",
+    "confirmation",
+    "evidence_basis",
+    "resume_match_basis",
+    "source_log",
+    "notes",
+    "artifacts",
+    "history",
+    "resume_unavailable_reason",
+}
 
 
 class TrackerImporter:
@@ -112,8 +127,7 @@ class TrackerImporter:
             else:
                 pv.changed += 1
                 if existing.get("local_changes"):
-                    pv.conflicts.append({"record_id": rid, "reason": "tracker record changed and local edits exist",
-                                         "local_changes": existing["local_changes"]})
+                    pv.conflicts.append({"record_id": rid, "reason": "tracker record changed and local edits exist", "local_changes": existing["local_changes"]})
         for k, ids in groups.items():
             if len(set(ids)) > 1:
                 pv.duplicates.append({"key": k, "record_ids": sorted(set(ids))})
@@ -131,42 +145,68 @@ class TrackerImporter:
                 continue
             rhash = sha256_json(r)
             job, created = self.jobs.upsert(
-                employer=r["employer"], title=r["role"], posting_url=r.get("posting_url"), requisition_id=r.get("requisition_id") or None,
-                linkedin_job_id=r.get("linkedin_job_id") or None, source="tracker",
+                employer=r["employer"],
+                title=r["role"],
+                posting_url=r.get("posting_url"),
+                requisition_id=r.get("requisition_id") or None,
+                linkedin_job_id=r.get("linkedin_job_id") or None,
+                source="tracker",
                 extra={"tracker_status": r.get("status")},
             )
             counts["jobs_created"] += int(created)
             if r.get("status") == "submitted":
                 self.jobs.set_status(job["_id"], "applied_historical")
-            provenance = {"origin": "tracker_import", "source_commit": pv.source_commit, "source_path": pv.source_path,
-                          "record_sha256": rhash, "imported_at": now}
+            provenance = {"origin": "tracker_import", "source_commit": pv.source_commit, "source_path": pv.source_path, "record_sha256": rhash, "imported_at": now}
             existing = self.apps.find_one({"tracker_record_id": rid})
             artifacts = self.clone.artifact_status(r)
             if existing is None:
-                self.apps.insert_one({
-                    "_id": f"app_{rid}", "tracker_record_id": rid, "job_id": job["_id"], "status": r.get("status"),
-                    "record": r, "provenance": provenance, "artifact_status": artifacts,
-                    "sync": {"state": "synced", "tracker_commit": pv.source_commit}, "created_at": now, "updated_at": now,
-                    "evidence_basis": r.get("evidence_basis"), "date_basis": r.get("date_basis"),
-                })
+                self.apps.insert_one(
+                    {
+                        "_id": f"app_{rid}",
+                        "tracker_record_id": rid,
+                        "job_id": job["_id"],
+                        "status": r.get("status"),
+                        "record": r,
+                        "provenance": provenance,
+                        "artifact_status": artifacts,
+                        "sync": {"state": "synced", "tracker_commit": pv.source_commit},
+                        "created_at": now,
+                        "updated_at": now,
+                        "evidence_basis": r.get("evidence_basis"),
+                        "date_basis": r.get("date_basis"),
+                    }
+                )
                 counts["inserted"] += 1
             elif existing.get("provenance", {}).get("record_sha256") == rhash:
                 counts["unchanged"] += 1
                 self.apps.update_one({"_id": existing["_id"]}, {"$set": {"artifact_status": artifacts, "provenance.last_seen_commit": pv.source_commit}})
             elif existing.get("local_changes"):
                 counts["conflicts"] += 1
-                self.apps.update_one({"_id": existing["_id"]}, {"$set": {
-                    "conflict": {"tracker_record": r, "tracker_commit": pv.source_commit, "detected_at": now},
-                    "sync.state": "conflict", "updated_at": now}})
+                self.apps.update_one(
+                    {"_id": existing["_id"]},
+                    {"$set": {"conflict": {"tracker_record": r, "tracker_commit": pv.source_commit, "detected_at": now}, "sync.state": "conflict", "updated_at": now}},
+                )
             else:
                 counts["updated"] += 1
-                self.apps.update_one({"_id": existing["_id"]}, {"$set": {
-                    "record": r, "status": r.get("status"), "provenance": provenance, "artifact_status": artifacts,
-                    "sync": {"state": "synced", "tracker_commit": pv.source_commit}, "updated_at": now,
-                    "evidence_basis": r.get("evidence_basis"), "date_basis": r.get("date_basis")},
-                    "$push": {"import_history": {"previous_sha256": existing["provenance"].get("record_sha256"), "at": now}}})
-        self.store.c("imports").insert_one({"source_commit": pv.source_commit, "source_path": pv.source_path,
-                                            "source_sha256": pv.source_sha256, "counts": counts, "preview": pv.as_dict(), "created_at": now})
+                self.apps.update_one(
+                    {"_id": existing["_id"]},
+                    {
+                        "$set": {
+                            "record": r,
+                            "status": r.get("status"),
+                            "provenance": provenance,
+                            "artifact_status": artifacts,
+                            "sync": {"state": "synced", "tracker_commit": pv.source_commit},
+                            "updated_at": now,
+                            "evidence_basis": r.get("evidence_basis"),
+                            "date_basis": r.get("date_basis"),
+                        },
+                        "$push": {"import_history": {"previous_sha256": existing["provenance"].get("record_sha256"), "at": now}},
+                    },
+                )
+        self.store.c("imports").insert_one(
+            {"source_commit": pv.source_commit, "source_path": pv.source_path, "source_sha256": pv.source_sha256, "counts": counts, "preview": pv.as_dict(), "created_at": now}
+        )
         self.store.audit("tracker_import", None, **counts, commit=pv.source_commit)
         return {"preview": pv.as_dict(), "counts": counts}
 

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>AmoreHireMePls</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;background:#f6f7f9;color:#1b1f24}
+header{background:#1f2937;color:#fff;padding:.6rem 1rem;display:flex;gap:1rem;align-items:center;flex-wrap:wrap}
+header a{color:#cbd5e1;text-decoration:none}header a:hover{color:#fff}
+main{padding:1rem;max-width:1200px;margin:0 auto}
+.card{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:1rem;margin-bottom:1rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1rem}
+table{border-collapse:collapse;width:100%;font-size:.9rem}th,td{border-bottom:1px solid #e5e7eb;padding:.35rem .5rem;text-align:left;vertical-align:top}
+.badge{display:inline-block;padding:.1rem .45rem;border-radius:999px;background:#e5e7eb;font-size:.75rem}
+.ok{background:#d1fae5}.warn{background:#fef3c7}.bad{background:#fee2e2}
+.stop{background:#b91c1c;color:#fff;padding:.5rem 1rem;text-align:center;font-weight:600}
+form.inline{display:inline}input,select,textarea{font:inherit;padding:.3rem;border:1px solid #cbd5e1;border-radius:4px;max-width:100%}
+button{font:inherit;padding:.35rem .7rem;border:1px solid #374151;border-radius:4px;background:#111827;color:#fff;cursor:pointer}
+button.danger{background:#b91c1c;border-color:#991b1b}button.secondary{background:#fff;color:#111827}
+pre{background:#f3f4f6;padding:.5rem;border-radius:4px;overflow:auto;font-size:.8rem;max-height:320px}
+.questions{background:#fff7ed;border:1px solid #fdba74}
+small{color:#6b7280}
+</style></head><body>
+<header><strong>AmoreHireMePls</strong>
+<a href="/">Overview</a><a href="/profile">Profile</a><a href="/history">History</a><a href="/jobs">Jobs</a><a href="/runs">Runs</a>
+<a href="/authorizations">Authorizations</a><a href="/outreach">Outreach</a><a href="/sync">Sync</a><a href="/usage">Usage</a>
+<span style="margin-left:auto"></span>
+<form class="inline" method="post" action="/controls/emergency-stop"><input type="hidden" name="csrf" value="{{ csrf }}">
+<input type="hidden" name="active" value="{{ 'off' if emergency else 'on' }}">
+<button class="{{ 'secondary' if emergency else 'danger' }}">{{ 'Clear emergency stop' if emergency else 'EMERGENCY STOP' }}</button></form>
+<form class="inline" method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Sign out</button></form>
+</header>
+{% if emergency %}<div class="stop">Emergency stop active: queued external actions are blocked. In-flight actions are preserved for reconciliation.</div>{% endif %}
+<main>
+{% if open_questions %}<div class="card questions"><strong>Open questions for Joss</strong><ul>{% for q in open_questions %}<li>{{ q }}</li>{% endfor %}</ul></div>{% endif %}
+{% block content %}{% endblock %}
+</main></body></html>

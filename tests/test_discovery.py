@@ -54,19 +54,47 @@ def _transport(payloads: dict[str, dict]):
     return httpx.Client(transport=httpx.MockTransport(handler))
 
 
-GH = {"jobs": [{"id": 101, "title": "Backend Developer", "absolute_url": "https://boards.greenhouse.io/acme/jobs/101", "updated_at": "2026-11-01T00:00:00Z",
-                "location": {"name": "Toronto, Ontario"}, "content": "<p>Permanent role. Java, Spring. Salary CAD 110,000 to 130,000.</p>", "departments": [{"name": "Eng"}]},
-               {"id": 102, "title": "Frontend Developer", "absolute_url": "https://boards.greenhouse.io/acme/jobs/102", "location": {"name": "Toronto"}, "content": "React"}]}
-LEVER = [{"id": "b402", "text": "Senior Java Backend Developer", "hostedUrl": "https://jobs.lever.co/fabrikam/b402", "applyUrl": "https://jobs.lever.co/fabrikam/b402/apply",
-          "categories": {"location": "Toronto, Ontario", "commitment": "Full-time", "team": "Platform"}, "descriptionPlain": "Build APIs", "lists": [], "createdAt": 1700000000000,
-          "workplaceType": "hybrid", "salaryRange": {"min": 120000, "max": 150000, "currency": "CAD", "interval": "per-year-salary"}}]
+GH = {
+    "jobs": [
+        {
+            "id": 101,
+            "title": "Backend Developer",
+            "absolute_url": "https://boards.greenhouse.io/acme/jobs/101",
+            "updated_at": "2026-11-01T00:00:00Z",
+            "location": {"name": "Toronto, Ontario"},
+            "content": "<p>Permanent role. Java, Spring. Salary CAD 110,000 to 130,000.</p>",
+            "departments": [{"name": "Eng"}],
+        },
+        {"id": 102, "title": "Frontend Developer", "absolute_url": "https://boards.greenhouse.io/acme/jobs/102", "location": {"name": "Toronto"}, "content": "React"},
+    ]
+}
+LEVER = [
+    {
+        "id": "b402",
+        "text": "Senior Java Backend Developer",
+        "hostedUrl": "https://jobs.lever.co/fabrikam/b402",
+        "applyUrl": "https://jobs.lever.co/fabrikam/b402/apply",
+        "categories": {"location": "Toronto, Ontario", "commitment": "Full-time", "team": "Platform"},
+        "descriptionPlain": "Build APIs",
+        "lists": [],
+        "createdAt": 1700000000000,
+        "workplaceType": "hybrid",
+        "salaryRange": {"min": 120000, "max": 150000, "currency": "CAD", "interval": "per-year-salary"},
+    }
+]
 
 
 @pytest.mark.mongo
 def test_board_adapters_ingest_dedupe_qualify_and_rank(store):
     client = _transport({"greenhouse.io": GH, "lever.co": LEVER})
-    provider = FakeProvider({"FitOutput": lambda u: {"rank": 2, "fit_points": ["emp_x supports Java", "keyword only point"], "genuine_gaps": ["Spring Batch"], "missing_evidence": []},
-                             "ExtractOutput": lambda u: json.loads('{"employment_type": "permanent", "salary_min": 110000, "salary_max": 130000, "salary_currency": "CAD", "salary_period": "annual"}')})
+    provider = FakeProvider(
+        {
+            "FitOutput": lambda u: {"rank": 2, "fit_points": ["emp_x supports Java", "keyword only point"], "genuine_gaps": ["Spring Batch"], "missing_evidence": []},
+            "ExtractOutput": lambda u: json.loads(
+                '{"employment_type": "permanent", "salary_min": 110000, "salary_max": 130000, "salary_currency": "CAD", "salary_period": "annual"}'
+            ),
+        }
+    )
     disc = Discovery(store, PROFILE, AIRunner(store, provider, catalog, Pricing(None)))
     raws = GreenhouseSource(client).fetch("acme", "Acme") + LeverSource(client).fetch("fabrikam", "Fabrikam")
     assert len(raws) == 3
@@ -90,8 +118,9 @@ def test_board_adapters_ingest_dedupe_qualify_and_rank(store):
 @pytest.mark.mongo
 def test_linkedin_url_import_becomes_handoff_and_dedupes_with_tracker_history(store):
     disc = Discovery(store, PROFILE)
-    j = disc.import_url("https://www.linkedin.com/jobs/view/4467629125/?refId=zzz", employer="Tata Consultancy Services", title="Java Developer",
-                        posting_text="Permanent Java Developer in Toronto")
+    j = disc.import_url(
+        "https://www.linkedin.com/jobs/view/4467629125/?refId=zzz", employer="Tata Consultancy Services", title="Java Developer", posting_text="Permanent Java Developer in Toronto"
+    )
     assert j["linkedin_job_id"] == "4467629125" and j["apply_route"] == "linkedin_or_employer_site_handoff"
     store.c("applications").insert_one({"_id": "app_li-4467629125", "job_id": j["_id"], "tracker_record_id": "li-4467629125", "status": "submitted"})
     q = disc.qualify_job(j["_id"], use_model_extraction=False)

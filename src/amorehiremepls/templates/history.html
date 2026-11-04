@@ -1,0 +1,14 @@
+{% extends "base.html" %}{% block content %}
+<div class="card"><h3>Tracker import</h3>
+<p>Clone: {{ sync.clone }} <span class="badge {{ 'ok' if sync.clone_present else 'bad' }}">{{ 'present' if sync.clone_present else 'missing' }}</span> {% if sync.head %}HEAD {{ sync.head }}{% endif %}</p>
+{% if preview %}{% if preview.error %}<p class="badge bad">{{ preview.error }}</p>{% else %}
+<p>Commit <code>{{ preview.source_commit[:12] }}</code> · {{ preview.source_path }} · sha256 {{ preview.source_sha256[:12] }}… · {{ preview.total }} records ({{ preview.by_status }})<br>
+New {{ preview.new }} · unchanged {{ preview.unchanged }} · changed {{ preview.changed }} · conflicts {{ preview.conflicts|length }} · duplicate identities {{ preview.duplicates|length }} · missing/changed artifacts {{ preview.missing_artifacts|length }}</p>
+{% if preview.duplicates %}<pre>{{ preview.duplicates|json }}</pre>{% endif %}{% if preview.conflicts %}<pre>{{ preview.conflicts|json }}</pre>{% endif %}{% if preview.missing_artifacts %}<pre>{{ preview.missing_artifacts|json }}</pre>{% endif %}
+<form method="post" action="/history/import"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Import / re-import (idempotent)</button></form>{% endif %}{% endif %}
+<table><tr><th>Imported</th><th>Commit</th><th>Counts</th></tr>{% for i in imports %}<tr><td>{{ i.created_at|toronto }}</td><td>{{ i.source_commit[:12] }}</td><td>{{ i.counts }}</td></tr>{% endfor %}</table></div>
+<div class="card"><h3>Imported history ({{ apps|length }})</h3>
+<table><tr><th>Record</th><th>Employer / role</th><th>Status</th><th>Date</th><th>Evidence basis</th><th>Artifacts</th><th>Sync</th></tr>
+{% for a in apps %}<tr><td>{{ a.tracker_record_id }}</td><td>{{ a.record.employer }}: {{ a.record.role }}</td><td><span class="badge">{{ a.status }}</span></td><td>{{ a.record.application_date }}<br><small>{{ a.record.date_basis }}</small></td><td><small>{{ a.record.evidence_basis or '—' }}</small></td>
+<td>{% for s in a.artifact_status %}<span class="badge {{ 'ok' if s.hash_ok else 'bad' }}">{{ s.kind }}</span> {% endfor %}</td><td>{{ a.sync.state }}</td></tr>{% endfor %}</table></div>
+{% endblock %}

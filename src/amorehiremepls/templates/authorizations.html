@@ -1,0 +1,11 @@
+{% extends "base.html" %}{% block content %}
+<div class="card"><h3>Bounded batch authorization</h3>
+<form method="post" action="/authorizations/batch"><input type="hidden" name="csrf" value="{{ csrf }}">
+Kind <select name="kind"><option>application_submit</option><option>outreach_first_contact</option><option>connection_request</option><option>follow_up</option><option>email_send</option></select>
+Employers <input name="employers" placeholder="Acme, Globex"> Sites <input name="sites" placeholder="boards.greenhouse.io, jobs.lever.co"> Max fit rank <input name="max_fit_rank" type="number" value="2" style="width:3rem">
+Max count <input name="max_count" type="number" value="3" style="width:3rem"> Hours <input name="hours" type="number" value="48" style="width:4rem"> <input name="note" placeholder="note"> <button>Grant batch scope</button></form>
+<p><small>Stops on the first needs_verification or failure and never covers packages with outstanding unknowns.</small></p></div>
+<div class="card"><h3>Scopes</h3><table><tr><th>ID</th><th>Kind</th><th>Mode</th><th>Status</th><th>Target / filters</th><th>Used</th><th>Expires</th><th></th></tr>
+{% for s in scopes %}<tr><td><small>{{ s._id }}</small></td><td>{{ s.kind }}</td><td>{{ s.mode }}</td><td><span class="badge">{{ s.status }}</span></td><td><small>{{ s.binding.target_id or s.binding.job_filters }}</small></td><td>{{ s.used_count }}/{{ s.max_count }}</td><td>{{ s.expires_at|toronto }}</td>
+<td>{% if s.status == 'active' %}<form method="post" action="/authorizations/{{ s._id }}/revoke"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Revoke</button></form>{% endif %}</td></tr>{% endfor %}</table></div>
+{% endblock %}

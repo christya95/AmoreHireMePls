@@ -1,0 +1,9 @@
+{% extends "base.html" %}{% block content %}
+<div class="card"><h3>Measured usage</h3><p>Pricing file: {{ pricing or 'none loaded (all costs unknown)' }} · confirmed local submissions: {{ submitted }}</p>
+<table><tr><th>Skill@version</th><th>Calls</th><th>Cached</th><th>Input</th><th>Output</th><th>Known cost USD</th><th>Unknown-cost calls</th></tr>
+{% for s in by_skill %}<tr><td>{{ s._id }}</td><td>{{ s.calls }}</td><td>{{ s.cached }}</td><td>{{ s.in }}</td><td>{{ s.out }}</td><td>{{ '%.4f'|format(s.cost) }}</td><td>{{ s.unknown }}</td></tr>{% endfor %}</table>
+<p><small>Cost per verified outcome is only meaningful when every call has known pricing; unknown is reported as unknown, not zero.</small></p></div>
+<div class="card"><h3>Skill catalog</h3><table><tr><th>Name</th><th>Version</th><th>Purpose</th><th>I/O</th><th>Unavailable behaviour</th></tr>{% for s in catalog %}<tr><td>{{ s.name }}</td><td>{{ s.version }}</td><td>{{ s.purpose }}</td><td>{{ s.input }} → {{ s.output }}</td><td>{{ s.unavailable_behavior }}</td></tr>{% endfor %}</table></div>
+<div class="card"><h3>Recent calls</h3><table><tr><th>When</th><th>Run</th><th>Skill</th><th>Model</th><th>In/Out/Cached</th><th>Cost</th><th>Latency</th></tr>
+{% for r in rows %}<tr><td>{{ r.created_at|toronto }}</td><td><small>{{ r.run_id or '' }}</small></td><td>{{ r.skill }}</td><td>{{ r.model }}</td><td>{{ r.input_tokens }}/{{ r.output_tokens }}/{{ r.cached_tokens or 0 }}</td><td>{{ '%.5f'|format(r.cost_usd) if r.cost_known and r.cost_usd is not none else 'unknown' }}</td><td>{{ r.latency_ms }} ms</td></tr>{% endfor %}</table></div>
+{% endblock %}

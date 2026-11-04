@@ -205,6 +205,42 @@ class BrowserAdapter:
         except Exception as exc:  # screenshots are best effort
             evidence["screenshot_error"] = type(exc).__name__
 
+    def scan_form(self, url: str, site_key: str = "default") -> list[dict[str, Any]]:
+        """Read-only: list visible form controls with labels, types, options and stable selectors."""
+        from playwright.sync_api import sync_playwright
+
+        self._check_host(url)
+        state = self._state_path(site_key)
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=self.config.headless)
+            context = browser.new_context(accept_downloads=False, storage_state=str(state) if state and state.exists() else None)
+            page = context.new_page()
+            try:
+                page.goto(url, wait_until="domcontentloaded")
+                self._detect_login(page, {})
+                fields = page.evaluate(
+                    """() => {
+                      const out = [];
+                      const labelFor = (el) => {
+                        if (el.id) { const l = document.querySelector(`label[for="${el.id}"]`); if (l) return l.innerText.trim(); }
+                        const p = el.closest('label'); if (p) return p.innerText.trim();
+                        return el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.name || el.id || '';
+                      };
+                      document.querySelectorAll('input, select, textarea').forEach((el, i) => {
+                        if (el.type === 'hidden' || el.type === 'submit' || el.type === 'button') return;
+                        const sel = el.id ? `#${CSS.escape(el.id)}` : (el.name ? `${el.tagName.toLowerCase()}[name="${el.name}"]` : null);
+                        if (!sel) return;
+                        const opts = el.tagName === 'SELECT' ? Array.from(el.options).map(o => o.text.trim()) : [];
+                        const type = el.tagName === 'SELECT' ? 'select' : (el.type || el.tagName.toLowerCase());
+                        out.push({id: el.id || el.name || `f${i}`, label: labelFor(el), type: type, options: opts, selector: sel, required: el.required});
+                      });
+                      return out; }"""
+                )
+                return fields
+            finally:
+                context.close()
+                browser.close()
+
     # -- sessions -----------------------------------------------------------------------
     def login_interactive(self, site_key: str, start_url: str, done_when_url_matches: str | None = None, timeout_s: int = 600) -> Path:
         """Headed browser for the user to complete login on the Mac; saves storage state privately."""

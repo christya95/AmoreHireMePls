@@ -12,8 +12,14 @@ def fit_response(user: str) -> dict:
 
 
 def _inputs(text="Java backend role", employer="Acme"):
-    return FitInput(job_title="Backend Developer", employer=employer, posting_text=text, candidate_facts=["emp_1: RBC Software Developer"],
-                    experience_summary={"full_time_years_completed": 3}, role_rules={})
+    return FitInput(
+        job_title="Backend Developer",
+        employer=employer,
+        posting_text=text,
+        candidate_facts=["emp_1: RBC Software Developer"],
+        experience_summary={"full_time_years_completed": 3},
+        role_rules={},
+    )
 
 
 def test_pricing_unknown_model_is_unknown_not_zero(tmp_path):

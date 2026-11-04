@@ -63,9 +63,15 @@ class Catalog:
 
     def describe(self) -> list[dict[str, Any]]:
         return [
-            {"name": s.name, "version": s.version, "purpose": s.purpose, "input": s.input_model.model_json_schema()["title"],
-             "output": s.output_model.model_json_schema()["title"], "required_tools": list(s.required_tools),
-             "unavailable_behavior": s.unavailable_behavior}
+            {
+                "name": s.name,
+                "version": s.version,
+                "purpose": s.purpose,
+                "input": s.input_model.model_json_schema()["title"],
+                "output": s.output_model.model_json_schema()["title"],
+                "required_tools": list(s.required_tools),
+                "unavailable_behavior": s.unavailable_behavior,
+            }
             for s in self._skills.values()
         ]
 
@@ -146,9 +152,15 @@ class Budget:
         self.check()
 
     def summary(self) -> dict[str, Any]:
-        return {"tokens": self.tokens, "usd": round(self.usd, 6), "cost_known": self.unknown_cost_calls == 0,
-                "unknown_cost_calls": self.unknown_cost_calls, "tool_steps": self.tool_steps, "calls": self.calls,
-                "elapsed_s": round(time.monotonic() - self.started, 1)}
+        return {
+            "tokens": self.tokens,
+            "usd": round(self.usd, 6),
+            "cost_known": self.unknown_cost_calls == 0,
+            "unknown_cost_calls": self.unknown_cost_calls,
+            "tool_steps": self.tool_steps,
+            "calls": self.calls,
+            "elapsed_s": round(time.monotonic() - self.started, 1),
+        }
 
 
 # -- providers --------------------------------------------------------------------------
@@ -219,9 +231,13 @@ class LangChainProvider(Provider):
         if result.get("parsing_error") or parsed is None:
             raise ValueError(f"structured output failed: {result.get('parsing_error')}")
         meta = getattr(raw, "usage_metadata", None) or {}
-        usage = Usage(input_tokens=meta.get("input_tokens"), output_tokens=meta.get("output_tokens"),
-                      cached_tokens=(meta.get("input_token_details") or {}).get("cache_read"), model=self.model,
-                      latency_ms=int((time.monotonic() - start) * 1000))
+        usage = Usage(
+            input_tokens=meta.get("input_tokens"),
+            output_tokens=meta.get("output_tokens"),
+            cached_tokens=(meta.get("input_token_details") or {}).get("cache_read"),
+            model=self.model,
+            latency_ms=int((time.monotonic() - start) * 1000),
+        )
         return parsed, usage
 
     def check(self):
@@ -251,8 +267,7 @@ class SkillResult(BaseModel):
 
 
 class AIRunner:
-    def __init__(self, store: Store | None, provider: Provider, catalog: Catalog, pricing: Pricing, budget: Budget | None = None,
-                 run_id: str | None = None) -> None:
+    def __init__(self, store: Store | None, provider: Provider, catalog: Catalog, pricing: Pricing, budget: Budget | None = None, run_id: str | None = None) -> None:
         self.store = store
         self.provider = provider
         self.catalog = catalog
@@ -263,11 +278,11 @@ class AIRunner:
         self._inflight_lock = threading.Lock()
 
     def cache_key(self, spec: SkillSpec, inputs: BaseModel, fact_version: int | None, posting_hash: str | None) -> str:
-        return sha256_json({"skill": spec.prompt_id(), "model": self.provider.model, "inputs": inputs.model_dump(mode="json"),
-                            "fact_version": fact_version, "posting_hash": posting_hash})
+        return sha256_json(
+            {"skill": spec.prompt_id(), "model": self.provider.model, "inputs": inputs.model_dump(mode="json"), "fact_version": fact_version, "posting_hash": posting_hash}
+        )
 
-    def run(self, skill_name: str, inputs: BaseModel, *, fact_version: int | None = None, posting_hash: str | None = None,
-            untrusted_fields: tuple[str, ...] = ()) -> SkillResult:
+    def run(self, skill_name: str, inputs: BaseModel, *, fact_version: int | None = None, posting_hash: str | None = None, untrusted_fields: tuple[str, ...] = ()) -> SkillResult:
         spec = self.catalog.get(skill_name)
         key = self.cache_key(spec, inputs, fact_version, posting_hash)
         cached = self._cache_get(key)
@@ -288,7 +303,7 @@ class AIRunner:
                 try:
                     parsed, usage = self.provider.structured(spec.system_prompt, user, spec.output_model, spec.max_output_tokens)
                     break
-                except (ValueError,) as exc:  # one bounded repair attempt for schema failures
+                except ValueError as exc:  # one bounded repair attempt for schema failures
                     attempts += 1
                     if attempts > 1:
                         raise
@@ -310,7 +325,7 @@ class AIRunner:
         parts = []
         for k, v in data.items():
             if k in untrusted_fields:
-                parts.append(f"<untrusted field=\"{k}\">\n{UNTRUSTED_PREFIX}{v}\n</untrusted>")
+                parts.append(f'<untrusted field="{k}">\n{UNTRUSTED_PREFIX}{v}\n</untrusted>')
             else:
                 parts.append(f"{k}: {json.dumps(v, ensure_ascii=False)}")
         return "\n".join(parts)
@@ -324,16 +339,23 @@ class AIRunner:
     def _cache_put(self, key: str, spec: SkillSpec, output: dict, usage: Usage) -> None:
         if self.store is None:
             return
-        self.store.c("cache").update_one({"cache_key": key}, {"$set": {"output": output, "skill": spec.prompt_id(), "model": self.provider.model,
-                                                                       "usage": usage.model_dump(), "created_at": utcnow()}}, upsert=True)
+        self.store.c("cache").update_one(
+            {"cache_key": key},
+            {"$set": {"output": output, "skill": spec.prompt_id(), "model": self.provider.model, "usage": usage.model_dump(), "created_at": utcnow()}},
+            upsert=True,
+        )
 
     def _record_usage(self, spec: SkillSpec, usage: Usage) -> None:
         if self.store is None:
             return
         self.store.c("usage").insert_one({"run_id": self.run_id, "skill": spec.prompt_id(), **usage.model_dump(), "created_at": utcnow()})
         if self.run_id:
-            inc = {"usage.calls": 1, "usage.input_tokens": usage.input_tokens or 0, "usage.output_tokens": usage.output_tokens or 0,
-                   "usage.cached_tokens": usage.cached_tokens or 0}
+            inc = {
+                "usage.calls": 1,
+                "usage.input_tokens": usage.input_tokens or 0,
+                "usage.output_tokens": usage.output_tokens or 0,
+                "usage.cached_tokens": usage.cached_tokens or 0,
+            }
             update: dict[str, Any] = {"$inc": inc}
             if usage.cost_known and usage.cost_usd is not None:
                 inc["usage.cost_usd"] = usage.cost_usd

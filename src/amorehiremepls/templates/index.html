@@ -1,0 +1,19 @@
+{% extends "base.html" %}{% block content %}
+<div class="grid">
+<div class="card"><h3>Health</h3>
+<p>Database <span class="badge {{ 'ok' if health.ok else 'bad' }}">{{ 'ok' if health.ok else 'down' }}</span> {{ health.db.version }}<br>
+Worker <span class="badge {{ 'ok' if worker_ok else 'warn' }}">{{ 'heartbeat ok' if worker_ok else 'no recent heartbeat' }}</span><br>
+Provider <span class="badge {{ 'ok' if health.provider_configured else 'warn' }}">{{ provider }}</span> <a href="/provider/check">connection check</a><br>
+Base resume <span class="badge {{ 'ok' if base_resume else 'bad' }}">{{ 'selected' if base_resume else 'not selected' }}</span><br>
+Discovery schedule: {{ schedule }}</p>
+{% if missing %}<p><small>Missing essentials: {{ missing|join(', ') }}</small></p>{% endif %}</div>
+<div class="card"><h3>Jobs</h3><table>{% for k,v in counts.jobs.items() %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% endfor %}</table></div>
+<div class="card"><h3>Applications</h3><table>{% for k,v in counts.applications.items() %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% endfor %}</table>
+<p>Actions needing verification: <strong>{{ counts.needs_verification }}</strong></p></div>
+<div class="card"><h3>Tracker sync</h3><table>{% for k,v in counts.sync.items() %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% endfor %}</table><a href="/sync">details</a></div>
+<div class="card"><h3>Measured usage</h3><p>{{ usage.calls or 0 }} model calls, {{ usage.in or 0 }} in / {{ usage.out or 0 }} out tokens.<br>
+Known cost: ${{ '%.4f'|format(usage.cost or 0) }}{% if usage.unknown %} <span class="badge warn">{{ usage.unknown }} calls with unknown cost</span>{% endif %}</p><a href="/usage">details</a></div>
+</div>
+<div class="card"><h3>Recent runs</h3><table><tr><th>Run</th><th>Kind</th><th>Status</th><th>Interrupt</th><th>Created</th></tr>
+{% for r in runs %}<tr><td><a href="/runs/{{ r._id }}">{{ r._id }}</a></td><td>{{ r.kind }}</td><td><span class="badge">{{ r.status }}</span></td><td>{{ r.interrupt.type if r.interrupt else '' }}</td><td>{{ r.created_at|toronto }}</td></tr>{% endfor %}</table></div>
+{% endblock %}

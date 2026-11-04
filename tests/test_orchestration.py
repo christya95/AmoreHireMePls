@@ -24,8 +24,12 @@ class FakeServices:
         return [{"id": "fn", "label": "First name"}]
 
     def prepare(self, job_id, fields):
-        app = {"_id": f"app_{job_id}", "status": "needs_input" if self.needs_input else "ready_for_review", "material_hash": "m1",
-               "review_package": {"outstanding": ["answer needed: Why us?"] if self.needs_input else [], "answers": [], "employer": "Acme", "title": "Dev"}}
+        app = {
+            "_id": f"app_{job_id}",
+            "status": "needs_input" if self.needs_input else "ready_for_review",
+            "material_hash": "m1",
+            "review_package": {"outstanding": ["answer needed: Why us?"] if self.needs_input else [], "answers": [], "employer": "Acme", "title": "Dev"},
+        }
         self.apps[app["_id"]] = app
         return app
 

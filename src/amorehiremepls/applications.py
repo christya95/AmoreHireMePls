@@ -88,8 +88,9 @@ def _pick_option(options: list[str], want_yes: bool) -> str | None:
     return None
 
 
-def map_answers(fields: list[FormField], profile: Profile, job: dict, resume_path: str | None, band: BandEvidence | None = None,
-                fit: str = "fair", as_of: date | None = None) -> list[Answer]:
+def map_answers(
+    fields: list[FormField], profile: Profile, job: dict, resume_path: str | None, band: BandEvidence | None = None, fit: str = "fair", as_of: date | None = None
+) -> list[Answer]:
     answers: list[Answer] = []
     exp = compute_experience(profile.employment, as_of)
     for f in fields:
@@ -113,8 +114,16 @@ def map_answers(fields: list[FormField], profile: Profile, job: dict, resume_pat
             continue
         if key in ("__years_full_time__", "__years_total__"):
             years = exp.full_time_years_completed if key == "__years_full_time__" else exp.total_years_completed
-            answers.append(Answer(f.id, label, str(years), [e.id for e in profile.employment], needs_input=bool(exp.unknown_ranges and key == "__years_total__"),
-                                  reason="completed years computed from dates" + ("; some ranges unknown" if exp.unknown_ranges else "")))
+            answers.append(
+                Answer(
+                    f.id,
+                    label,
+                    str(years),
+                    [e.id for e in profile.employment],
+                    needs_input=bool(exp.unknown_ranges and key == "__years_total__"),
+                    reason="completed years computed from dates" + ("; some ranges unknown" if exp.unknown_ranges else ""),
+                )
+            )
             continue
         fact = profile.fact(key)
         value = fact.value if fact else (profile.preferences.work_authorization if key == "work_authorization" else None)
@@ -150,8 +159,16 @@ class ApplicationService:
         app = self.apps.find_one({"job_id": job_id, "provenance.origin": "local"})
         if app:
             return app
-        app = {"_id": new_id("app"), "job_id": job_id, "status": "queued", "provenance": {"origin": "local", "created_at": utcnow()},
-               "sync": {"state": "not_applicable"}, "created_at": utcnow(), "updated_at": utcnow(), "history": []}
+        app = {
+            "_id": new_id("app"),
+            "job_id": job_id,
+            "status": "queued",
+            "provenance": {"origin": "local", "created_at": utcnow()},
+            "sync": {"state": "not_applicable"},
+            "created_at": utcnow(),
+            "updated_at": utcnow(),
+            "history": [],
+        }
         self.apps.insert_one(app)
         return app
 
@@ -159,7 +176,9 @@ class ApplicationService:
         upd: dict[str, Any] = {"updated_at": utcnow(), **fields}
         if status:
             upd["status"] = status
-        self.apps.update_one({"_id": app_id}, {"$set": upd, "$push": {"history": {"at": utcnow(), "status": status, **{k: v for k, v in fields.items() if k in ("reason", "next_action")}}}})
+        self.apps.update_one(
+            {"_id": app_id}, {"$set": upd, "$push": {"history": {"at": utcnow(), "status": status, **{k: v for k, v in fields.items() if k in ("reason", "next_action")}}}}
+        )
         return self.apps.find_one({"_id": app_id})
 
     def prepare(self, job_id: str, fields: list[FormField], base_resume_path: Path | None = None) -> dict:
@@ -180,8 +199,15 @@ class ApplicationService:
             unknowns.append("approved base resume not selected")
         else:
             snapshot = job.get("latest_snapshot") or {}
-            artifact = self.store.c("artifacts").find_one({"owner_id": job_id, "kind": "resume_tailored", "fact_version": self.profile.version,
-                                                           "posting_hash": snapshot.get("posting_hash"), "base_sha256": base.sha256 if base else None})
+            artifact = self.store.c("artifacts").find_one(
+                {
+                    "owner_id": job_id,
+                    "kind": "resume_tailored",
+                    "fact_version": self.profile.version,
+                    "posting_hash": snapshot.get("posting_hash"),
+                    "base_sha256": base.sha256 if base else None,
+                }
+            )
             if artifact is None:
                 display = self.profile.fact_value("display_name") or "Resume"
                 artifact = self.tailor.tailor_for_job(job, base_path, base.sha256 if base else "", self.profile.version, display_name=display)
@@ -190,8 +216,16 @@ class ApplicationService:
         ext = job.get("extracted") or (job.get("latest_snapshot") or {}).get("extracted") or {}
         band = None
         if ext.get("salary_min") and ext.get("salary_max"):
-            band = BandEvidence(min_base=ext["salary_min"], max_base=ext["salary_max"], currency=ext.get("salary_currency"), period=ext.get("salary_period") or "annual",
-                                title_matches=True, location_matches=True, source_url=job.get("posting_url"), is_total_comp_or_ote=bool(ext.get("salary_is_total_comp")))
+            band = BandEvidence(
+                min_base=ext["salary_min"],
+                max_base=ext["salary_max"],
+                currency=ext.get("salary_currency"),
+                period=ext.get("salary_period") or "annual",
+                title_matches=True,
+                location_matches=True,
+                source_url=job.get("posting_url"),
+                is_total_comp_or_ote=bool(ext.get("salary_is_total_comp")),
+            )
         fit_rank = (job.get("fit") or {}).get("rank")
         fit = "strong" if fit_rank == 1 else "stretch" if (fit_rank or 3) >= 4 else "fair"
         resume_pdf = artifact.get("pdf_path") if artifact and artifact.get("page_limit_verified") else (artifact.get("path") if artifact else None)
@@ -201,19 +235,45 @@ class ApplicationService:
         unknowns += self.profile.missing_essentials()
         unknowns = sorted(set(unknowns))
         package = {
-            "employer": job["employer"], "title": job["title"], "posting_url": job.get("posting_url"), "requisition_id": job.get("requisition_id"),
-            "linkedin_job_id": job.get("linkedin_job_id"), "apply_url": job.get("apply_url") or job.get("posting_url"), "apply_route": job.get("apply_route"),
-            "document": {"filename": artifact.get("filename"), "sha256": artifact.get("sha256"), "pdf_sha256": artifact.get("pdf_sha256"), "pages": artifact.get("pages"),
-                         "page_limit_verified": artifact.get("page_limit_verified"), "path": resume_pdf, "render_note": artifact.get("render_note")} if artifact else None,
-            "answers": [a.as_dict() for a in answers], "gaps": (job.get("fit") or {}).get("genuine_gaps", []),
-            "qualification": job.get("qualification"), "outstanding": unknowns, "prepared_at": utcnow(),
+            "employer": job["employer"],
+            "title": job["title"],
+            "posting_url": job.get("posting_url"),
+            "requisition_id": job.get("requisition_id"),
+            "linkedin_job_id": job.get("linkedin_job_id"),
+            "apply_url": job.get("apply_url") or job.get("posting_url"),
+            "apply_route": job.get("apply_route"),
+            "document": {
+                "filename": artifact.get("filename"),
+                "sha256": artifact.get("sha256"),
+                "pdf_sha256": artifact.get("pdf_sha256"),
+                "pages": artifact.get("pages"),
+                "page_limit_verified": artifact.get("page_limit_verified"),
+                "path": resume_pdf,
+                "render_note": artifact.get("render_note"),
+            }
+            if artifact
+            else None,
+            "answers": [a.as_dict() for a in answers],
+            "gaps": (job.get("fit") or {}).get("genuine_gaps", []),
+            "qualification": job.get("qualification"),
+            "outstanding": unknowns,
+            "prepared_at": utcnow(),
             "unsupported_requirements_note": artifact.get("unsupported_requirements_note") if artifact else "",
         }
-        mhash = material_hash(answers=[(a.field_id, a.value) for a in answers if not a.needs_input], document_hashes=[h for h in [artifact.get("sha256") if artifact else None, artifact.get("pdf_sha256") if artifact else None] if h],
-                              extra={"job_id": job_id, "requisition": job.get("requisition_id"), "apply_url": package["apply_url"]})
+        mhash = material_hash(
+            answers=[(a.field_id, a.value) for a in answers if not a.needs_input],
+            document_hashes=[h for h in [artifact.get("sha256") if artifact else None, artifact.get("pdf_sha256") if artifact else None] if h],
+            extra={"job_id": job_id, "requisition": job.get("requisition_id"), "apply_url": package["apply_url"]},
+        )
         status = "needs_input" if unknowns else "ready_for_review"
-        return self._set(app["_id"], status, review_package=package, material_hash=mhash, artifact_id=artifact["_id"] if artifact else None,
-                         next_action="supply missing inputs" if unknowns else "review and authorize")
+        return self._set(
+            app["_id"],
+            status,
+            review_package=package,
+            material_hash=mhash,
+            artifact_id=artifact["_id"] if artifact else None,
+            next_action="supply missing inputs" if unknowns else "review and authorize",
+        )
 
     def supply_inputs(self, app_id: str, values: dict[str, str]) -> dict:
         app = self.apps.find_one({"_id": app_id})
@@ -223,8 +283,11 @@ class ApplicationService:
                 a["value"], a["needs_input"], a["fact_ids"], a["reason"] = values[a["field_id"]], False, ["user:input"], "supplied by Joss"
         pkg["outstanding"] = [u for u in pkg["outstanding"] if not any(u == f"answer needed: {a['label']}" for a in pkg["answers"] if not a["needs_input"])]
         doc_hashes = [h for h in [(pkg.get("document") or {}).get("sha256"), (pkg.get("document") or {}).get("pdf_sha256")] if h]
-        mhash = material_hash(answers=[(a["field_id"], a["value"]) for a in pkg["answers"] if not a["needs_input"]], document_hashes=doc_hashes,
-                              extra={"job_id": app["job_id"], "requisition": pkg.get("requisition_id"), "apply_url": pkg["apply_url"]})
+        mhash = material_hash(
+            answers=[(a["field_id"], a["value"]) for a in pkg["answers"] if not a["needs_input"]],
+            document_hashes=doc_hashes,
+            extra={"job_id": app["job_id"], "requisition": pkg.get("requisition_id"), "apply_url": pkg["apply_url"]},
+        )
         status = "needs_input" if pkg["outstanding"] else "ready_for_review"
         self.store.audit("inputs_supplied", app_id, fields=list(values))
         return self._set(app_id, status, review_package=pkg, material_hash=mhash)
@@ -240,14 +303,20 @@ class ApplicationService:
         host = (pkg.get("apply_url") or "").split("/")[2].lower() if pkg.get("apply_url") and "://" in pkg["apply_url"] else None
         builder = self._builder_for(host, pkg.get("apply_route"))
         if builder is None or run_adapter is None:
-            self._set(app_id, "handoff", reason=f"no supported site adapter for {host or pkg.get('apply_route')}", next_action="complete manually from the review package, then record the confirmation")
+            self._set(
+                app_id,
+                "handoff",
+                reason=f"no supported site adapter for {host or pkg.get('apply_route')}",
+                next_action="complete manually from the review package, then record the confirmation",
+            )
             self.store.audit("application_handoff", app_id, host=host)
             return Outcome("handoff", "manual completion required", action_id=None)
         reserved = self.store.reserve("jobs", {"_id": job["_id"]}, worker, [job["status"]], "executing") if job["status"] != "executing" else self.jobs.get(job["_id"])
         if reserved is None:
             return Outcome("in_progress", "job reserved by another worker")
-        action = self.actions.prepare("application_submit", job["_id"], f"submit:{job['_id']}", {"application_id": app_id, "apply_url": pkg["apply_url"]},
-                                      app["material_hash"], host=host)
+        action = self.actions.prepare(
+            "application_submit", job["_id"], f"submit:{job['_id']}", {"application_id": app_id, "apply_url": pkg["apply_url"]}, app["material_hash"], host=host
+        )
         if action.get("material_hash") != app["material_hash"] and action["status"] in ("succeeded", "needs_verification"):
             self.store.release("jobs", {"_id": job["_id"]}, worker, job["status"])
             return Outcome(action["status"], "an earlier submission for this job already exists; reconcile first", action_id=action["_id"])
@@ -273,11 +342,24 @@ class ApplicationService:
         app_id = app["_id"]
         if outcome.status == "succeeded":
             ev = outcome.evidence
-            self._set(app_id, "submitted", submitted_at=utcnow(), application_date=to_toronto(utcnow()).date().isoformat(),
-                      evidence={"basis": "receipt_observed", "receipt_text": (ev.get("receipt_text") or "")[:1000], "final_url": ev.get("final_url"),
-                                "screenshots": ev.get("screenshots", []), "verified_identifiers": [job.get("requisition_id")], "action_id": outcome.action_id},
-                      evidence_basis="receipt_screenshot_reviewed" if ev.get("screenshots") else "employer_status_reviewed",
-                      date_basis="employer receipt observed in America/Toronto", sync={"state": "sync_pending"}, next_action="tracker sync + recruiter outreach prep")
+            self._set(
+                app_id,
+                "submitted",
+                submitted_at=utcnow(),
+                application_date=to_toronto(utcnow()).date().isoformat(),
+                evidence={
+                    "basis": "receipt_observed",
+                    "receipt_text": (ev.get("receipt_text") or "")[:1000],
+                    "final_url": ev.get("final_url"),
+                    "screenshots": ev.get("screenshots", []),
+                    "verified_identifiers": [job.get("requisition_id")],
+                    "action_id": outcome.action_id,
+                },
+                evidence_basis="receipt_screenshot_reviewed" if ev.get("screenshots") else "employer_status_reviewed",
+                date_basis="employer receipt observed in America/Toronto",
+                sync={"state": "sync_pending"},
+                next_action="tracker sync + recruiter outreach prep",
+            )
             self.store.release("jobs", {"_id": job["_id"]}, worker, "applied")
             from .sync import SyncOutbox
 
@@ -289,7 +371,12 @@ class ApplicationService:
             self._set(app_id, "failed", reason=outcome.reason, evidence=outcome.evidence, next_action="fix the reported problem and prepare again")
             self.store.release("jobs", {"_id": job["_id"]}, worker, "qualified")
         elif outcome.status in ("denied", "blocked"):
-            self._set(app_id, "ready_for_review" if outcome.status == "denied" else "blocked", reason=outcome.reason, next_action="grant authorization" if outcome.status == "denied" else "emergency stop active")
+            self._set(
+                app_id,
+                "ready_for_review" if outcome.status == "denied" else "blocked",
+                reason=outcome.reason,
+                next_action="grant authorization" if outcome.status == "denied" else "emergency stop active",
+            )
             self.store.release("jobs", {"_id": job["_id"]}, worker, job["status"] if job["status"] != "executing" else "qualified")
         else:
             self.store.release("jobs", {"_id": job["_id"]}, worker, job["status"] if job["status"] != "executing" else "qualified")
@@ -306,8 +393,16 @@ class ApplicationService:
             from .sync import SyncOutbox
 
             SyncOutbox(self.store).enqueue(app_id, "record_submission")
-            return self._set(app_id, "submitted", submitted_at=utcnow(), application_date=evidence.get("application_date") or to_toronto(utcnow()).date().isoformat(),
-                             evidence=ev, evidence_basis="explicit_user_confirmation", date_basis=evidence.get("date_basis", "user confirmed after reconciliation"), sync={"state": "sync_pending"})
+            return self._set(
+                app_id,
+                "submitted",
+                submitted_at=utcnow(),
+                application_date=evidence.get("application_date") or to_toronto(utcnow()).date().isoformat(),
+                evidence=ev,
+                evidence_basis="explicit_user_confirmation",
+                date_basis=evidence.get("date_basis", "user confirmed after reconciliation"),
+                sync={"state": "sync_pending"},
+            )
         self.jobs.set_status(job["_id"], "qualified")
         return self._set(app_id, "failed", reason="reconciled as not submitted", evidence=evidence)
 
@@ -320,8 +415,16 @@ class ApplicationService:
         from .sync import SyncOutbox
 
         SyncOutbox(self.store).enqueue(app_id, "record_submission")
-        return self._set(app_id, "submitted", submitted_at=utcnow(), application_date=application_date, evidence=ev, evidence_basis="explicit_user_confirmation",
-                         date_basis="user-reported date (America/Toronto)", sync={"state": "sync_pending"})
+        return self._set(
+            app_id,
+            "submitted",
+            submitted_at=utcnow(),
+            application_date=application_date,
+            evidence=ev,
+            evidence_basis="explicit_user_confirmation",
+            date_basis="user-reported date (America/Toronto)",
+            sync={"state": "sync_pending"},
+        )
 
     def _builder_for(self, host: str | None, route: str | None) -> PlanBuilder | None:
         if route and route in self.plan_builders:

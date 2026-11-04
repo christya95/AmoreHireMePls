@@ -40,10 +40,17 @@ def site():
 
 def _plan(base: str, req: str, resume: Path, phone="555 000 0000", slow: int = 0, submit_timeout=8000) -> Plan:
     steps = [
-        Step("fill", "#first_name", "Alex"), Step("fill", "#last_name", "Example"), Step("fill", "#email", "alex@example.com"),
-        Step("fill", "#phone", phone), Step("click", "#next1"),
-        Step("upload", "#resume", str(resume)), Step("select", "#work_auth", "yes"), Step("fill", "#salary", "120000"), Step("click", "#next2"),
-        Step("assert_value", "#rv_resume", resume.name), Step("assert_value", "#rv_email", "alex@example.com"),
+        Step("fill", "#first_name", "Alex"),
+        Step("fill", "#last_name", "Example"),
+        Step("fill", "#email", "alex@example.com"),
+        Step("fill", "#phone", phone),
+        Step("click", "#next1"),
+        Step("upload", "#resume", str(resume)),
+        Step("select", "#work_auth", "yes"),
+        Step("fill", "#salary", "120000"),
+        Step("click", "#next2"),
+        Step("assert_value", "#rv_resume", resume.name),
+        Step("assert_value", "#rv_email", "alex@example.com"),
     ]
     if slow:
         steps.append(Step("wait_url", r"/review/"))

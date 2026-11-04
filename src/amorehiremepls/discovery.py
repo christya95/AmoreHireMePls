@@ -78,10 +78,19 @@ class GreenhouseSource(HttpSource):
         data = self._get_json(f"https://boards-api.greenhouse.io/v1/boards/{board_token}/jobs?content=true")
         jobs = []
         for j in data.get("jobs", []):
-            jobs.append(RawJob(self.name, employer or data.get("meta", {}).get("company", board_token), j.get("title", ""), j.get("absolute_url", ""),
-                               requisition_id=str(j.get("id") or j.get("requisition_id") or ""), location=(j.get("location") or {}).get("name"),
-                               posted_at=j.get("updated_at"), content_text=html_to_text(j.get("content")),
-                               extra={"departments": [d.get("name") for d in j.get("departments", [])]}))
+            jobs.append(
+                RawJob(
+                    self.name,
+                    employer or data.get("meta", {}).get("company", board_token),
+                    j.get("title", ""),
+                    j.get("absolute_url", ""),
+                    requisition_id=str(j.get("id") or j.get("requisition_id") or ""),
+                    location=(j.get("location") or {}).get("name"),
+                    posted_at=j.get("updated_at"),
+                    content_text=html_to_text(j.get("content")),
+                    extra={"departments": [d.get("name") for d in j.get("departments", [])]},
+                )
+            )
         return jobs
 
 
@@ -93,11 +102,26 @@ class LeverSource(HttpSource):
         jobs = []
         for p in data if isinstance(data, list) else []:
             cats = p.get("categories", {})
-            text = " ".join(html_to_text(x) for x in [p.get("descriptionPlain") or p.get("description"), *(l.get("text", "") + " " + html_to_text(l.get("content")) for l in p.get("lists", []))])
-            jobs.append(RawJob(self.name, employer or site, p.get("text", ""), p.get("hostedUrl") or p.get("applyUrl", ""), requisition_id=p.get("id"),
-                               location=cats.get("location"), posted_at=str(p.get("createdAt")), content_text=text,
-                               employment_type=(cats.get("commitment") or "").lower() or None, remote_policy=(p.get("workplaceType") or "").lower() or None,
-                               salary=(p.get("salaryRange") or None), extra={"team": cats.get("team"), "apply_url": p.get("applyUrl")}))
+            text = " ".join(
+                html_to_text(x)
+                for x in [p.get("descriptionPlain") or p.get("description"), *(lst.get("text", "") + " " + html_to_text(lst.get("content")) for lst in p.get("lists", []))]
+            )
+            jobs.append(
+                RawJob(
+                    self.name,
+                    employer or site,
+                    p.get("text", ""),
+                    p.get("hostedUrl") or p.get("applyUrl", ""),
+                    requisition_id=p.get("id"),
+                    location=cats.get("location"),
+                    posted_at=str(p.get("createdAt")),
+                    content_text=text,
+                    employment_type=(cats.get("commitment") or "").lower() or None,
+                    remote_policy=(p.get("workplaceType") or "").lower() or None,
+                    salary=(p.get("salaryRange") or None),
+                    extra={"team": cats.get("team"), "apply_url": p.get("applyUrl")},
+                )
+            )
         return jobs
 
 
@@ -109,10 +133,22 @@ class AshbySource(HttpSource):
         jobs = []
         for j in data.get("jobs", []):
             comp = j.get("compensation") or {}
-            jobs.append(RawJob(self.name, employer or board_name, j.get("title", ""), j.get("jobUrl", ""), requisition_id=j.get("id"),
-                               location=j.get("location"), posted_at=j.get("publishedAt"), content_text=html_to_text(j.get("descriptionHtml") or j.get("descriptionPlain")),
-                               employment_type=(j.get("employmentType") or "").lower() or None, remote_policy="remote" if j.get("isRemote") else None,
-                               salary=comp or None, extra={"apply_url": j.get("applyUrl"), "department": j.get("department")}))
+            jobs.append(
+                RawJob(
+                    self.name,
+                    employer or board_name,
+                    j.get("title", ""),
+                    j.get("jobUrl", ""),
+                    requisition_id=j.get("id"),
+                    location=j.get("location"),
+                    posted_at=j.get("publishedAt"),
+                    content_text=html_to_text(j.get("descriptionHtml") or j.get("descriptionPlain")),
+                    employment_type=(j.get("employmentType") or "").lower() or None,
+                    remote_policy="remote" if j.get("isRemote") else None,
+                    salary=comp or None,
+                    extra={"apply_url": j.get("applyUrl"), "department": j.get("department")},
+                )
+            )
         return jobs
 
 
@@ -124,23 +160,55 @@ SOURCES = {"greenhouse": GreenhouseSource, "lever": LeverSource, "ashby": AshbyS
 
 def make_snapshot(url: str, text: str, raw_html: str | None = None, extracted: dict | None = None, source: str = "import") -> dict:
     text = text.strip()
-    return {"url": url, "source": source, "fetched_at": utcnow(), "text": text[:60000], "text_sha256": sha256_bytes(text.encode()),
-            "html_sha256": sha256_bytes(raw_html.encode()) if raw_html else None, "extracted": extracted or {}, "posting_hash": sha256_bytes(text.encode())[:16]}
+    return {
+        "url": url,
+        "source": source,
+        "fetched_at": utcnow(),
+        "text": text[:60000],
+        "text_sha256": sha256_bytes(text.encode()),
+        "html_sha256": sha256_bytes(raw_html.encode()) if raw_html else None,
+        "extracted": extracted or {},
+        "posting_hash": sha256_bytes(text.encode())[:16],
+    }
 
 
 # -- deterministic qualification -------------------------------------------------------
 
 
 INJECTION_PATTERNS = [
-    r"ignore (all|any|previous|prior) instructions", r"you are (now )?an? (ai|assistant|agent)", r"system prompt", r"disregard (the|your) (rules|instructions)",
-    r"mark (this|the) (job|posting|candidate) as", r"submit (the )?application (now|immediately|automatically)", r"send (a |the )?message to", r"reveal|print (your|the) (secret|key|token|password)",
-    r"<\s*/?\s*(system|assistant|tool|instruction)", r"run (the )?(command|tool|script)", r"api[_ -]?key",
+    r"ignore (all|any|previous|prior) instructions",
+    r"you are (now )?an? (ai|assistant|agent)",
+    r"system prompt",
+    r"disregard (the|your) (rules|instructions)",
+    r"mark (this|the) (job|posting|candidate) as",
+    r"submit (the )?application (now|immediately|automatically)",
+    r"send (a |the )?message to",
+    r"reveal|print (your|the) (secret|key|token|password)",
+    r"<\s*/?\s*(system|assistant|tool|instruction)",
+    r"run (the )?(command|tool|script)",
+    r"api[_ -]?key",
 ]
 _INJECTION_RE = re.compile("|".join(INJECTION_PATTERNS), re.IGNORECASE)
 
 CONTRACT_TERMS = ("contract", "contractor", "temporary", "temp ", "fixed term", "fixed-term", "internship", "intern ", "co-op", "coop", "freelance", "part-time", "part time")
 PERMANENT_TERMS = ("permanent", "full-time", "full time", "fulltime", "regular")
-ONTARIO_TERMS = ("ontario", "toronto", "gta", "mississauga", "milton", "oakville", "markham", "vaughan", "brampton", "burlington", "hamilton", "waterloo", "kitchener", "ottawa", "canada")
+ONTARIO_TERMS = (
+    "ontario",
+    "toronto",
+    "gta",
+    "mississauga",
+    "milton",
+    "oakville",
+    "markham",
+    "vaughan",
+    "brampton",
+    "burlington",
+    "hamilton",
+    "waterloo",
+    "kitchener",
+    "ottawa",
+    "canada",
+)
 STARTUP_SIGNALS = ("early stage", "early-stage", "seed stage", "pre-seed", "series a", "founding engineer", "small team of", "first engineer")
 
 
@@ -251,7 +319,14 @@ def qualify(job: dict, extracted: dict, profile: Profile, posting_text: str = ""
             decision = "needs_review"
             reasons.append("salary period is not annual")
         elif comp.floor_base and smax and smax < comp.floor_base:
-            return Qualification(decision="excluded", reasons=[f"published base max {smax} below floor {comp.floor_base}"], employment_type=etype, flags=flags, location_ok=location_ok, salary_outcome="below_floor")
+            return Qualification(
+                decision="excluded",
+                reasons=[f"published base max {smax} below floor {comp.floor_base}"],
+                employment_type=etype,
+                flags=flags,
+                location_ok=location_ok,
+                salary_outcome="below_floor",
+            )
         elif comp.floor_base and smin and smin < comp.floor_base <= (smax or smin):
             salary_outcome = "overlaps_floor"
             flags.append("salary_overlaps_floor")
@@ -269,8 +344,9 @@ def qualify(job: dict, extracted: dict, profile: Profile, posting_text: str = ""
 
     if inj:
         decision = "needs_review" if decision == "eligible" else decision
-    return Qualification(decision=decision, reasons=reasons, flags=flags, employment_type=etype, location_ok=location_ok,
-                         salary_outcome=salary_outcome, injection_suspected=bool(inj))
+    return Qualification(
+        decision=decision, reasons=reasons, flags=flags, employment_type=etype, location_ok=location_ok, salary_outcome=salary_outcome, injection_suspected=bool(inj)
+    )
 
 
 # -- discovery service -----------------------------------------------------------------------
@@ -295,19 +371,35 @@ class Discovery:
         if raw.salary:
             extracted.update(_salary_from_source(raw.salary))
         snapshot = make_snapshot(raw.url, raw.content_text, extracted=extracted, source=raw.source)
-        job, created = self.jobs.upsert(employer=raw.employer, title=raw.title, posting_url=raw.url, requisition_id=raw.requisition_id or None,
-                                        location=raw.location, source=raw.source, snapshot=snapshot,
-                                        extra={"apply_url": raw.extra.get("apply_url") or raw.url, "posted_at": raw.posted_at})
+        job, created = self.jobs.upsert(
+            employer=raw.employer,
+            title=raw.title,
+            posting_url=raw.url,
+            requisition_id=raw.requisition_id or None,
+            location=raw.location,
+            source=raw.source,
+            snapshot=snapshot,
+            extra={"apply_url": raw.extra.get("apply_url") or raw.url, "posted_at": raw.posted_at},
+        )
         return job, created
 
-    def import_url(self, url: str, employer: str | None = None, title: str | None = None, posting_text: str | None = None, requisition_id: str | None = None,
-                   location: str | None = None) -> dict:
+    def import_url(
+        self, url: str, employer: str | None = None, title: str | None = None, posting_text: str | None = None, requisition_id: str | None = None, location: str | None = None
+    ) -> dict:
         li = extract_linkedin_job_id(url)
         employer = employer or ("Unknown employer" if not li else "Unknown employer (LinkedIn)")
         title = title or "Unknown title"
         snapshot = make_snapshot(url, posting_text or "", source="linkedin_import" if li else "url_import") if posting_text else None
-        job, _ = self.jobs.upsert(employer=employer, title=title, posting_url=url, requisition_id=requisition_id, linkedin_job_id=li, location=location,
-                                  source="linkedin_import" if li else "url_import", snapshot=snapshot)
+        job, _ = self.jobs.upsert(
+            employer=employer,
+            title=title,
+            posting_url=url,
+            requisition_id=requisition_id,
+            linkedin_job_id=li,
+            location=location,
+            source="linkedin_import" if li else "url_import",
+            snapshot=snapshot,
+        )
         if li:
             self.jobs.set_status(job["_id"], job.get("status", "new"), apply_route="linkedin_or_employer_site_handoff")
         return self.jobs.get(job["_id"])
@@ -321,7 +413,12 @@ class Discovery:
         extracted = dict(snapshot.get("extracted") or {})
         if text and use_model_extraction and self.ai is not None and not extracted.get("_model_extracted"):
             try:
-                res = self.ai.run("extract_posting", ExtractInput(posting_text=text[:12000], posting_url=job.get("posting_url") or ""), posting_hash=snapshot.get("posting_hash"), untrusted_fields=("posting_text",))
+                res = self.ai.run(
+                    "extract_posting",
+                    ExtractInput(posting_text=text[:12000], posting_url=job.get("posting_url") or ""),
+                    posting_hash=snapshot.get("posting_hash"),
+                    untrusted_fields=("posting_text",),
+                )
                 for k, v in res.output.items():
                     if v not in (None, "", [], False) and not extracted.get(k):
                         extracted[k] = v
@@ -347,9 +444,20 @@ class Discovery:
         facts = compact_facts(self.profile)
         known_ids = {f.split(":")[0] for f in facts if ":" in f}
         try:
-            res = self.ai.run("assess_fit", FitInput(job_title=job["title"], employer=job["employer"], posting_text=snapshot.get("text", "")[:12000], candidate_facts=facts,
-                                                     experience_summary=compute_experience(self.profile.employment).as_dict(), role_rules={"families": self.profile.preferences.role_families}),
-                              fact_version=self.profile.version, posting_hash=snapshot.get("posting_hash"), untrusted_fields=("posting_text",))
+            res = self.ai.run(
+                "assess_fit",
+                FitInput(
+                    job_title=job["title"],
+                    employer=job["employer"],
+                    posting_text=snapshot.get("text", "")[:12000],
+                    candidate_facts=facts,
+                    experience_summary=compute_experience(self.profile.employment).as_dict(),
+                    role_rules={"families": self.profile.preferences.role_families},
+                ),
+                fact_version=self.profile.version,
+                posting_hash=snapshot.get("posting_hash"),
+                untrusted_fields=("posting_text",),
+            )
         except ProviderUnavailable:
             return job
         fit = res.output
@@ -368,5 +476,10 @@ def _salary_from_source(s: dict) -> dict:
     elif "summaryComponents" in s:
         for c in s.get("summaryComponents", []):
             if c.get("compensationType") == "Salary":
-                out.update(salary_min=c.get("minValue"), salary_max=c.get("maxValue"), salary_currency=c.get("currencyCode"), salary_period="annual" if c.get("interval") == "1 YEAR" else c.get("interval"))
+                out.update(
+                    salary_min=c.get("minValue"),
+                    salary_max=c.get("maxValue"),
+                    salary_currency=c.get("currencyCode"),
+                    salary_period="annual" if c.get("interval") == "1 YEAR" else c.get("interval"),
+                )
     return out

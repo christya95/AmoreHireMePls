@@ -1,0 +1,34 @@
+{% extends "base.html" %}{% block content %}
+<div class="grid">
+<div class="card"><h3>Base resume</h3>
+{% if p.base_resume %}<p>{{ p.base_resume.path }}<br><small>sha256 {{ p.base_resume.sha256[:16] }}… approved {{ p.base_resume.approved_on }} ({{ p.base_resume.source }})</small></p>{% else %}<p class="badge bad">Not selected. Old tailored copies are never used as the base.</p>{% endif %}
+<form method="post" action="/profile/base-resume"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="path" placeholder="/path/on/server/Joss_Christyanton_Resume.docx" size="48" required> <input name="note" placeholder="note"> <button>Select approved DOCX</button></form></div>
+<div class="card"><h3>Experience (computed from dates)</h3><pre>{{ exp|json }}</pre>
+<table><tr><th>Employer</th><th>Title</th><th>Kind</th><th>Dates</th><th>Provenance</th></tr>{% for e in p.employment %}<tr><td>{{ e.employer }}</td><td>{{ e.title }}</td><td>{{ e.kind }}</td><td>{{ e.start }} – {{ e.end or ('present' if e.end_known else '?') }}</td><td><small>{{ e.provenance.source }} {{ e.provenance.confirmed_on }}</small></td></tr>{% endfor %}</table></div>
+</div>
+<div class="card"><h3>Facts (version {{ p.version }})</h3>
+<table><tr><th>Key</th><th>Value</th><th>Category</th><th>Provenance</th></tr>
+{% for f in p.facts + p.answers + p.education %}<tr><td>{{ f.key }}</td><td>{{ f.value if f.value is not none else '<unknown>' }}</td><td>{{ f.category }}</td><td><small>{{ f.provenance.source }} {{ f.provenance.confirmed_on or '' }}</small></td></tr>{% endfor %}</table>
+<form method="post" action="/profile/facts"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="key" placeholder="key e.g. linkedin_url" required> <input name="value" placeholder="value (blank = unknown)"> <input name="category" placeholder="category" value="other"> <button>Save fact</button></form>
+{% if p.unknowns %}<p><small>Unknowns: {{ p.unknowns|join('; ') }}</small></p>{% endif %}</div>
+<div class="card"><h3>Preferences and rules</h3>
+<form method="post" action="/profile/preferences"><input type="hidden" name="csrf" value="{{ csrf }}">
+<p>Employment types <input name="employment_types" value="{{ p.preferences.employment_types|join(', ') }}" size="30"></p>
+<p>Allowed role families <input name="role_families" value="{{ p.preferences.role_families|join(', ') }}" size="100"></p>
+<p>Excluded role families <input name="excluded_role_families" value="{{ p.preferences.excluded_role_families|join(', ') }}" size="100"></p>
+<p>Locations <input name="locations" value="{{ p.preferences.locations|join(', ') }}" size="80"> <small>{{ p.preferences.remote_rule }}</small></p>
+<p>Floor base ({{ p.compensation.currency }}) <input name="floor_base" type="number" value="{{ p.compensation.floor_base }}"> Target <input name="target_base" value="{{ p.compensation.target_base or '' }}">
+Band rule <select name="band_rule">{% for o in ['midpoint','upper_half','minimum'] %}<option {{ 'selected' if o==p.compensation.band_rule }}>{{ o }}</option>{% endfor %}</select>
+Unknown salary <select name="unknown_rule">{% for o in ['needs_input','leave_blank'] %}<option {{ 'selected' if o==p.compensation.unknown_rule }}>{{ o }}</option>{% endfor %}</select>
+Small startup <select name="small_startup_rule">{% for o in ['needs_review','ignore'] %}<option {{ 'selected' if o==p.preferences.small_startup_rule }}>{{ o }}</option>{% endfor %}</select></p>
+<p>Excluded employers (one per line: Name | alias, alias)<br><textarea name="excluded_employers" rows="6" cols="80">{% for e in p.preferences.excluded_employers %}{{ e.name }}{% if e.aliases %} | {{ e.aliases|join(', ') }}{% endif %}
+{% endfor %}</textarea></p>
+<button>Save preferences</button></form></div>
+<div class="card"><h3>Recipient exclusions (identity based)</h3>
+<table><tr><th>Label</th><th>Resolution</th><th>Profile URL</th><th>Employer</th><th>Reason</th><th></th></tr>
+{% for x in p.preferences.recipient_exclusions %}<tr><td>{{ x.label }}</td><td><span class="badge {{ 'ok' if x.resolution=='resolved' else 'warn' }}">{{ x.resolution }}</span></td><td>{{ x.profile_url or '' }}</td><td>{{ x.employer or '' }}</td><td><small>{{ x.reason }}</small></td>
+<td>{% if x.resolution != 'resolved' %}<form method="post" action="/profile/exclusions/resolve"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="exclusion_id" value="{{ x.id }}"><input name="profile_url" placeholder="linkedin.com/in/…" size="28"> <input name="employer" placeholder="employer"> <button>Bind identity</button></form>{% endif %}</td></tr>{% endfor %}</table>
+<p><small>Unresolved entries block nothing and never match by first name; a recipient sharing the first name is held for reconciliation.</small></p>
+<form method="post" action="/profile/exclusions/add"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="label" placeholder="label" required> <input name="profile_url" placeholder="profile URL"> <input name="employer" placeholder="employer"> <input name="reason" placeholder="reason"> <button>Add exclusion</button></form></div>
+<div class="card"><h3>Outreach rules</h3><pre>{{ p.preferences.outreach_rules|json }}</pre></div>
+{% endblock %}

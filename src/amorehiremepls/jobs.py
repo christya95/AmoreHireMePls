@@ -50,9 +50,19 @@ class JobStore:
             return None
         return self.coll.find_one({"dedup_keys": {"$in": keys}})
 
-    def upsert(self, *, employer: str, title: str, posting_url: str | None, requisition_id: str | None = None,
-               linkedin_job_id: str | None = None, location: str | None = None, source: str = "manual",
-               snapshot: dict | None = None, extra: dict | None = None) -> tuple[dict, bool]:
+    def upsert(
+        self,
+        *,
+        employer: str,
+        title: str,
+        posting_url: str | None,
+        requisition_id: str | None = None,
+        linkedin_job_id: str | None = None,
+        location: str | None = None,
+        source: str = "manual",
+        snapshot: dict | None = None,
+        extra: dict | None = None,
+    ) -> tuple[dict, bool]:
         """Create or merge a job. Returns (job, created). Key collisions merge into the existing job."""
         keys = dedup_keys(employer, posting_url, requisition_id, linkedin_job_id)
         existing = self.find_by_keys(keys)
@@ -73,23 +83,43 @@ class JobStore:
                 update["latest_snapshot"] = snapshot
             if extra:
                 update.update(extra)
-            doc = self.coll.find_one_and_update({"_id": existing["_id"]}, {"$set": update, "$addToSet": {"sources": source}},
-                                                return_document=ReturnDocument.AFTER)
+            doc = self.coll.find_one_and_update({"_id": existing["_id"]}, {"$set": update, "$addToSet": {"sources": source}}, return_document=ReturnDocument.AFTER)
             return doc, False
         doc = {
-            "_id": new_id("job"), "employer": employer, "employer_norm": normalize_employer(employer), "title": title,
-            "title_norm": normalize_text(title), "posting_url": posting_url, "requisition_id": requisition_id or None,
+            "_id": new_id("job"),
+            "employer": employer,
+            "employer_norm": normalize_employer(employer),
+            "title": title,
+            "title_norm": normalize_text(title),
+            "posting_url": posting_url,
+            "requisition_id": requisition_id or None,
             "linkedin_job_id": linkedin_job_id or extract_linkedin_job_id(posting_url or "") if posting_url else linkedin_job_id,
-            "location": location, "dedup_keys": keys, "soft_key": soft_key(employer, title), "sources": [source],
-            "status": "new", "created_at": now, "updated_at": now, "latest_snapshot": snapshot, **(extra or {}),
+            "location": location,
+            "dedup_keys": keys,
+            "soft_key": soft_key(employer, title),
+            "sources": [source],
+            "status": "new",
+            "created_at": now,
+            "updated_at": now,
+            "latest_snapshot": snapshot,
+            **(extra or {}),
         }
         try:
             self.coll.insert_one(doc)
             return doc, True
         except DuplicateKeyError:
             # Lost a race with a concurrent insert: fall back to merge.
-            return self.upsert(employer=employer, title=title, posting_url=posting_url, requisition_id=requisition_id,
-                               linkedin_job_id=linkedin_job_id, location=location, source=source, snapshot=snapshot, extra=extra)
+            return self.upsert(
+                employer=employer,
+                title=title,
+                posting_url=posting_url,
+                requisition_id=requisition_id,
+                linkedin_job_id=linkedin_job_id,
+                location=location,
+                source=source,
+                snapshot=snapshot,
+                extra=extra,
+            )
 
     def possible_duplicates(self, job: dict) -> list[dict]:
         return list(self.coll.find({"_id": {"$ne": job["_id"]}, "soft_key": job.get("soft_key")}))

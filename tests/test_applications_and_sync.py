@@ -19,11 +19,19 @@ from tests.test_profile import FAKE_FACTS, FAKE_SALARY
 
 pytestmark = pytest.mark.mongo
 
-FIELDS = [FormField("fn", "First name", required=True), FormField("ln", "Last name"), FormField("em", "Email"), FormField("ph", "Phone"),
-          FormField("wa", "Are you legally authorized to work in Canada?", "select", ["Select", "Yes, I am authorized", "No"]),
-          FormField("sp", "Will you require sponsorship?", "select", ["Yes", "No"]), FormField("sal", "Desired salary"),
-          FormField("res", "Resume/CV", "file"), FormField("gen", "Gender identity (optional)", "select", ["Man", "Woman", "Decline"]),
-          FormField("why", "Why do you want to work here?", "textarea", required=True), FormField("yrs", "Years of professional experience")]
+FIELDS = [
+    FormField("fn", "First name", required=True),
+    FormField("ln", "Last name"),
+    FormField("em", "Email"),
+    FormField("ph", "Phone"),
+    FormField("wa", "Are you legally authorized to work in Canada?", "select", ["Select", "Yes, I am authorized", "No"]),
+    FormField("sp", "Will you require sponsorship?", "select", ["Yes", "No"]),
+    FormField("sal", "Desired salary"),
+    FormField("res", "Resume/CV", "file"),
+    FormField("gen", "Gender identity (optional)", "select", ["Man", "Woman", "Decline"]),
+    FormField("why", "Why do you want to work here?", "textarea", required=True),
+    FormField("yrs", "Years of professional experience"),
+]
 
 
 def _profile(tmp_path, with_base=True):
@@ -57,8 +65,14 @@ def _job(store, **over):
     jobs = JobStore(store)
     req = over.get("req", "R42")
     url = over.get("url", f"https://ats.example/jobs/{req}")
-    job, _ = jobs.upsert(employer=over.get("employer", "Acme"), title="Backend Developer", posting_url=url, requisition_id=req,
-                         location="Toronto", snapshot={"text": "Java Spring Boot permanent Toronto", "posting_hash": "ph1", "extracted": {"salary_min": 110000, "salary_max": 130000, "salary_currency": "CAD"}})
+    job, _ = jobs.upsert(
+        employer=over.get("employer", "Acme"),
+        title="Backend Developer",
+        posting_url=url,
+        requisition_id=req,
+        location="Toronto",
+        snapshot={"text": "Java Spring Boot permanent Toronto", "posting_hash": "ph1", "extracted": {"salary_min": 110000, "salary_max": 130000, "salary_currency": "CAD"}},
+    )
     jobs.set_status(job["_id"], "qualified", apply_url=url, fit={"rank": 2, "genuine_gaps": ["Kubernetes"]})
     return jobs.get(job["_id"])
 
@@ -105,7 +119,11 @@ def test_no_base_resume_surfaces_question_not_old_resume(store, tmp_path):
 
 def test_execute_success_records_evidence_and_enqueues_sync_and_replay_is_safe(store, tmp_path):
     profile = _profile(tmp_path)
-    builders = {"ats.example": lambda job, pkg, answers: Plan(start_url=pkg["apply_url"], steps=[Step("click", "#submit", final=True)], receipt_text="received", receipt_must_include=["R42"])}
+    builders = {
+        "ats.example": lambda job, pkg, answers: Plan(
+            start_url=pkg["apply_url"], steps=[Step("click", "#submit", final=True)], receipt_text="received", receipt_must_include=["R42"]
+        )
+    }
     svc = _service(store, tmp_path, profile, builders)
     job = _job(store)
     app = svc.prepare(job["_id"], [f for f in FIELDS if f.id != "why"])
@@ -115,7 +133,13 @@ def test_execute_success_records_evidence_and_enqueues_sync_and_replay_is_safe(s
 
     def fake_browser(plan: Plan) -> dict:
         runs.append(plan.start_url)
-        return {"verified": True, "receipt_text": "Application received for requisition R42. Reference REF-1", "final_url": plan.start_url + "/done", "screenshots": [], "final_clicked": True}
+        return {
+            "verified": True,
+            "receipt_text": "Application received for requisition R42. Reference REF-1",
+            "final_url": plan.start_url + "/done",
+            "screenshots": [],
+            "final_clicked": True,
+        }
 
     out = svc.execute(app["_id"], "w1", fake_browser)
     assert out.status == "succeeded"
@@ -239,7 +263,9 @@ def test_crash_between_commit_and_db_update_reconciles_without_duplicate(store, 
     SyncOutbox(store).set(item2["_id"], "committing", record_id=record2["id"])
     rec_file = tmp_path / "rec2.json"
     rec_file.write_text(json.dumps(record2))
-    subprocess.run([coord.python, str(clone / "scripts/records.py"), "add", str(rec_file), "--resume", app2["review_package"]["document"]["path"]], check=True, cwd=clone, capture_output=True)
+    subprocess.run(
+        [coord.python, str(clone / "scripts/records.py"), "add", str(rec_file), "--resume", app2["review_package"]["document"]["path"]], check=True, cwd=clone, capture_output=True
+    )
     assert git(clone, "status", "--porcelain", "--", "data")  # dirty, uncommitted
     res2 = coord.reconcile_all()
     assert [r["status"] for r in res2] == ["synced"]
@@ -252,8 +278,23 @@ def test_requisition_already_recorded_under_other_id_is_conflict_not_duplicate(s
     app = _submitted_app(store, tmp_path, _profile(tmp_path))
     coord, clone, bare = _coord(store, tmp_path)
     data = json.loads((clone / "data/applications.json").read_text())
-    data.append({"id": "li-999", "employer": "Acme", "role": "Backend Developer", "requisition_id": "R42", "linkedin_job_id": "999", "posting_url": "https://x", "status": "prepared",
-                 "application_date": "", "date_basis": "not submitted", "confirmation": "", "source_log": "", "notes": "", "artifacts": []})
+    data.append(
+        {
+            "id": "li-999",
+            "employer": "Acme",
+            "role": "Backend Developer",
+            "requisition_id": "R42",
+            "linkedin_job_id": "999",
+            "posting_url": "https://x",
+            "status": "prepared",
+            "application_date": "",
+            "date_basis": "not submitted",
+            "confirmation": "",
+            "source_log": "",
+            "notes": "",
+            "artifacts": [],
+        }
+    )
     (clone / "data/applications.json").write_text(json.dumps(data, indent=2) + "\n")
     git(clone, "add", "-A")
     git(clone, "commit", "-q", "-m", "other id")

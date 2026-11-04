@@ -15,9 +15,27 @@ from zoneinfo import ZoneInfo
 TORONTO = ZoneInfo("America/Toronto")
 
 _TRACKING_PARAMS = {
-    "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "gh_src", "lever-source",
-    "source", "src", "ref", "refid", "trk", "trackingid", "fbclid", "gclid", "position", "pageNum",
-    "refId", "originalSubdomain", "eBP", "currentJobId",
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "gh_src",
+    "lever-source",
+    "source",
+    "src",
+    "ref",
+    "refid",
+    "trk",
+    "trackingid",
+    "fbclid",
+    "gclid",
+    "position",
+    "pageNum",
+    "refId",
+    "originalSubdomain",
+    "eBP",
+    "currentJobId",
 }
 
 

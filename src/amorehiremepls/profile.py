@@ -232,8 +232,7 @@ class SalaryDecision(BaseModel):
 def desired_salary(comp: Compensation, band: BandEvidence | None, fit: Literal["fair", "strong", "stretch", "low_end"] = "fair") -> SalaryDecision:
     """Pick one number inside this role's published base band, or report that input is needed."""
     if band is None or band.min_base is None or band.max_base is None:
-        return SalaryDecision(outcome="needs_input" if comp.unknown_rule == "needs_input" else "leave_blank",
-                              reason="no published base band for this requisition")
+        return SalaryDecision(outcome="needs_input" if comp.unknown_rule == "needs_input" else "leave_blank", reason="no published base band for this requisition")
     if band.is_total_comp_or_ote:
         return SalaryDecision(outcome="needs_input", reason="band is total compensation or OTE, not base")
     if (band.currency or "").upper() != comp.currency or band.period != "annual":
@@ -344,26 +343,61 @@ def default_preferences(confirmed_on: str = "2026-10-15") -> Preferences:
     prov = Provenance(source="skill:apply-joss-jobs;user-rules", confirmed_on=confirmed_on)
     faang = [
         ExcludedEmployer(name=n, aliases=a, reason="FAANG exclusion")
-        for n, a in (("Meta", ["Facebook", "Meta Platforms"]), ("Apple", []), ("Amazon", ["AWS", "Amazon Web Services"]),
-                     ("Netflix", []), ("Google", ["Alphabet"]))
+        for n, a in (("Meta", ["Facebook", "Meta Platforms"]), ("Apple", []), ("Amazon", ["AWS", "Amazon Web Services"]), ("Netflix", []), ("Google", ["Alphabet"]))
     ]
     rbc = ExcludedEmployer(name="RBC", aliases=["Royal Bank of Canada", "RBC Capital Markets"], reason="former employer; excluded for outreach and applications per saved filters")
     return Preferences(
         employment_types=["permanent"],
-        role_families=["backend", "back end", "back-end", "software developer", "software engineer", "java developer",
-                       "python developer", "api developer", "platform engineer", "ai engineer", "senior ai engineer"],
-        excluded_role_families=["frontend", "front end", "mobile", "ios", "android", "data scientist", "research scientist",
-                                "machine learning scientist", "qa", "test engineer", "sre", "devops", "site reliability",
-                                "manager", "director", "staff", "principal", "architect", "intern", "co-op"],
+        role_families=[
+            "backend",
+            "back end",
+            "back-end",
+            "software developer",
+            "software engineer",
+            "java developer",
+            "python developer",
+            "api developer",
+            "platform engineer",
+            "ai engineer",
+            "senior ai engineer",
+        ],
+        excluded_role_families=[
+            "frontend",
+            "front end",
+            "mobile",
+            "ios",
+            "android",
+            "data scientist",
+            "research scientist",
+            "machine learning scientist",
+            "qa",
+            "test engineer",
+            "sre",
+            "devops",
+            "site reliability",
+            "manager",
+            "director",
+            "staff",
+            "principal",
+            "architect",
+            "intern",
+            "co-op",
+        ],
         locations=["Toronto", "GTA", "Mississauga", "Milton", "Oakville", "Markham", "Vaughan", "Ontario", "Canada"],
         remote_rule="remote must be explicitly open to Ontario residents",
         excluded_employers=[rbc, *faang],
         recipient_exclusions=[RecipientExclusion(label="Jessica", resolution="unresolved", reason="saved rule 'skip Jessica'; identity not yet bound", provenance=prov)],
         small_startup_rule="needs_review",
         work_authorization="Authorized to work in Canada without sponsorship now or in the future",
-        outreach_rules={"connect_note_max_chars": 300, "no_dashes": True, "no_layoff_mention": True,
-                        "mention_applied_role": True, "ask_other_permanent_backend_roles": True,
-                        "message_words": [45, 75], "draft_by_default": True},
+        outreach_rules={
+            "connect_note_max_chars": 300,
+            "no_dashes": True,
+            "no_layoff_mention": True,
+            "mention_applied_role": True,
+            "ask_other_permanent_backend_roles": True,
+            "message_words": [45, 75],
+            "draft_by_default": True,
+        },
     )
 
 
@@ -377,7 +411,12 @@ def default_answers(confirmed_on: str = "2026-10-15") -> list[Fact]:
     return [
         Fact(category="answer", key="work_authorization", value="Authorized to work in Canada without sponsorship now or in the future", provenance=prov),
         Fact(category="answer", key="requires_sponsorship", value="No", provenance=prov),
-        Fact(category="answer", key="ai_workflow", value="Copilot and Devin; approximately 95% AI-generated code reviewed against acceptance criteria and functional requirements", provenance=prov),
+        Fact(
+            category="answer",
+            key="ai_workflow",
+            value="Copilot and Devin; approximately 95% AI-generated code reviewed against acceptance criteria and functional requirements",
+            provenance=prov,
+        ),
         Fact(category="education", key="degree_level", value="Associate's Degree / Honours Associates", provenance=prov),
         Fact(category="education", key="school", value="Sheridan College", provenance=prov),
         Fact(category="answer", key="employment_preference", value="Permanent", provenance=prov),
@@ -393,6 +432,9 @@ def build_profile_from_skills(facts_text: str | None, salary_text: str | None, c
     profile.preferences = default_preferences(confirmed_on)
     profile.employment = default_employment(confirmed_on)
     profile.answers = default_answers(confirmed_on)
-    profile.unknowns = ["internship employers/dates (read from the approved base resume once selected)",
-                        "education dates and GPA (never invented)", "base resume DOCX not selected"]
+    profile.unknowns = [
+        "internship employers/dates (read from the approved base resume once selected)",
+        "education dates and GPA (never invented)",
+        "base resume DOCX not selected",
+    ]
     return profile

@@ -1,0 +1,27 @@
+{% extends "base.html" %}{% block content %}
+{% set pkg = a.review_package %}
+<div class="card"><h2>Review package: {{ job.employer }} — {{ job.title }}</h2>
+<p><span class="badge">{{ a.status }}</span> {{ a.reason or '' }} {% if a.next_action %}· next: {{ a.next_action }}{% endif %}</p>
+{% if pkg %}<p>Posting <a href="{{ pkg.posting_url }}" target="_blank" rel="noopener">{{ pkg.posting_url }}</a> · requisition {{ pkg.requisition_id or '—' }} · apply at {{ pkg.apply_url }} · route {{ pkg.apply_route or 'adapter by host' }}</p>
+<h4>Document</h4>{% if pkg.document %}<p>{{ pkg.document.filename }}<br><small>DOCX sha256 {{ pkg.document.sha256 }}<br>PDF sha256 {{ pkg.document.pdf_sha256 or 'n/a' }} · pages {{ pkg.document.pages if pkg.document.pages is not none else 'unverified' }} {% if not pkg.document.page_limit_verified %}<span class="badge warn">{{ pkg.document.render_note }}</span>{% endif %}</small></p>{% else %}<p class="badge bad">no document</p>{% endif %}
+<h4>Answers</h4><form method="post" action="/applications/{{ a._id }}/inputs"><input type="hidden" name="csrf" value="{{ csrf }}">
+<table><tr><th>Question</th><th>Answer</th><th>Basis</th></tr>{% for ans in pkg.answers %}<tr><td>{{ ans.label }}{% if ans.sensitive %} <span class="badge">sensitive</span>{% endif %}</td>
+<td>{% if ans.needs_input %}<input name="input_{{ ans.field_id }}" placeholder="needed"> {% else %}{{ ans.value }}{% endif %}</td><td><small>{{ ans.fact_ids|join(', ') }} {{ ans.reason }}</small></td></tr>{% endfor %}</table>
+{% if a.status == 'needs_input' %}<button>Save answers</button>{% endif %}</form>
+<h4>Gaps and outstanding</h4><p>Genuine gaps: {{ pkg.gaps|join('; ') or 'none recorded' }}</p>{% if pkg.outstanding %}<ul>{% for o in pkg.outstanding %}<li>{{ o }}</li>{% endfor %}</ul>{% endif %}
+{% if pkg.unsupported_requirements_note %}<p><small>{{ pkg.unsupported_requirements_note }}</small></p>{% endif %}{% endif %}</div>
+<div class="grid">
+<div class="card"><h3>Authorization</h3><p>Material hash <code>{{ a.material_hash }}</code></p>
+{% for s in scopes %}<p><span class="badge ok">{{ s.mode }} scope {{ s.id }}</span> used {{ s.used_count }}/{{ s.max_count }} expires {{ s.expires_at|toronto }}</p>{% endfor %}
+{% if a.status == 'ready_for_review' %}<form method="post" action="/applications/{{ a._id }}/authorize"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}">
+Valid for <input name="hours" type="number" value="24" style="width:4rem"> hours <input name="note" placeholder="note"> <button>Authorize this exact submission</button></form>
+<p><small>Bound to this job, these answers and these document hashes. Any change requires a new authorization.</small></p>{% endif %}</div>
+<div class="card"><h3>Execution record</h3>{% if action %}<p>Action {{ action._id }} <span class="badge">{{ action.status }}</span> {{ action.outcome_reason or '' }}</p><pre>{{ action.evidence|json }}</pre>{% else %}<p>No execution yet.</p>{% endif %}
+{% if a.status == 'needs_verification' %}<form method="post" action="/applications/{{ a._id }}/reconcile"><input type="hidden" name="csrf" value="{{ csrf }}">
+<select name="resolved"><option value="succeeded">Employer shows it was submitted</option><option value="failed">Not submitted</option></select> <input name="confirmation" placeholder="what you observed" size="40"> <input name="application_date" placeholder="YYYY-MM-DD"> <button>Reconcile</button></form>{% endif %}
+{% if a.status == 'handoff' %}<form method="post" action="/applications/{{ a._id }}/manual"><input type="hidden" name="csrf" value="{{ csrf }}">
+<input name="confirmation" placeholder="exact confirmation text seen" size="40" required> <input name="application_date" placeholder="YYYY-MM-DD" required> <input name="resume_sha256" placeholder="sha256 of the uploaded file (optional)"> <button>Record manual submission</button></form>{% endif %}
+{% if a.evidence %}<pre>{{ a.evidence|json }}</pre>{% endif %}</div>
+</div>
+<div class="card"><h3>History</h3><pre>{{ a.history|json }}</pre></div>
+{% endblock %}

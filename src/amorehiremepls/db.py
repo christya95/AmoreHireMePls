@@ -116,8 +116,7 @@ class Store:
         self.audit("emergency_stop", None, active=active, reason=reason)
 
     # -- atomic reservations ------------------------------------------------
-    def reserve(self, collection: str, filter_: dict, owner: str, from_states: Iterable[str], to_state: str,
-                lease_seconds: int = 900, extra: dict | None = None) -> dict | None:
+    def reserve(self, collection: str, filter_: dict, owner: str, from_states: Iterable[str], to_state: str, lease_seconds: int = 900, extra: dict | None = None) -> dict | None:
         """Move one document from one of `from_states` to `to_state` for `owner`, atomically.
 
         Returns the updated document, or None when another worker already holds it. Expired leases
@@ -131,8 +130,9 @@ class Store:
                 {"status": to_state, "reserved_until": {"$lt": now}},
             ],
         }
-        update = {"$set": {"status": to_state, "reserved_by": owner, "reserved_at": now,
-                           "reserved_until": now + timedelta(seconds=lease_seconds), "updated_at": now, **(extra or {})}}
+        update = {
+            "$set": {"status": to_state, "reserved_by": owner, "reserved_at": now, "reserved_until": now + timedelta(seconds=lease_seconds), "updated_at": now, **(extra or {})}
+        }
         return self.db[collection].find_one_and_update(query, update, return_document=ReturnDocument.AFTER)
 
     def release(self, collection: str, filter_: dict, owner: str, to_state: str, extra: dict | None = None) -> dict | None:
@@ -158,11 +158,16 @@ class Store:
     # -- runs --------------------------------------------------------------
     def create_run(self, kind: str, params: dict, thread_id: str | None = None) -> dict:
         run = {
-            "_id": new_id("run"), "kind": kind, "params": params, "status": "queued",
-            "thread_id": thread_id or new_id("thread"), "created_at": utcnow(), "updated_at": utcnow(),
-            "events": [], "budget": {},
-            "usage": {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0, "calls": 0,
-                      "tool_steps": 0, "cost_usd": None, "cost_known": True},
+            "_id": new_id("run"),
+            "kind": kind,
+            "params": params,
+            "status": "queued",
+            "thread_id": thread_id or new_id("thread"),
+            "created_at": utcnow(),
+            "updated_at": utcnow(),
+            "events": [],
+            "budget": {},
+            "usage": {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0, "calls": 0, "tool_steps": 0, "cost_usd": None, "cost_known": True},
         }
         self.db["runs"].insert_one(run)
         return run
