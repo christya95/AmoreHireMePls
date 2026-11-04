@@ -166,7 +166,7 @@ def create_app(rt: Runtime) -> FastAPI:
             health=rt.health(),
             worker_ok=worker_healthy(rt),
             schedule=next_slot_description(rt),
-            provider=rt.settings.model or "not configured",
+            provider=rt.settings.effective_model or "not configured (default provider: openai)",
             missing=rt.profile.missing_essentials(),
         )
 

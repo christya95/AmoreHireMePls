@@ -29,7 +29,10 @@ class Settings(BaseSettings):
     private_dir: Path = Path("./runtime/private")
     log_dir: Path = Path("./runtime/logs")
 
-    model: str = ""  # "openai:gpt-..." or "anthropic:claude-..."; empty = no provider configured
+    # Default provider is OpenAI (Joss, 2026-11-04). AMORE_MODEL may be "gpt-..." (uses AMORE_MODEL_PROVIDER)
+    # or fully qualified "anthropic:claude-..." to select another provider. Empty = no provider configured.
+    model: str = ""
+    model_provider: str = "openai"
     pricing_file: Path = Path("./config/pricing.json")
 
     budget_max_tokens: int = 200_000
@@ -61,8 +64,15 @@ class Settings(BaseSettings):
         return {h.strip().lower() for h in self.browser_allowed_hosts.split(",") if h.strip()}
 
     @property
+    def effective_model(self) -> str:
+        """'provider:model' string for LangChain; empty when no model is configured."""
+        if not self.model:
+            return ""
+        return self.model if ":" in self.model else f"{self.model_provider}:{self.model}"
+
+    @property
     def provider_configured(self) -> bool:
-        return bool(self.model)
+        return bool(self.effective_model)
 
     def mongo_client_kwargs(self) -> dict:
         kwargs: dict = {"serverSelectionTimeoutMS": 5000, "appname": "amorehiremepls"}

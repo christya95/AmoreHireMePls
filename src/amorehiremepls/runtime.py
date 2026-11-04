@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -64,7 +65,7 @@ class Runtime:
         self.store = store or Store.from_settings(settings)
         self.profiles = ProfileStore(self.store)
         self.profile: Profile = self.profiles.load()
-        self.provider = provider or build_provider(settings.model)
+        self.provider = provider or build_provider(settings.effective_model)
         self.pricing = Pricing(settings.pricing_file)
         self.actions = ActionStore(self.store)
         self.auth = AuthorizationStore(self.store)
@@ -128,7 +129,9 @@ class Runtime:
 
     def provider_check(self) -> dict[str, Any]:
         info = self.provider.check()
-        info["configured_model"] = self.settings.model or None
+        info["configured_model"] = self.settings.effective_model or None
+        info["default_provider"] = self.settings.model_provider
+        info["api_key_present"] = bool(os.environ.get("OPENAI_API_KEY" if self.settings.model_provider == "openai" else "ANTHROPIC_API_KEY"))
         info["pricing_loaded"] = bool(self.pricing.prices)
         return info
 
