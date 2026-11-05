@@ -205,3 +205,20 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         if confirm.strip().lower() != "restart":
             return RedirectResponse(f"/applications/{app_id}?err=confirm_needed", status_code=303)
         return _clear_application(rt, app_id, "restart")
+
+    @app.post("/applications/{app_id}/remove-resumes")
+    def application_remove_resumes(request: Request, app_id: str, session: dict = Depends(require_session), csrf: str = Form(...), confirm: str = Form("")):
+        """Delete tailored resumes for this unsent application. The base resume and a sent application stay."""
+        require_csrf(request, session, csrf)
+        if confirm.strip().lower() != "remove":
+            return RedirectResponse(f"/applications/{app_id}?err=confirm_needed", status_code=303)
+        a = rt.store.c("applications").find_one({"_id": app_id})
+        if not a:
+            raise HTTPException(404)
+        from amorehiremepls.apply.applications import remove_unused_resumes
+
+        result = remove_unused_resumes(rt.store, rt.settings.artifact_dir, a["job_id"])
+        if result["refused"]:
+            return RedirectResponse(f"/applications/{app_id}?err={result['refused']}", status_code=303)
+        flash = "resumes_removed" if result["removed"] else "resumes_none"
+        return RedirectResponse(f"/applications/{app_id}?ok={flash}", status_code=303)

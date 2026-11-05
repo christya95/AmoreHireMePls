@@ -27,6 +27,10 @@
           <p>Removes this application. The job stays. This is only possible because nothing was sent. Your GitHub tracker history is not erased.</p>
           <label>Type delete to confirm <input name="confirm" autocomplete="off"></label>
           <button class="danger sm w100">Delete this application</button></form>
+        <form method="post" action="/applications/{{ a._id }}/remove-resumes" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
+          <p>Deletes the tailored resume files for this application. Your base resume stays. This is only possible because nothing was sent. An approval that pointed at a deleted file no longer applies.</p>
+          <label>Type remove to confirm <input name="confirm" autocomplete="off"></label>
+          <button class="secondary sm w100">Remove unused resumes</button></form>
       </div></details>{% endif %}</div>
   </div>
   {% if hold %}
@@ -91,7 +95,7 @@
     <div class="card" id="updates">
       <div class="card-h"><h3>Updates</h3><span class="sub">What has happened for this application, from the saved record. Refresh the page to see new lines.</span></div>
       {% if updates %}
-      <div class="timeline">{% for u in updates %}<div class="list-item"><span class="t">{{ u.at|local }}</span><span>{{ u.text }}</span></div>{% endfor %}</div>
+      <div class="timeline">{% for u in updates %}<div class="list-item"><span class="t">{{ u.at|local }}</span><span>{{ u.text }}{% if u.count > 1 %} ({{ u.count }}){% endif %}</span></div>{% endfor %}</div>
       {% else %}<p class="note">No updates yet.</p>{% endif %}
     </div>
     <div class="card" id="record">

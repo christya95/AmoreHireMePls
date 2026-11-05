@@ -188,6 +188,20 @@ FLASHES = {
         "ok",
     ),
     "job_restarted": ("The unsent application was cleared. Read the new package and approve it again. New resume files replace the old approval. Nothing was sent.", "ok"),
+    "posting_closed": (
+        "This posting is no longer up. The job is under Closed. Tailored resumes that were never sent were removed. Your base resume and anything already sent were kept.",
+        "ok",
+    ),
+    "posting_open": ("This posting is still up.", "ok"),
+    "posting_kept": ("An application was already sent, so this job was left open and its files were kept.", "ok"),
+    "posting_unreadable": ("The posting could not be read. The job was left as it is.", "bad"),
+    "postings_checked": ("Checked which jobs are still posted. Any that are no longer up are under Closed. Sent applications were left alone.", "ok"),
+    "postings_fresh": ("Those jobs were checked in the last few hours. Open one job and check that posting if you want to look again.", "ok"),
+    "resumes_removed": (
+        "Tailored resumes that were never sent were deleted. Your base resume and any sent application were kept. An approval that pointed at a deleted file no longer applies.",
+        "ok",
+    ),
+    "resumes_none": ("No unused tailored resumes were found. Sent applications and your base resume were left as they are.", "ok"),
     "confirm_needed": ("Type the confirmation word to continue. Nothing was changed.", "bad"),
     "already_sent": ("This application was already sent, so it was left as it is.", "bad"),
     "receipt_saved": ("A confirmation from the employer is already saved, so this application was left as it is.", "bad"),
@@ -324,11 +338,14 @@ def application_timeline(app: dict, runs: list[dict]) -> list[dict]:
     """Plain updates from records already saved. No model call."""
     rows: list[dict] = []
     for entry in app.get("history") or []:
-        status = entry.get("status") or ""
-        text = _HISTORY_LINE.get(status, status.replace("_", " "))
-        reason = (entry.get("reason") or "").strip()
-        if reason:
-            text = f"{text}. {reason}"
+        if entry.get("text"):
+            text = str(entry["text"])
+        else:
+            status = entry.get("status") or ""
+            text = _HISTORY_LINE.get(status, status.replace("_", " "))
+            reason = (entry.get("reason") or "").strip()
+            if reason:
+                text = f"{text}. {reason}"
         if entry.get("at"):
             rows.append({"at": entry["at"], "text": text})
     for run in runs:
@@ -340,8 +357,9 @@ def application_timeline(app: dict, runs: list[dict]) -> list[dict]:
     kept: list[dict] = []
     for row in rows:
         if kept and kept[-1]["text"] == row["text"]:
+            kept[-1]["count"] = kept[-1].get("count", 1) + 1
             continue
-        kept.append(row)
+        kept.append({**row, "count": 1})
     return kept[:20]
 
 

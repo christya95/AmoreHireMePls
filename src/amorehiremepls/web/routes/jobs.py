@@ -26,7 +26,7 @@ def register(app, rt, require_session, require_csrf, render) -> None:
     # -- jobs --------------------------------------------------------------------------------------
     @app.get("/jobs", response_class=HTMLResponse)
     def jobs(request: Request, session: dict = Depends(require_session), status_filter: str = ""):
-        q = {"status": status_filter} if status_filter else {}
+        q = {"status": status_filter} if status_filter else {"status": {"$ne": "closed"}}
         jobs = list(rt.store.c("jobs").find(q).sort("updated_at", -1).limit(200))
         apps = {a["job_id"]: a for a in rt.store.c("applications").find({"provenance.origin": "local"})}
         return render(request, "jobs.html", session, jobs=jobs, apps=apps, sources=rt.store.get_control("discovery_sources", []), source_types=sorted(SOURCES))
@@ -65,6 +65,31 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         rt.store.set_control("discovery_requested", {"at": utcnow()})
         return RedirectResponse("/jobs", status_code=303)
 
+    @app.post("/jobs/check-postings")
+    def jobs_check_postings(request: Request, session: dict = Depends(require_session), csrf: str = Form(...)):
+        """Re-read open jobs one at a time. A posting that is gone is closed and taken off this list."""
+        require_csrf(request, session, csrf)
+        import httpx
+
+        with httpx.Client(timeout=20.0, follow_redirects=True, headers={"User-Agent": "AmoreHireMePls/0.1 (posting reader)"}) as client:
+            summary = rt.discovery().check_open_postings(client=client, artifact_dir=rt.settings.artifact_dir)
+        flash = "postings_fresh" if summary["checked"] == 0 else "postings_checked"
+        return RedirectResponse(f"/jobs?ok={flash}", status_code=303)
+
+    @app.post("/jobs/remove-unused-resumes")
+    def jobs_remove_unused_resumes(request: Request, session: dict = Depends(require_session), csrf: str = Form(...), confirm: str = Form("")):
+        """Delete tailored resumes for every application that was never sent. The base resume stays."""
+        require_csrf(request, session, csrf)
+        if confirm.strip().lower() != "remove":
+            return RedirectResponse("/jobs?err=confirm_needed", status_code=303)
+        from amorehiremepls.apply.applications import remove_unused_resumes
+
+        removed = 0
+        for job in rt.store.c("jobs").find({}, {"_id": 1}):
+            removed += remove_unused_resumes(rt.store, rt.settings.artifact_dir, job["_id"])["removed"]
+        flash = "resumes_removed" if removed else "resumes_none"
+        return RedirectResponse(f"/jobs?ok={flash}", status_code=303)
+
     @app.get("/jobs/{job_id}", response_class=HTMLResponse)
     def job_detail(request: Request, job_id: str, session: dict = Depends(require_session)):
         job = rt.jobs.get(job_id)
@@ -98,6 +123,12 @@ def register(app, rt, require_session, require_csrf, render) -> None:
     def job_steps(job: dict, app_doc: dict | None, arts: list, scope_active: bool, active_run: dict | None, outreach_n: int) -> tuple[list[dict], dict]:
         """Linear workflow for one job with the current step and the single next action under it."""
         st = (app_doc or {}).get("status")
+        if job.get("status") == "closed":
+            names = {tech: (name, tip) for name, (tip, tech) in STEP_HELP.items()}
+            flags = ["import", "qualify", "tailor", "review", "authorize", "submit", "record", "outreach"]
+            steps = [{"key": k, "name": names[k][0], "tip": names[k][1], "done": False, "current": False} for k in flags]
+            reason = job.get("closed_reason") or "This posting is no longer up"
+            return steps, {"label": reason, "href": None, "form": None, "note": "The job stays under Closed. Nothing was erased from your tracker.", "verb": ""}
         pkg = (app_doc or {}).get("review_package")
         after_approval = st in ("authorized", "executing", "handoff", "needs_verification", "submitted", "failed")
         submitted = st == "submitted" or job.get("status") in ("applied", "applied_historical")
@@ -203,6 +234,20 @@ def register(app, rt, require_session, require_csrf, render) -> None:
             rt.applications().prepare(job_id, fields)
             return RedirectResponse(f"/jobs/{job_id}?ok=regenerated", status_code=303)
         return RedirectResponse(f"/jobs/{job_id}?ok={'regenerated_doc_only' if local else 'regenerated'}", status_code=303)
+
+    @app.post("/jobs/{job_id}/check-posting")
+    def job_check_posting(request: Request, job_id: str, session: dict = Depends(require_session), csrf: str = Form(...)):
+        """Re-read this one posting even if it was checked recently. Does not submit."""
+        require_csrf(request, session, csrf)
+        if not rt.jobs.get(job_id):
+            raise HTTPException(404)
+        import httpx
+
+        with httpx.Client(timeout=20.0, follow_redirects=True, headers={"User-Agent": "AmoreHireMePls/0.1 (posting reader)"}) as client:
+            result = rt.discovery().check_posting(job_id, force=True, client=client, artifact_dir=rt.settings.artifact_dir)
+        flash = {"closed": "posting_closed", "open": "posting_open", "kept_sent": "posting_kept", "unreadable": "posting_unreadable", "skipped": "posting_open"}[result["outcome"]]
+        code = "ok" if result["outcome"] != "unreadable" else "err"
+        return RedirectResponse(f"/jobs/{job_id}?{code}={flash}", status_code=303)
 
     @app.post("/jobs/{job_id}/delete-application")
     def job_delete_application(request: Request, job_id: str, session: dict = Depends(require_session), csrf: str = Form(...), confirm: str = Form("")):

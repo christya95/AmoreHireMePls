@@ -8,6 +8,7 @@
       <h1>{{ job.title }}</h1>
       <p>{{ job.employer }}{% if job.location %} · {{ job.location }}{% endif %} · job ID {{ job.requisition_id or '—' }}{% if job.linkedin_job_id %} · LinkedIn {{ job.linkedin_job_id }}{% endif %}</p>
       <div class="flex mt">{{ status(job.status) }}{% if fit %}<span class="pill {{ fit.tone }}">fit score {{ fit.score }}</span>{{ hint('fit_rank') }}{% endif %}<a href="{{ job.posting_url }}" rel="noopener" target="_blank"><small>open the job ad ↗</small></a><small>found via {{ job.sources|map('label')|join(', ') }}</small></div>
+      {% if job.status == 'closed' %}<p class="note mt">{{ job.closed_reason or 'This posting is no longer up' }}</p>{% endif %}
       {% if job.possible_duplicates %}<p class="mt"><span class="pill warn">may be the same job as: {{ job.possible_duplicates|join(', ') }}</span></p>{% endif %}
     </div>
   </div>
@@ -23,6 +24,7 @@
       <summary class="btn secondary sm">More actions</summary>
       <div class="pop-body stack gap-s">
         <form method="post" action="/jobs/{{ job._id }}/qualify"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary sm w100">Check fit again</button></form>
+        <form method="post" action="/jobs/{{ job._id }}/check-posting"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary sm w100">Check if this posting is still up</button></form>
         {% if not active_run %}<form method="post" action="/jobs/{{ job._id }}/run"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary sm w100">Prepare the application again</button></form>{% endif %}
         <form method="post" action="/jobs/{{ job._id }}/regenerate" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
           <button class="secondary sm w100">Rebuild the resume</button>

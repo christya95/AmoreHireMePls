@@ -43,7 +43,14 @@
 
 <div class="card flush">
   <div class="card-h"><h3>All jobs</h3>
-    <div class="choices">{% for f in ['', 'new', 'needs_review', 'qualified', 'applied', 'applied_historical'] %}<a class="pill {{ 'accent' if request.query_params.get('status_filter', '') == f else '' }}" href="/jobs{% if f %}?status_filter={{ f }}{% endif %}">{{ f|label if f else 'all' }}</a>{% endfor %}</div>
+    <form method="post" action="/jobs/check-postings" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary sm">Check which jobs are still posted</button></form>
+    <details class="pop more"><summary class="btn secondary sm">Remove unused resumes</summary><div class="pop-body stack gap-s">
+      <form method="post" action="/jobs/remove-unused-resumes" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <p>Deletes tailored resumes for applications that were never sent. Your base resume stays. Anything already sent stays, including its files.</p>
+        <label>Type remove to confirm <input name="confirm" autocomplete="off"></label>
+        <button class="danger sm w100">Remove unused resumes</button></form>
+    </div></details>
+    <div class="choices">{% for f in ['', 'new', 'needs_review', 'qualified', 'applied', 'applied_historical', 'closed'] %}<a class="pill {{ 'accent' if request.query_params.get('status_filter', '') == f else '' }}" href="/jobs{% if f %}?status_filter={{ f }}{% endif %}">{{ 'open' if not f else f|label }}</a>{% endfor %}</div>
   </div>
   <div class="table-wrap"><table>
     <thead><tr><th>Employer and role</th><th>Status</th><th>Fit {{ hint('fit_rank') }}</th><th>Why</th><th>Application</th><th class="right">Updated</th></tr></thead>
@@ -51,7 +58,7 @@
       <td><a class="row-person" href="/jobs/{{ j._id }}">{{ company(j.employer, j) }}<span><strong>{{ j.employer }}</strong><span class="sub">{{ j.title }}{% if j.location %} · {{ j.location }}{% endif %}{% if j.requisition_id or j.linkedin_job_id %} · {{ j.requisition_id or j.linkedin_job_id }}{% endif %}</span></span></a></td>
       <td>{{ status(j.status) }}{% if j.needs_reconciliation %} <span class="pill bad">check this one</span>{% endif %}</td>
       <td>{% set fv = fit_score(j.fit) %}{% if fv %}<span class="pill {{ fv.tone }}" title="{{ fv.label }}">{{ fv.score }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
-      <td><small>{% if j.qualification %}{{ j.qualification.reasons|join('; ') }}{% endif %}</small></td>
+      <td><small>{% if j.closed_reason %}{{ j.closed_reason }}{% elif j.qualification %}{{ j.qualification.reasons|join('; ') }}{% endif %}</small></td>
       <td>{% if apps.get(j._id) %}<a class="btn {{ 'sm' if apps[j._id].status in ['ready_for_review', 'needs_input', 'handoff', 'needs_verification'] else 'secondary sm' }}" href="/applications/{{ apps[j._id]._id }}">{{ apps[j._id].status|verb }}</a><span class="sub">{{ apps[j._id].status|label }}</span>{% else %}<a class="btn secondary sm" href="/jobs/{{ j._id }}">Open</a>{% endif %}</td>
       <td class="right nowrap">{{ j.updated_at|local }}</td></tr>
     {% else %}<tr><td colspan="6"><div class="empty"><svg class="icon"><use href="#i-jobs"/></svg>{% if request.query_params.get('status_filter') %}No jobs are "{{ request.query_params.get('status_filter')|label }}" right now.<div class="actions center mt"><a class="btn secondary sm" href="/jobs">Show all</a></div>{% else %}No jobs yet. Paste a job link in "Add a job" above, or add a job board to watch.{% endif %}</div></td></tr>{% endfor %}</tbody>

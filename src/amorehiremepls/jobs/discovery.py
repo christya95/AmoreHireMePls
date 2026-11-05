@@ -13,6 +13,7 @@ import html
 import logging
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -168,6 +169,47 @@ def workday_json_url(url: str) -> str | None:
     if not m:
         return None
     return f"https://{m.group('tenant')}.{m.group('dc')}.myworkdayjobs.com/wday/cxs/{m.group('tenant')}/{m.group('site')}/job/{m.group('path')}"
+
+
+# A posting check treats these as "no longer up". A short successful read is the same: the page came back, and it is not a job ad.
+MIN_POSTING_CHARS = 200
+POSTING_CHECK_HOURS = 6
+POSTING_CHECK_BATCH = 25
+POSTING_CLOSED_REASON = "This posting is no longer up"
+_GONE_PAGE = re.compile(
+    r"does not exist|doesn't exist|no longer available|no longer exists|page you are looking for|"
+    r"job has expired|posting (?:has|is) expired|this job is closed|position has been filled|job is no longer",
+    re.I,
+)
+
+
+def read_posting(url: str, client: httpx.Client | None = None, timeout: float = 20.0) -> dict:
+    """One GET. HTTP 403 and 404 come back as data; other network failures set `error` and no status."""
+    try:
+        text, source, raw = fetch_posting_text(url, client, timeout)
+        return {"text": text, "source": source, "html": raw, "status_code": 200, "error": None}
+    except httpx.HTTPStatusError as exc:
+        body = exc.response.text or ""
+        return {"text": html_to_text(body)[:2000], "source": "", "html": body, "status_code": exc.response.status_code, "error": None}
+    except httpx.HTTPError as exc:
+        return {"text": "", "source": "", "html": None, "status_code": None, "error": type(exc).__name__}
+
+
+def posting_is_gone(status_code: int | None, text: str) -> bool:
+    """True when the employer page is a refusal, says the job is gone, or is too short to be a posting."""
+    if status_code in (403, 404):
+        return True
+    if _GONE_PAGE.search(text or ""):
+        return True
+    return status_code == 200 and len((text or "").strip()) < MIN_POSTING_CHARS
+
+
+def _checked_recently(when: datetime | None, now: datetime) -> bool:
+    if not isinstance(when, datetime):
+        return False
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=now.tzinfo)
+    return now - when < timedelta(hours=POSTING_CHECK_HOURS)
 
 
 def fetch_posting_text(url: str, client: httpx.Client | None = None, timeout: float = 20.0) -> tuple[str, str, str | None]:
@@ -862,6 +904,81 @@ class Discovery:
         snapshot = make_snapshot(url, text, raw_html=html_raw, extracted=dict(old.get("extracted") or {}), source=source)
         self.jobs.set_status(job_id, job["status"], latest_snapshot=snapshot)
         return {"job_id": job_id, "chars": len(snapshot["text"]), "stored": True, "source": source, "posting_hash": snapshot["posting_hash"]}
+
+    def _note_posting(self, job_id: str, text: str, now: datetime) -> None:
+        """One line on each unsent application for this job. Stored events are not removed."""
+        self.store.c("applications").update_many(
+            {"job_id": job_id, "tombstone": {"$ne": True}, "status": {"$nin": ["removed", "withdrawn"]}},
+            {"$push": {"history": {"at": now, "text": text}}},
+        )
+
+    def _sent_application(self, job_id: str) -> bool:
+        """A sent application, a saved receipt, or a result that is still unclear. Those jobs stay open."""
+        for app in self.store.c("applications").find({"job_id": job_id}):
+            if app.get("status") in ("submitted", "executing", "needs_verification"):
+                return True
+            evidence = app.get("evidence") or {}
+            if evidence.get("receipt_text") or evidence.get("confirmation") or evidence.get("receipt_path") or evidence.get("basis") == "receipt_observed":
+                return True
+        return False
+
+    def check_posting(self, job_id: str, *, force: bool = False, client: httpx.Client | None = None, artifact_dir: Path | None = None) -> dict:
+        """Re-read one posting. A gone page closes the job, keeps the record, and drops unsent tailored resumes.
+
+        A job checked in the last few hours is skipped unless `force` is set (the single-job action). A sent
+        application is never closed and its files are never deleted."""
+        job = self.jobs.get(job_id)
+        if job is None:
+            raise KeyError(job_id)
+        now = utcnow()
+        if not force and _checked_recently(job.get("posting_checked_at"), now):
+            return {"job_id": job_id, "outcome": "skipped", "reason": "checked recently"}
+        if self._sent_application(job_id):
+            self.jobs.set_status(job_id, job["status"], posting_checked_at=now)
+            self._note_posting(job_id, "This posting was left open because an application was already sent", now)
+            return {"job_id": job_id, "outcome": "kept_sent", "reason": "an application was already sent"}
+        url = job.get("posting_url") or job.get("apply_url")
+        if not url:
+            self.jobs.set_status(job_id, job["status"], posting_checked_at=now)
+            return {"job_id": job_id, "outcome": "unreadable", "reason": "job has no posting URL"}
+        read = read_posting(url, client)
+        if read["error"] and not posting_is_gone(read["status_code"], read["text"]):
+            self.jobs.set_status(job_id, job["status"], posting_checked_at=now)
+            self._note_posting(job_id, "The posting could not be read", now)
+            return {"job_id": job_id, "outcome": "unreadable", "reason": read["error"]}
+        if posting_is_gone(read["status_code"], read["text"]):
+            self.jobs.set_status(job_id, "closed", closed_reason=POSTING_CLOSED_REASON, posting_checked_at=now)
+            self._note_posting(job_id, POSTING_CLOSED_REASON, now)
+            removed = 0
+            if artifact_dir is not None:
+                from amorehiremepls.apply.applications import remove_unused_resumes
+
+                removed = remove_unused_resumes(self.store, artifact_dir, job_id)["removed"]
+            return {"job_id": job_id, "outcome": "closed", "reason": POSTING_CLOSED_REASON, "removed_resumes": removed}
+        text = (read["text"] or "").strip()
+        if len(text) >= MIN_POSTING_CHARS:
+            old = job.get("latest_snapshot") or {}
+            snapshot = make_snapshot(url, text, raw_html=read["html"], extracted=dict(old.get("extracted") or {}), source=read["source"] or "url_refresh")
+            self.jobs.set_status(job_id, job["status"], latest_snapshot=snapshot, posting_checked_at=now)
+        else:
+            self.jobs.set_status(job_id, job["status"], posting_checked_at=now)
+        self._note_posting(job_id, "This posting is still up", now)
+        return {"job_id": job_id, "outcome": "open", "reason": "still posted", "chars": len(text)}
+
+    def check_open_postings(self, *, client: httpx.Client | None = None, artifact_dir: Path | None = None) -> dict:
+        """Check active, unsent jobs one at a time, up to a batch cap. Recently checked jobs are skipped."""
+        summary = {"checked": 0, "closed": 0, "open": 0, "skipped": 0, "kept_sent": 0, "unreadable": 0}
+        query = {"status": {"$nin": ["closed", "applied", "applied_historical", "excluded"]}}
+        for job in self.store.c("jobs").find(query).sort("updated_at", 1):
+            if summary["checked"] >= POSTING_CHECK_BATCH:
+                break
+            if _checked_recently(job.get("posting_checked_at"), utcnow()):
+                summary["skipped"] += 1
+                continue
+            outcome = self.check_posting(job["_id"], force=False, client=client, artifact_dir=artifact_dir)["outcome"]
+            summary["checked"] += 1
+            summary[outcome] = summary.get(outcome, 0) + 1
+        return summary
 
     def qualify_job(self, job_id: str, use_model_extraction: bool = True) -> dict:
         job = self.jobs.get(job_id)

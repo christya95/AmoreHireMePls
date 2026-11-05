@@ -204,7 +204,17 @@ filter names remain only as aliases.
   the application was sent or an employer confirmation is already saved. Delete leaves the job. A GitHub tracker
   row is marked withdrawn instead of being erased. Restart clears the unsent package and its approval, then prepares
   a new package to read. It does not send anything. Rebuilding the resume makes new files, so the old approval
-  no longer applies.
+  no longer applies. Both also delete the tailored resume files for that unsent application. The base resume stays.
+- "Check which jobs are still posted" (`POST /jobs/check-postings`) re-reads open jobs one at a time, up to 25, and
+  skips a job checked in the last 6 hours. "Check if this posting is still up" (`POST /jobs/{id}/check-posting`)
+  checks that one job even if it was checked recently. A missing page (403 or 404), a page that says the job does
+  not exist, or a page too short to be a posting sets the job to Closed with "This posting is no longer up" and
+  takes it off the open list. The record stays. A sent application is never closed. The same check writes one
+  update line. Repeated identical update lines stay stored and show as one line with a count.
+- "Remove unused resumes" (`POST /jobs/remove-unused-resumes` and `POST /applications/{id}/remove-resumes`) asks
+  for the word `remove`. It deletes tailored files for applications that were never sent, and withdraws an approval
+  that pointed at a deleted file. It runs on its own when a posting is closed, deleted, or restarted. The base
+  resume, a sent application, and GitHub tracker history are not deleted.
 - DOCX and PDF stay as they are. Site names, file paths and IDs stay in `<code>`.
 - Each stepper step has a one line `title` tooltip from `STEP_HELP`; `job_steps()` compares on the technical key, so a
   renamed label never changes behaviour.

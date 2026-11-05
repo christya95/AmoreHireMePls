@@ -566,6 +566,74 @@ def submission_lock_reason(app: dict) -> str | None:
     return None
 
 
+_CLEANUP_REFUSAL = ("already_sent", "receipt_saved", "result_unclear", "still_working")
+
+
+def _job_resume_file(artifact_dir: Path, job_id: str, raw: str | None) -> Path | None:
+    """A tailored file is deletable only when it sits under that job's artifact directory."""
+    if not raw:
+        return None
+    root = (artifact_dir / "jobs" / job_id).resolve()
+    path = Path(raw).resolve()
+    if path == root or root not in path.parents:
+        return None
+    return path
+
+
+def delete_tailored_files(store: Store, artifact_dir: Path, job_id: str) -> int:
+    """Delete tailored resume files and their records for one job. Sent applications are left untouched.
+
+    The base resume is not a `resume_tailored` record and lives outside the job directory, so it is never removed.
+    Returns how many artifact records were removed."""
+    for app in store.c("applications").find({"job_id": job_id}):
+        if submission_lock_reason(app) in _CLEANUP_REFUSAL:
+            return 0
+    removed = 0
+    for art in list(store.c("artifacts").find({"owner_id": job_id, "kind": "resume_tailored"})):
+        for key in ("path", "pdf_path"):
+            path = _job_resume_file(artifact_dir, job_id, art.get(key))
+            if path is not None and path.is_file():
+                path.unlink()
+        store.c("artifacts").delete_one({"_id": art["_id"]})
+        removed += 1
+    return removed
+
+
+def remove_unused_resumes(store: Store, artifact_dir: Path, job_id: str, *, record: bool = True) -> dict:
+    """Delete unsent tailored resumes, revoke approvals that pointed at them, and note it on the application.
+
+    A submitted application, a saved receipt, an unclear result, or a task that is still working refuses the
+    whole job: nothing is deleted. Passing `record` false only deletes the files (delete and restart record
+    their own outcome)."""
+    for app in store.c("applications").find({"job_id": job_id}):
+        reason = submission_lock_reason(app)
+        if reason in _CLEANUP_REFUSAL:
+            return {"removed": 0, "refused": reason}
+    removed = delete_tailored_files(store, artifact_dir, job_id)
+    if removed == 0:
+        return {"removed": 0, "refused": None}
+    now = utcnow()
+    store.c("authorizations").update_many(
+        {"kind": "application_submit", "status": "active", "binding.target_id": job_id},
+        {"$set": {"status": "revoked", "revoked_reason": "tailored resume removed"}},
+    )
+    for app in store.c("applications").find({"job_id": job_id, "tombstone": {"$ne": True}, "status": {"$nin": ["submitted", "removed"]}}):
+        fields: dict[str, Any] = {"updated_at": now}
+        unset = {"material_hash": "", "review_package.document": ""}
+        if app.get("status") in ("authorized", "ready_for_review"):
+            fields["status"] = "queued"
+            fields["next_action"] = "Tailor the resume again"
+        if record:
+            store.c("applications").update_one(
+                {"_id": app["_id"]},
+                {"$set": fields, "$unset": unset, "$push": {"history": {"at": now, "text": "Unused tailored resumes were removed. Approve again after a new resume is made."}}},
+            )
+        else:
+            store.c("applications").update_one({"_id": app["_id"]}, {"$set": fields, "$unset": unset})
+    store.audit("unused_resumes_removed", job_id, removed=removed)
+    return {"removed": removed, "refused": None}
+
+
 def ledger_linked(store: Store, app: dict) -> bool:
     """True when a GitHub ledger row or a live outbox item already exists. Those rows are not deleted."""
     if app.get("tracker_record_id") or (app.get("provenance") or {}).get("origin") == "tracker_import":
@@ -610,9 +678,19 @@ class ApplicationService:
         return run
 
     def get_or_create(self, job_id: str) -> dict:
-        app = self.apps.find_one({"job_id": job_id, "provenance.origin": "local"})
-        if app:
-            return app
+        """Reuse the unsent application for this job. A failed or handoff attempt does not start a second one.
+
+        A sent application is returned as-is so a later prepare cannot overwrite it. A removed application is not reused.
+        """
+        unsent = self.apps.find_one(
+            {"job_id": job_id, "provenance.origin": "local", "tombstone": {"$ne": True}, "status": {"$nin": ["submitted", "removed", "withdrawn"]}},
+            sort=[("updated_at", -1)],
+        )
+        if unsent:
+            return unsent
+        submitted = self.apps.find_one({"job_id": job_id, "status": "submitted"})
+        if submitted:
+            return submitted
         app = {
             "_id": new_id("app"),
             "job_id": job_id,
@@ -665,6 +743,7 @@ class ApplicationService:
         if reason := submission_lock_reason(app):
             raise ApplicationRefused(reason)
         self._stop_unsent_work(app)
+        delete_tailored_files(self.store, self.tailor.artifact_dir, app["job_id"])
         backup_dir.mkdir(parents=True, exist_ok=True)
         path = backup_dir / f"{app_id}-{utcnow().strftime('%Y%m%dT%H%M%SZ')}.json"
         path.write_text(json_util.dumps(app), encoding="utf-8")
@@ -706,7 +785,7 @@ class ApplicationService:
             raise ApplicationRefused(reason)
         self._stop_unsent_work(app)
         job = self.jobs.get(app["job_id"])
-        self.store.c("artifacts").update_many({"owner_id": app["job_id"], "kind": "resume_tailored"}, {"$set": {"superseded": True}})
+        delete_tailored_files(self.store, self.tailor.artifact_dir, app["job_id"])
         self.apps.update_one(
             {"_id": app_id},
             {
@@ -736,6 +815,9 @@ class ApplicationService:
         if job is None:
             raise KeyError(job_id)
         app = self.get_or_create(job_id)
+        if app.get("status") == "submitted":
+            # Report the duplicate without rewriting the sent application.
+            return {**app, "status": "duplicate", "reason": f"already submitted ({app.get('tracker_record_id') or app['_id']})"}
         prior = self.apps.find_one({"job_id": job_id, "status": "submitted"})
         if prior:
             return self._set(app["_id"], "duplicate", reason=f"already submitted ({prior.get('tracker_record_id') or prior['_id']})")
