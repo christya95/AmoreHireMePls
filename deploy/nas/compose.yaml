@@ -1,0 +1,150 @@
+# AmoreHireMePls on the UGREEN DXP4800 Plus, deployed as a Portainer standalone stack (name: amorehiremepls).
+#
+# Deployed by scripts/deploy_nas.sh through the Portainer API (no SSH). Secret values never appear here:
+# they are Portainer stack environment variables, read from the 1Password vault at deploy time.
+#
+# Stack variables (names only):
+#   AMORE_IMAGE_TAG            image tag to run (git sha pushed by scripts/deploy_nas.sh; "latest" also exists)
+#   AMORE_PUBLISH_HOST         host address the dashboard is published on (default: NAS LAN address 192.168.2.49;
+#                              0.0.0.0 also answers on the Tailscale address, see docs/nas-deployment.md)
+#   AMORE_MODEL                model name (default gpt-5.4-mini)
+#   AMORE_BROWSER_ALLOWED_HOSTS  comma-separated ATS hosts the worker may open (default empty = no live navigation)
+#   AMORE_APP_PASSWORD         dashboard sign-in password          (vault: Dashboard Password / password)
+#   AMORE_APP_SECRET           session signing secret              (vault: App Session Secret / credential)
+#   AMORE_MONGODB_USERNAME     NAS MongoDB app user                (vault: NAS MongoDB App User / username)
+#   AMORE_MONGODB_PASSWORD     NAS MongoDB app user password       (vault: NAS MongoDB App User / password)
+#   OPENAI_API_KEY             model provider key                  (vault: OpenAI API Key / credential)
+#
+# Data lives in bind mounts under /volume1/docker/amorehiremepls (same convention as the mongodb stack,
+# /volume1/docker/mongodb). The image runs as uid 10001; the one-shot `init` service only fixes ownership
+# of those directories and exits.
+#
+# Path layout: records written by the Mac instance store paths relative to the repository root
+# (`runtime/artifacts/...`, `runtime/private/...`) and the app resolves them against the process working
+# directory, then requires them to sit under AMORE_ARTIFACT_DIR. The containers therefore mount the data at
+# /runtime/{artifacts,private,logs} and run with working_dir "/", so every recorded path resolves on both
+# hosts without a database rewrite. Paths recorded on the NAS are absolute (/runtime/...).
+#
+# Database: the existing `mongodb` container (stack "mongodb", image mongo:8.0) on the Docker network
+# `mongodb_default`; this stack joins that network and talks to the container by name, so database traffic
+# stays off the host interfaces. Nothing in the mongodb stack is changed.
+#
+# Seccomp: the repository's docker-compose.yml references deploy/seccomp_profile.json (Playwright's profile,
+# which lets Chromium keep its own sandbox). Portainer's compose client runs inside the Portainer container
+# and cannot read a file that is not part of the stack, so this stack keeps Docker's default seccomp profile.
+# Playwright launches Chromium without the Chromium sandbox by default (chromium_sandbox=False), which is
+# the standard container setup and was verified on the NAS after the first deploy (see docs/nas-deployment.md).
+
+name: amorehiremepls
+
+x-app: &app
+  image: docker.io/lepia/amorehiremepls:${AMORE_IMAGE_TAG:-latest}
+  environment:
+    TZ: America/Toronto
+    AMORE_TIMEZONE: America/Toronto
+    AMORE_MONGODB_URI: mongodb://mongodb:27017/?directConnection=true
+    AMORE_MONGODB_DATABASE: amorehiremepls
+    AMORE_MONGODB_AUTH_SOURCE: amorehiremepls
+    AMORE_MONGODB_USERNAME: ${AMORE_MONGODB_USERNAME}
+    AMORE_MONGODB_PASSWORD: ${AMORE_MONGODB_PASSWORD}
+    AMORE_APP_PASSWORD: ${AMORE_APP_PASSWORD}
+    AMORE_APP_SECRET: ${AMORE_APP_SECRET}
+    OPENAI_API_KEY: ${OPENAI_API_KEY}
+    AMORE_MODEL_PROVIDER: openai
+    AMORE_MODEL: ${AMORE_MODEL:-gpt-5.4-mini}
+    AMORE_BIND_HOST: 0.0.0.0
+    AMORE_PORT: "8790"
+    AMORE_SECURE_COOKIES: "false"
+    AMORE_ARTIFACT_DIR: /runtime/artifacts
+    AMORE_PRIVATE_DIR: /runtime/private
+    AMORE_LOG_DIR: /runtime/logs
+    AMORE_BROWSER_SESSION_DIR: /runtime/private/sessions
+    AMORE_BROWSER_HEADLESS: "true"
+    AMORE_BROWSER_ALLOWED_HOSTS: ${AMORE_BROWSER_ALLOWED_HOSTS:-}
+    AMORE_TRACKER_CLONE_DIR: /runtime/private/job-application-records
+    AMORE_TRACKER_PUSH_ENABLED: "false"
+    AMORE_PRICING_FILE: /app/config/pricing.json
+  working_dir: /
+  volumes:
+    - /volume1/docker/amorehiremepls/artifacts:/runtime/artifacts
+    - /volume1/docker/amorehiremepls/private:/runtime/private
+    - /volume1/docker/amorehiremepls/logs:/runtime/logs
+  # The image declares VOLUME /data; it is unused here, so back it with tmpfs instead of an anonymous volume.
+  tmpfs:
+    - /data:size=1m
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  deploy:
+    resources:
+      limits:
+        cpus: "1.5"
+        memory: 1536M
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+  depends_on:
+    init:
+      condition: service_completed_successfully
+
+services:
+  # One-shot: make the bind-mounted data directories writable by the app user (uid 10001). Runs as root
+  # for the chown only, then exits. Idempotent.
+  init:
+    image: docker.io/lepia/amorehiremepls:${AMORE_IMAGE_TAG:-latest}
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mkdir -p /runtime/artifacts /runtime/private/sessions /runtime/logs
+        chown -R 10001:10001 /runtime/artifacts /runtime/private /runtime/logs
+        chmod 750 /runtime/artifacts /runtime/private /runtime/logs
+        echo "data directories ready"
+    volumes:
+      - /volume1/docker/amorehiremepls/artifacts:/runtime/artifacts
+      - /volume1/docker/amorehiremepls/private:/runtime/private
+      - /volume1/docker/amorehiremepls/logs:/runtime/logs
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
+    network_mode: none
+
+  web:
+    <<: *app
+    command: ["amore", "web"]
+    ports:
+      - "${AMORE_PUBLISH_HOST:-192.168.2.49}:8790:8790"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8790/health', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  worker:
+    <<: *app
+    command: ["amore", "worker"]
+    # Chromium needs a larger /dev/shm than Docker's 64 MB default.
+    shm_size: 512m
+    healthcheck:
+      test: ["CMD", "amore", "worker-health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  default:
+    name: mongodb_default
+    external: true
