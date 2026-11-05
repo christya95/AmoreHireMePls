@@ -7,7 +7,7 @@
     <div>
       <h1>{{ job.title }}</h1>
       <p>{{ job.employer }}{% if job.location %} · {{ job.location }}{% endif %} · job ID {{ job.requisition_id or '—' }}{% if job.linkedin_job_id %} · LinkedIn {{ job.linkedin_job_id }}{% endif %}</p>
-      <div class="flex mt">{{ status(job.status) }}{% if job.fit %}<span class="pill accent">fit score {{ job.fit.rank }}</span>{{ hint('fit_rank') }}{% endif %}<a href="{{ job.posting_url }}" rel="noopener" target="_blank"><small>open the job ad ↗</small></a><small>found via {{ job.sources|map('label')|join(', ') }}</small></div>
+      <div class="flex mt">{{ status(job.status) }}{% if fit %}<span class="pill {{ fit.tone }}">fit score {{ fit.score }}</span>{{ hint('fit_rank') }}{% endif %}<a href="{{ job.posting_url }}" rel="noopener" target="_blank"><small>open the job ad ↗</small></a><small>found via {{ job.sources|map('label')|join(', ') }}</small></div>
       {% if job.possible_duplicates %}<p class="mt"><span class="pill warn">may be the same job as: {{ job.possible_duplicates|join(', ') }}</span></p>{% endif %}
     </div>
   </div>
@@ -38,7 +38,38 @@
   <div class="card"><div class="card-h"><h3>Does it fit your rules?</h3>{% if job.qualification %}{{ status(job.qualification.decision) }}{% endif %}<span class="sub">Checked against your preferences: role, location, employment type, lowest salary, employers to skip.</span></div>
     {% if job.qualification %}<ul>{% for r in job.qualification.reasons %}<li>{{ r }}</li>{% endfor %}</ul>
     <details class="disclosure"><summary>Technical details</summary><pre>{{ job.qualification|json }}</pre></details>{% else %}<div class="empty">Not checked yet.<div class="actions center mt"><form method="post" action="/jobs/{{ job._id }}/qualify" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary sm">Check fit</button></form></div></div>{% endif %}</div>
-  <div class="card"><div class="card-h"><h3>How well you match</h3>{{ hint('fit_rank') }}</div>{% if job.fit %}<pre>{{ job.fit|json }}</pre>{% else %}<p class="note">No fit score yet. It needs the AI model to be connected. The rules check on the left works without it.</p>{% endif %}</div>
+  <div class="card"><div class="card-h"><h3>How well you match</h3>{{ hint('fit_rank') }}</div>
+    {% if fit %}
+    <div class="fit-layout">
+      <div class="fit-ring band-{{ fit.band }}" role="img" aria-label="Fit score {{ fit.score }} out of 100, {{ fit.label }}">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="track" cx="60" cy="60" r="52"></circle>
+          <circle class="value" cx="60" cy="60" r="52" stroke-dasharray="{{ fit.circ }}" stroke-dashoffset="{{ fit.offset }}"></circle>
+        </svg>
+        <div class="fit-num"><strong>{{ fit.score }}</strong><span>{{ fit.label }}</span></div>
+      </div>
+      <div class="fit-body">
+        {% if fit.matches_n or fit.gaps_n or fit.unknown_n %}
+        <div class="fit-bar" role="img" aria-label="{{ fit.matches_n }} where you line up, {{ fit.gaps_n }} gaps, {{ fit.unknown_n }} not sure">
+          {% if fit.matches_n %}<span class="seg match" style="flex: {{ fit.matches_n }}"></span>{% endif %}
+          {% if fit.gaps_n %}<span class="seg gap" style="flex: {{ fit.gaps_n }}"></span>{% endif %}
+          {% if fit.unknown_n %}<span class="seg unknown" style="flex: {{ fit.unknown_n }}"></span>{% endif %}
+        </div>
+        <ul class="fit-legend">
+          <li><i class="dot match"></i> {{ fit.matches_n }} line up</li>
+          <li><i class="dot gap"></i> {{ fit.gaps_n }} gaps</li>
+          <li><i class="dot unknown"></i> {{ fit.unknown_n }} not sure</li>
+        </ul>
+        {% endif %}
+        {% if fit.matches %}<h4>Where you line up</h4><ul>{% for item in fit.matches %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
+        {% if fit.gaps %}<h4>Gaps</h4><ul>{% for item in fit.gaps %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
+        {% if fit.blockers %}<h4>Required and missing</h4><ul>{% for item in fit.blockers %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
+        {% if fit.unknown %}<h4>Not enough to say</h4><ul>{% for item in fit.unknown %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
+        {% if not fit.matches and not fit.gaps and not fit.blockers and not fit.unknown %}<p class="note">The score is from the overall match. There is no point-by-point breakdown.</p>{% endif %}
+      </div>
+    </div>
+    <details class="disclosure"><summary>Technical details</summary><pre>{{ job.fit|json }}</pre></details>
+    {% else %}<p class="note">No fit score yet. It needs the AI model to be connected. The rules check on the left works without it.</p>{% endif %}</div>
 </div>
 
 <div class="card flush"><div class="card-h"><h3>Resumes for this job</h3>{{ hint('grounding') }}<span class="sub">Tailored from your approved base resume. Open the PDF to read exactly what would be uploaded.</span></div>

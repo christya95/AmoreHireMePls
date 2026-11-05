@@ -131,6 +131,10 @@ Keep this file current. A later session should be able to continue from the "Exa
 - Logos are on by default. The domain comes from a company website field, then the posting host when it is not a job board, then a built-in public alias list (the screenshot employers, plus the other employers already in the jobs list). The web process fetches on the first `/logos/{key}` request: the site's own icon, then DuckDuckGo, then Google. Bytes are cached under `artifacts/public-cache/logos/`. An older "missing" sidecar is ignored. Initials remain when no domain can be derived, and a broken image falls back to initials in the browser. No model call.
 - Checked on the local web at 127.0.0.1:8790 (no local worker): every jobs-list employer, including Robinhood, Electric Mind, CIBC, PointClickCare, Autodesk, Broadridge, DoorDash, Toast, Interac, Marqeta, Tata Consultancy Services, The MRG Group, Citi and Stripe, returned an image. Joss does not need to flip the Settings toggle.
 
+## Fit score ring (2026-11-05)
+
+- The job page "How well you match" card was a JSON dump of the stored assessment. It is now a ring (0–100), a matches / gaps / not-sure bar, and the same point lists. Raw JSON stays under Technical details. The score is computed in `fit_score()` from the existing rank and lists: base 94 / 78 / 55 / 32 / 14 for ranks 1–5, plus at most 8 points for the share of grounded matches, minus 6 per mandatory blocker (cap 12). Bands: red 0–39, yellow 40–69, green 70–89, blue 90–100. No extra model call. The jobs list shows the same number.
+
 ## Exact next step
 
 Joss logs in to http://192.168.2.49:8790 (NAS) or the local web at http://127.0.0.1:8790. Company logos are on without a settings change. Redeploy the NAS after this commit with `scripts/deploy_nas.sh` when ready. The Faire package review and the role-family question are unchanged.

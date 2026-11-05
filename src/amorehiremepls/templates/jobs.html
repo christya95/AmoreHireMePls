@@ -48,7 +48,7 @@
     <tbody>{% for j in jobs %}<tr>
       <td><a class="row-person" href="/jobs/{{ j._id }}">{{ company(j.employer, j) }}<span><strong>{{ j.employer }}</strong><span class="sub">{{ j.title }}{% if j.location %} · {{ j.location }}{% endif %}{% if j.requisition_id or j.linkedin_job_id %} · {{ j.requisition_id or j.linkedin_job_id }}{% endif %}</span></span></a></td>
       <td>{{ status(j.status) }}{% if j.needs_reconciliation %} <span class="pill bad">check this one</span>{% endif %}</td>
-      <td>{% if j.fit %}{{ j.fit.rank }}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td>{% set fv = fit_score(j.fit) %}{% if fv %}<span class="pill {{ fv.tone }}" title="{{ fv.label }}">{{ fv.score }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
       <td><small>{% if j.qualification %}{{ j.qualification.reasons|join('; ') }}{% endif %}</small></td>
       <td>{% if apps.get(j._id) %}<a class="btn {{ 'sm' if apps[j._id].status in ['ready_for_review', 'needs_input', 'handoff', 'needs_verification'] else 'secondary sm' }}" href="/applications/{{ apps[j._id]._id }}">{{ apps[j._id].status|verb }}</a><span class="sub">{{ apps[j._id].status|label }}</span>{% else %}<a class="btn secondary sm" href="/jobs/{{ j._id }}">Open</a>{% endif %}</td>
       <td class="right nowrap">{{ j.updated_at|toronto }}</td></tr>

@@ -41,6 +41,7 @@ from .ui_settings import (
     UISettings,
     UISettingsStore,
     donut,
+    fit_score,
     greeting,
     humanize,
     initials,
@@ -277,6 +278,7 @@ def create_app(rt: Runtime) -> FastAPI:
             "intro_key": intro_key,
             "intro_collapsed": intro_key in ui.collapsed_intros,
             "glossary": GLOSSARY,
+            "fit_score": fit_score,
             # logo_src(job, employer=None) -> app-served image URL or None (initials). Deterministic, no model use.
             "logo_src": rt.logos.src_for if ui.company_logos else (lambda job=None, employer=None: None),
         }
@@ -869,7 +871,7 @@ def create_app(rt: Runtime) -> FastAPI:
         outreach_n = rt.store.c("outreach").count_documents({"employer_norm": job.get("employer_norm")}) if job.get("employer_norm") else 0
         steps, next_step = job_steps(job, local, arts, bool(scopes), active_run, outreach_n)
         docs, shots = split_screenshots(arts)
-        ctx = {"job": job, "apps": apps, "artifacts": docs, "screenshots": shots, "runs": runs, "local_app": local, "scopes": scopes}
+        ctx = {"job": job, "fit": fit_score(job.get("fit")), "apps": apps, "artifacts": docs, "screenshots": shots, "runs": runs, "local_app": local, "scopes": scopes}
         ctx.update(steps=steps, next_step=next_step, active_run=active_run)
         return render(request, "job.html", session, **ctx)
 

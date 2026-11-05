@@ -622,6 +622,72 @@ def line_chart(series: list[tuple[str, int | float]], width: int = 640, height: 
     }
 
 
+# Rank 1 is a close match and 5 is a poor one (assess_fit). The anchors sit inside the colour bands
+# so the ring agrees with the rank unless grounded points or blockers nudge it.
+_FIT_BASE = {1: 94, 2: 78, 3: 55, 4: 32, 5: 14}
+_FIT_RING_C = round(2 * 3.141592653589793 * 52, 2)  # r=52 circle used by the job-page ring
+
+
+def fit_score(fit: dict | None) -> dict[str, Any] | None:
+    """0–100 view of a stored fit assessment. Reads the existing rank and point lists only; no model call.
+
+    score = clamp(base[rank] + nudge − blocker penalty, 0, 100)
+    base is 94 / 78 / 55 / 32 / 14 for ranks 1–5.
+    nudge is round((share of grounded matches − 0.5) × 16), so at most 8 points either way, and 0 when
+    there is no breakdown. Each mandatory blocker subtracts 6, capped at 12.
+    Bands: 0–39 weak (red), 40–69 partial (yellow), 70–89 strong (green), 90–100 excellent (blue).
+    """
+    if not isinstance(fit, dict):
+        return None
+    rank = fit.get("rank")
+    if isinstance(rank, bool) or not isinstance(rank, int):
+        return None
+    rank = min(5, max(1, rank))
+    matches = _fit_lines(fit.get("fit_points"))
+    gaps = _fit_lines(fit.get("genuine_gaps"))
+    blockers = _fit_lines(fit.get("mandatory_qualification_blockers"))
+    unknown = _fit_lines(fit.get("missing_evidence"))
+    parts = len(matches) + len(gaps) + len(blockers) + len(unknown)
+    nudge = round((len(matches) / parts - 0.5) * 16) if parts else 0
+    score = max(0, min(100, _FIT_BASE[rank] + nudge - min(12, 6 * len(blockers))))
+    if score >= 90:
+        band, label, tone = "excellent", "Excellent match", "info"
+    elif score >= 70:
+        band, label, tone = "strong", "Strong match", "ok"
+    elif score >= 40:
+        band, label, tone = "partial", "Partial match", "warn"
+    else:
+        band, label, tone = "weak", "Weak match", "bad"
+    return {
+        "score": score,
+        "rank": rank,
+        "band": band,
+        "label": label,
+        "tone": tone,
+        "matches": matches,
+        "gaps": gaps,
+        "blockers": blockers,
+        "unknown": unknown,
+        "matches_n": len(matches),
+        "gaps_n": len(gaps) + len(blockers),
+        "unknown_n": len(unknown),
+        "circ": _FIT_RING_C,
+        "offset": round(_FIT_RING_C * (1 - score / 100), 2),
+    }
+
+
+def _fit_lines(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    for item in value:
+        if isinstance(item, str):
+            text = " ".join(item.split())
+            if text:
+                out.append(text)
+    return out
+
+
 def donut(items: list[tuple[str, int | float, str]]) -> dict[str, Any]:
     """Segments for an SVG donut (circumference normalised to 100). items: (label, value, css class)."""
     total = float(sum(v for _, v, _ in items)) or 0.0
