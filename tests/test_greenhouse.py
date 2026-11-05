@@ -108,7 +108,10 @@ def test_build_plan_targets_both_layouts_and_ties_the_receipt_to_the_job_id():
 def test_registry_routes_greenhouse_hosts_and_fields():
     assert registry.for_url("https://boards.greenhouse.io/faire/jobs/8831748002?gh_jid=8831748002").name == "greenhouse"
     assert registry.for_url("https://job-boards.eu.greenhouse.io/x/jobs/1").name == "greenhouse"
-    assert registry.for_url("https://jobs.lever.co/acme/1") is None and registry.for_url(None) is None
+    assert registry.for_url("https://jobs.lever.co/acme/1").name == "lever"
+    assert registry.for_url("https://jobs.eu.lever.co/acme/1").name == "lever"
+    assert registry.for_url("https://jobs.ashbyhq.com/acme/bbbbbbbb-cccc-dddd-eeee-ffffffffffff").name == "ashby"
+    assert registry.for_url("https://careers.example/jobs/1") is None and registry.for_url(None) is None
     assert registry.for_fields(questions_to_fields(board_schema("acme", "123456"))).name == "greenhouse"
     assert registry.for_fields([]) is None
 
