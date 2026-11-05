@@ -274,16 +274,19 @@ Queue item 1 from `docs/HANDOFF.md`. All rules are field neutral (they name what
 - **Owner's two sensitive keys.** `pronouns` and `citizenship_status` are saved as answers without a `question_pattern`, so they stay blank on forms until the owner adds one (Profile page or `profile.toml` `match`). Nothing was inferred.
 - **Deployed.** Commit `68c7a25` pushed to `origin/main`; `lepia/amorehiremepls:68c7a2576966` on the NAS stack at 12:54 (init exited 0, web and worker healthy, `/health` 200, Overview greeting shows the display name). No application was retried, nothing was sent.
 
+## Directory packages (2026-11-05, 13:05–14:00 Toronto)
+
+Queue item 2. Preflight was already recorded: the NAS LangGraph checkpoints hold no `amorehiremepls.*` module path.
+
+- **Move (`9e9413d`).** `git mv` into `core/`, `candidate/`, `jobs/`, `apply/` (including `ats/`), `records/`, `outreach/`, `web/` (including `templates/` and `static/`). Imports are absolute. The `amore` command is `amorehiremepls.web.cli:app`. Ruff's per-file ignore for the copy tables moved with `web/ui_settings.py`. Test paths for `static/` and `templates/` point at `web/`. Employer logos live in `jobs/` because the worker fetches them for job cards.
+- **Routes (`1ea2bc5`).** `create_app` still owns the session, CSRF and render closure. Each area of the site is a `register` function in `web/routes/`. Shared template state is `web/chrome.py`. Screenshot grouping shared by the job, application and documents pages is `web/shots.py`.
+- **Docs.** `docs/architecture.md` describes the packages and the docstring rule. No list of 22 high-value comments exists in the repo, `CURSOR_PROMPT.md` or this file, so none were invented. Package markers carry a one-line docstring. Full suite **336 passed**, ruff clean.
+- **Not deployed yet.** The NAS image is still `lepia/amorehiremepls:68c7a2576966`. Deploy is the next step. No application was retried and nothing was sent.
+
 ## Exact next step
 
-Greenhouse, Lever, and Ashby form filling, owner notifications, the human-check hold, and one later try are on `main` and fixture-tested only. None of those paths has been live-submitted. This session did not deploy and did not start a Mac worker.
+Deploy queue item 2 from `origin/main` with operating rule 3 in `docs/HANDOFF.md`, then record the 12-character image tag here and in the handoff. Do not start per-user accounts (queue item 3) until the owner answers handoff question 6 (whether tracker sync pauses for an expired member).
 
-Uncommitted on the Mac: the upload / form-check fix above. Commit after `uv run pytest` and ruff pass, deploy with `scripts/deploy_nas.sh`, then on the Faire application page press **Retry with the app**: it reads the form again, rebuilds the package (new fingerprint, re-tailored because the profile version changed) and waits for approval. After approval the worker runs the form check first; if the live board differs again, the page says which field was missing and that nothing was sent.
+Greenhouse, Lever, and Ashby form filling, owner notifications, the human-check hold, and one later try are fixture-tested only. None of those paths has been live-submitted. Do not retry the Faire application or mark the BMO job closed; those are owner decisions (handoff questions 4 and 5).
 
 Email stays off until vault `AmoreHireMePls` has item `SMTP` with fields `username` and `password`, `.env` has `AMORE_NOTIFY_EMAIL_TO`, `AMORE_SMTP_HOST`, `AMORE_SMTP_PORT`, and `AMORE_SMTP_USER`, and the two `op://AmoreHireMePls/SMTP/…` lines in `.env.references` are uncommented. Optional: `AMORE_NOTIFY_WEBHOOK_URL`, `AMORE_PUBLISH_URL` or `AMORE_PUBLISH_HOST`.
-
-The NAS stack is still on an older image. A later deploy is `scripts/deploy_nas.sh` (not part of this coding step). After that, the Faire application `app_1c0408f4d9f27059` (its 09:36 try stopped at the resume upload, see above; nothing was sent) can use **Retry with the app**. Expect "needs your answers" for the hybrid commitment, the familiarity question, and "how did you hear". With the defaults, a human check holds the page for 30 minutes. On the NAS that page cannot be opened, so the hold ends as finish-on-the-site, then one fresh session runs after 180 minutes before a notification. If the first try already clicked submit, the later session only looks for a confirmation. The captcha switch stays off unless Joss turns it on under Settings → Applying. Record Applied only after the employer confirmation page.
-
-The BMO Java API Developer card (`job_37efeb56f094fb95`) keeps its stored score until this fit-evidence change is the dashboard that is running and that job uses More actions → Check fit again. That ranks one job. It does not apply. As of 2026-11-05 11:20 the BMO posting page no longer exists on Workday (see above); Joss decides whether to mark that job closed.
-
-After the deploy that carries the candidate folder: open Your profile on the NAS dashboard, use "Add a resume or career notes" for the base resume DOCX and the career notes markdown, then press "Use the resume from the candidate folder" only if the NAS base resume should change. Check that the Profile page lists the notes under "Extra documents read when checking fit and tailoring"; if the upload answers "cannot write to the candidate folder", the `init` service did not run (Portainer → Stacks → amorehiremepls → redeploy) or `/volume1/docker/amorehiremepls/candidate` is not owned by uid 10001.

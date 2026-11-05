@@ -1,13 +1,13 @@
 # Handoff
 
-Written 2026-11-05 12:40 Toronto at commit `45be592`, updated 13:00 after queue item 1. Read this first in every new session.
+Written 2026-11-05 12:40 Toronto at commit `45be592`, updated after queue item 2 (directory packages). Read this first in every new session.
 No private values here: field names and counts only. Keep under 120 lines; finished items move to `docs/PROGRESS.md`.
 
 ## State now
 
-- Deployed: NAS Portainer stack `amorehiremepls`, image `lepia/amorehiremepls:68c7a2576966` (12 character sha of the deployed
-  commit, queue item 1 included), web and worker healthy, dashboard `http://192.168.2.49:8790` (`/health` 200, Overview
-  greeting shows the display name, tracker on). `origin/main` is only this docs commit ahead of the deployed tag.
+- Deployed: NAS Portainer stack `amorehiremepls`, image `lepia/amorehiremepls:68c7a2576966` (queue item 1). Web and worker
+  healthy, dashboard `http://192.168.2.49:8790` (`/health` 200, Overview greeting shows the display name, tracker on).
+  Queue item 2 is on `main` and is not deployed yet.
 - Live and used for real: profile store, base resume registration, tracker preview/import (nothing pushed), discovery by URL,
   model check through `op run`, deterministic tailoring with a 2 page PDF, review package and approval gates, honest
   application status plus the Updates list on the Overview (built from stored events, no model call), fit check with resume
@@ -17,7 +17,7 @@ No private values here: field names and counts only. Keep under 120 lines; finis
   edit), `AMORE_TIMEZONE` and tracker settings, profession neutral code with `candidate/profile.toml` as the one customization
   surface (`amore profile import --from … [--dry-run]`, `export --to …`, `fingerprint`, Profile page Load button). The
   owner's live preferences are exported to the gitignored Mac copy of `profile.toml`; the NAS Profile card says "not found"
-  because the file is only on the Mac. Suite: 336 passed, ruff clean.
+  because the file is only on the Mac. Layout is the six packages in `docs/architecture.md`. Suite: 336 passed, ruff clean.
 - Fixture tested only: Greenhouse, Lever and Ashby form filling including the hidden input upload fix and the pre fill form
   check; the salary skill; Workday posting refresh; owner notifications, the human check hold and the one later try.
 - Not verified: no live employer receipt exists yet for any ATS; nothing has ever been submitted by the app.
@@ -67,12 +67,8 @@ No private values here: field names and counts only. Keep under 120 lines; finis
    shared by the mapper and the three adapters. Still waits for the owner: `pronouns` and `citizenship_status` stay blank
    until each saved answer carries a `question_pattern` (Profile page or `profile.toml` `match`); see question 9.
    Deployed as `68c7a2576966`.
-2. Directory reorganization into `core/ candidate/ jobs/ apply/ records/ outreach/ web/` with `git mv` and absolute imports.
-   Size: M-L. Plan: first commit move only, from a clean tree. Preflight done 2026-11-05 13:05: `lg_checkpoints` (11 docs)
-   and `lg_checkpoint_writes` (35 docs) on the NAS database hold no `amorehiremepls.*` module paths, so the move cannot
-   break stored checkpoints. Then split web routes, docstring standard plus the 22 high value
-   comments,    `docs/architecture.md`, hard coded test paths for `static/` and `templates/`, move ruff per-file-ignores.
-   Ready to start (item 1 deployed); begin it in a fresh session so the whole move fits one context.
+2. Done on `main` (see `docs/PROGRESS.md`, "Directory packages", and `docs/architecture.md`): move `9e9413d`, route split
+   `1ea2bc5`. No list of 22 high-value comments exists in the repo, so none were added. Not deployed yet.
 3. Per user accounts with an admin role and 365 day access. Size: L. Plan: single database plus `user_id` through a
    `ScopedStore`, argon2id passwords, `users` collection (`role`, `access_until`, `status`), `require_session` gate to
    `/access-ended`, People page under `/admin` (extend, set password, turn off, delete with backup and tombstone), Overview
@@ -111,8 +107,9 @@ No private values here: field names and counts only. Keep under 120 lines; finis
 ## Where to look
 
 - `docs/PROGRESS.md`: dated history of every increment, deploy tags, exact next step at the end.
-- `src/amorehiremepls/applications.py` and `ats/rules.py`: form field rules (`FIELD_RULES`, `SELF_ID_RULES`, `YEARS_RULE`).
-- `src/amorehiremepls/candidate_profile.py` and `candidate/profile.example.toml`: the customization surface.
-- `src/amorehiremepls/ats/`: Greenhouse, Lever, Ashby adapters; `browser.py` runs their plans.
+- `docs/architecture.md`: package map and the docstring rule.
+- `src/amorehiremepls/apply/applications.py` and `apply/ats/rules.py`: form field rules (`FIELD_RULES`, `SELF_ID_RULES`, `YEARS_RULE`).
+- `src/amorehiremepls/candidate/candidate_profile.py` and `candidate/profile.example.toml`: the customization surface.
+- `src/amorehiremepls/apply/ats/`: Greenhouse, Lever, Ashby adapters; `apply/browser.py` runs their plans.
 - `scripts/deploy_nas.sh`, `deploy/nas/compose.yaml`, `docs/nas-deployment.md`: deploy variables and sequence.
 - `tests/test_regressions.py`, `tests/test_customization.py`: private token and neutrality guards; `docs/capability-map.md`.
