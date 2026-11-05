@@ -55,16 +55,25 @@ Authenticated job sites (Workday etc.): `uv run amore browser login myworkdayjob
 
 ## Operate
 
-Dashboard pages: Overview (health, worker heartbeat, counts, usage, open questions), Profile (facts with provenance, computed experience, preferences, exclusions, base resume), History (tracker import preview/import), Jobs (import URL, discovery sources, qualification, fit evidence, single-job run, bounded batch), Runs (pause/resume/cancel, interrupts), Authorizations (single and bounded batch scopes, revoke), Outreach (recipients, history reconciliation, drafts, handoff/record send), Sync (outbox states, retry, crash reconcile), Usage (measured tokens, known vs unknown cost, skill catalog).
+Dashboard pages (left sidebar): Overview (greeting, KPI tiles, applications-per-month chart, job pipeline, "needs your attention" list with direct actions, system health, recent runs and activity), Jobs (import URL, discovery sources, qualification, fit evidence, single-job run, bounded batch), Applications (local review packages by status), Runs (pause/resume/cancel, interrupts), Documents (tailored resumes with hashes, page verification and grounding), Outreach (recipients, history reconciliation, drafts, handoff/record send), History (tracker import preview/import), Sync (outbox states, retry, crash reconcile), Usage (measured tokens, known vs unknown cost, skill catalog), Authorizations (single and bounded batch scopes, revoke), Candidate profile (facts with provenance, computed experience, preferences, exclusions, base resume), Settings (appearance, name, avatar).
 
-Emergency stop is in the header on every page and at `amore emergency-stop`. It blocks any new external action; in-flight actions finish into `needs_verification` or a recorded outcome.
+Emergency stop is in the header on every page (two steps: open, then confirm with an optional reason) and at `amore emergency-stop`. It blocks any new external action; in-flight actions finish into `needs_verification` or a recorded outcome.
+
+### Settings (appearance, name, avatar)
+
+- **Theme**: system / light / dark. The sun-moon button in the header flips it instantly; the Settings page sets it explicitly. The saved value is mirrored in the `amore_ui` cookie so the first paint (and the sign-in page) already use the right theme; `prefers-color-scheme` applies when the setting is `system`.
+- **Accent colour**: six presets (sage, blue, violet, teal, amber, rose) or any `#rrggbb`. Everything else (hover, soft tints, page background, chart fill) derives from `--accent` through `color-mix()` in `src/amorehiremepls/static/app.css`.
+- **Display name**: used in greetings and the header only. Empty means "use the profile's preferred or first name"; the code falls back to a generic name, never to data in templates.
+- **Avatar**: upload a PNG, JPEG or WebP up to 1 MB (declared type, file header and dimensions are all checked) or pick one of four initials styles. The file is stored under `AMORE_PRIVATE_DIR/avatar/` and served only through the authenticated `/settings/avatar/image` route.
+- Storage: everything except the image file lives in the MongoDB `controls` collection under the key `ui_settings`. Nothing here feeds resumes, answers or messages.
+- Front end: no CDN, fonts or third-party scripts; one local stylesheet, one small progressive-enhancement script, inline SVG icons and a dependency-free SVG chart. Every control works as a plain form without JavaScript; all POSTs carry the CSRF token.
 
 Nothing is submitted or sent without an authorization scope bound to the exact job, answers and document hashes (or a bounded batch scope with stop conditions). Sites without a form plan or adapter become resumable handoffs; you record the confirmation you saw.
 
 ## Test
 
 ```bash
-uv run pytest                   # 62 tests; mongo-marked tests skip automatically if 127.0.0.1:27027 is down
+uv run pytest                   # 84 tests; mongo-marked tests skip automatically if 127.0.0.1:27027 is down
 TEST_MONGO_URI=mongodb://127.0.0.1:27027 uv run pytest -m mongo
 uv run pytest -m browser        # Playwright adapter against the local fixture site (skips without Chromium)
 uv run ruff check src tests && uv run ruff format --check src tests

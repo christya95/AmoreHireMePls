@@ -43,7 +43,7 @@ Keep this file current. A later session should be able to continue from the "Exa
 
 ## Verification status
 
-- `uv run pytest`: 76 passed on the Mac (dev Mongo + Chromium present).
+- `uv run pytest`: 84 passed on the Mac (dev Mongo + Chromium present), after the dashboard redesign.
 - Mongo-marked tests against the NAS (`AMORE_TEST_MONGODB_URI` + `AMORE_TEST_MONGODB_DATABASE=amorehiremepls_test`, app user): 55 passed, exit 0.
 - `uv run ruff check src tests` and `ruff format --check`: clean. `docker compose config`: valid. Chromium + LibreOffice verified inside the hardened container.
 - Live: nothing. No application submitted, no message sent, no tracker push, no NAS deployment of the app containers.
@@ -54,6 +54,14 @@ Keep this file current. A later session should be able to continue from the "Exa
 - NAS database `amorehiremepls` set up and populated: profile (11 facts, 4 answers, 2 education, 4 employment incl. 3 internships, 1 unknown), base resume sha `44b2edba…`, tracker import 39 records / 38 jobs / 1 duplicate identity / 0 conflicts (no push), plus the Faire posting (`needs_review`). 39 jobs total.
 - `amore web` (http://127.0.0.1:8790) and `amore worker` run detached through `op run`; PID files and logs under `runtime/logs/`. Start/stop commands in `README.md`. Dev Mongo container kept as a local copy only.
 - Page latency over Tailscale: 20 to 80 ms, `/history` about 400 ms.
+
+## Dashboard redesign (2026-11-05)
+
+- New design system in `src/amorehiremepls/static/app.css` (CSS custom properties, `--accent` with `color-mix()` derivations, light/dark tokens, rounded cards, pill nav, KPI tiles, status pills, tables, forms) and `app.js` (progressive enhancement only: instant theme toggle, accent live preview, popover close, double-submit guard). No CDN, fonts or third-party scripts; inline SVG icon sprite; dependency-free SVG line chart and donut computed in `ui_settings.py`.
+- Information architecture: left sidebar (Work: Overview, Jobs, Applications, Runs, Documents, Outreach · Records: History, Sync, Usage · Account: Authorizations, Candidate profile, Settings), pill top bar with greeting/avatar menu, theme toggle and a two-step emergency stop. New pages `/applications` (local packages by status) and `/documents` (artifacts). Overview: greeting in America/Toronto, KPI tiles (jobs new/needs review, submitted/prepared, needs verification, sync pending, spend this month with unknown pricing shown as unknown), submissions-per-month chart from local + imported history, job pipeline donut, "needs your attention" list (awaiting authorization, needs input, handoff, needs verification, waiting/failed runs, needs_review jobs, held recipients) with direct links, system card, recent runs/activity/jobs. All existing routes and forms kept.
+- Settings (`/settings`): theme (system/light/dark), accent presets + free hex, display name, avatar upload (PNG/JPEG/WebP ≤ 1 MB, header-sniffed, dimension-checked, stored under `AMORE_PRIVATE_DIR/avatar/`, served by the authenticated `/settings/avatar/image`) or initials style. Persisted in `controls.ui_settings`; theme+accent mirrored in the `amore_ui` cookie for first paint and the login page. All new POSTs require the CSRF token and same-origin.
+- Tests: `tests/test_ui_settings.py` (helpers without Mongo; endpoint tests for persistence, cookie mirror, `next` validation, avatar rejection of wrong type / disguised bytes / oversize / tiny / non-image, serving and removal, CSRF/login enforcement, overview attention list and new pages). Existing web tests unchanged and passing.
+- Screenshots (light + dark, 1280 and 390 wide) were taken from a dev instance on 8791 against the dev Mongo; the live 8790 process was restarted afterwards.
 
 ## Remaining / not done
 
