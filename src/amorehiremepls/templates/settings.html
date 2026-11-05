@@ -7,6 +7,7 @@
   <div class="card">
     <div class="card-h"><h3>Appearance</h3><span class="sub">Saved in the app and remembered by your browser so the page looks right straight away.</span></div>
     <form method="post" action="/settings/appearance" class="stack"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="appearance-preview" aria-hidden="true"><span class="pill accent">Accent</span><span class="pill ok">Good</span><span class="pill warn">Waiting</span><span class="pill bad">Needs you</span><span class="pill info">Note</span></div>
       <div class="field"><label>Theme</label>
         <div class="choices">
           <label class="choice"><input type="radio" name="theme" value="system" {{ 'checked' if ui.theme == 'system' }}><span>System</span></label>
@@ -33,11 +34,9 @@
         <div class="field narrow"><label>Hex</label><input name="tint_hex" value="{{ tint_hex }}" pattern="#[0-9a-fA-F]{6}" placeholder="#8c8f90" maxlength="7"></div>
         <span class="hint">The page background and soft surfaces take a little of this colour. "Match accent" is the original look; "Neutral" removes the colour cast entirely.</span>
       </div>
-      <div class="form-row">
-        <div class="field"><label>Company logos</label>
-          <label class="check"><input type="checkbox" name="company_logos" value="on" {{ 'checked' if ui.company_logos }}> Show company logos</label>
-          <span class="hint">On by default. The app downloads each company's logo once and keeps a copy. Off shows initials. This never uses AI.</span>
-        </div>
+      <div class="logo-row">
+        <label class="check"><input type="checkbox" name="company_logos" value="on" {{ 'checked' if ui.company_logos }}> Show company logos</label>
+        <span class="hint">On by default. The app downloads each company's logo once and keeps a copy. Off shows initials. This never uses AI.</span>
       </div>
       <div class="form-actions"><button>Save appearance</button></div>
     </form>

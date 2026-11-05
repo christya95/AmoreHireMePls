@@ -139,6 +139,10 @@ Keep this file current. A later session should be able to continue from the "Exa
 
 - Short ease-out motion in `app.css` only: page cards and the first six table rows fade in, buttons and the theme control lift slightly, the fit ring draws once, flash banners slide in. `prefers-reduced-motion: reduce` snaps movement (0.01 ms) and keeps a colour fade. No animation library.
 
+## Dashboard polish (2026-11-05)
+
+- Light mode cards sit a little higher; dark mode uses a cleaner border and no drop shadow. Page titles are larger. Status colours stay on the tinted pills, and the grey internal-state chip is quieter. The next unfinished setup step is highlighted. Settings → Appearance opens with a row of the same status colours the rest of the app uses. Company logos stay the left anchor of each job row.
+
 ## Exact next step
 
 Joss logs in to http://192.168.2.49:8790 (NAS) or the local web at http://127.0.0.1:8790. Company logos are on without a settings change. Redeploy the NAS after this commit with `scripts/deploy_nas.sh` when ready. The Faire package review and the role-family question are unchanged.
