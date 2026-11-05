@@ -9,9 +9,11 @@ Without a model provider, a deterministic tailoring (reorder by posting relevanc
 from __future__ import annotations
 
 import logging
+import os
 import re
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -354,33 +356,87 @@ def verify_docx_structure(path: Path) -> dict[str, Any]:
 # -- PDF render ----------------------------------------------------------------------------
 
 
+SOFFICE_FALLBACK_PATHS = (
+    "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+    "/opt/homebrew/bin/soffice",
+    "/usr/local/bin/soffice",
+    "/usr/bin/soffice",
+    "/usr/lib/libreoffice/program/soffice",
+)
+_BASE_PATH = "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin"
+
+
 def find_soffice() -> str | None:
     for name in ("soffice", "libreoffice"):
-        p = shutil.which(name)
+        p = shutil.which(name) or shutil.which(name, path=_BASE_PATH)
         if p:
             return p
-    mac = Path("/Applications/LibreOffice.app/Contents/MacOS/soffice")
-    return str(mac) if mac.exists() else None
+    for candidate in SOFFICE_FALLBACK_PATHS:
+        if Path(candidate).exists():
+            return candidate
+    return None
 
 
-def render_pdf(docx_path: Path, timeout: int = 120) -> dict[str, Any]:
-    exe = find_soffice()
+def _render_env(exe: str) -> dict[str, str]:
+    """Environment for the renderer: real HOME (macOS ``~/Library`` lookups), full PATH plus the executable's own
+    directory (Homebrew's ``soffice`` is a wrapper that execs the app bundle), no inherited LibreOffice overrides."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("SAL_", "OOO_", "URE_"))}
+    parts = [str(Path(exe).resolve().parent), *(env.get("PATH") or "").split(os.pathsep), *_BASE_PATH.split(os.pathsep)]
+    seen: set[str] = set()
+    env["PATH"] = os.pathsep.join(p for p in parts if p and not (p in seen or seen.add(p)))
+    env.setdefault("HOME", str(Path.home()))
+    return env
+
+
+def _redact_paths(text: str) -> str:
+    text = text.replace(str(Path.home()), "~")
+    return re.sub(r"/(?:Users|home)/[^/\s]+", "~", text)
+
+
+def _failure_reason(exc: BaseException, stderr_tail: int = 300) -> str:
+    raw = getattr(exc, "stderr", None) or getattr(exc, "output", None) or b""
+    stderr = (raw.decode(errors="replace") if isinstance(raw, bytes) else str(raw)).strip()
+    stderr = _redact_paths(" ".join(stderr.split()))[-stderr_tail:]
+    if isinstance(exc, subprocess.TimeoutExpired):
+        head = f"render failed: timeout after {int(exc.timeout)}s"
+    elif isinstance(exc, subprocess.CalledProcessError):
+        head = f"render failed: exit code {exc.returncode}"
+    else:
+        head = f"render failed: {type(exc).__name__}: {_redact_paths(str(exc))}"
+    return f"{head}; stderr: {stderr}" if stderr else f"{head}; no stderr"
+
+
+def render_pdf(docx_path: Path, timeout: int = 120, exe: str | None = None) -> dict[str, Any]:
+    exe = exe or find_soffice()
     if not exe:
         return {"pdf_path": None, "pages": None, "verified": False, "reason": "no LibreOffice renderer available"}
     outdir = docx_path.parent
-    try:
-        subprocess.run(
-            [exe, "--headless", "--convert-to", "pdf", "--outdir", str(outdir), str(docx_path)],
-            check=True,
-            capture_output=True,
-            timeout=timeout,
-            env={"HOME": str(outdir), "PATH": "/usr/bin:/bin:/usr/local/bin"},
-        )
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        return {"pdf_path": None, "pages": None, "verified": False, "reason": f"render failed: {type(exc).__name__}"}
     pdf = docx_path.with_suffix(".pdf")
-    if not pdf.exists():
-        return {"pdf_path": None, "pages": None, "verified": False, "reason": "renderer produced no file"}
+    stale_mtime = pdf.stat().st_mtime_ns if pdf.exists() else None
+    # Per-call user profile: a concurrent soffice (GUI or another worker) sharing a profile would hijack or block
+    # the conversion, and a profile must never be created inside the artifact directory.
+    with tempfile.TemporaryDirectory(prefix="amore-soffice-") as profile_dir:
+        cmd = [
+            exe,
+            f"-env:UserInstallation={Path(profile_dir).resolve().as_uri()}",
+            "--headless",
+            "--norestore",
+            "--nologo",
+            "--convert-to",
+            "pdf",
+            "--outdir",
+            str(outdir),
+            str(docx_path),
+        ]
+        try:
+            proc = subprocess.run(cmd, check=True, capture_output=True, timeout=timeout, env=_render_env(exe))
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+            reason = _failure_reason(exc)
+            log.warning("PDF render failed for %s: %s", docx_path.name, reason)
+            return {"pdf_path": None, "pages": None, "verified": False, "reason": reason}
+    if not pdf.exists() or (stale_mtime is not None and pdf.stat().st_mtime_ns == stale_mtime):
+        tail = _redact_paths(" ".join((proc.stderr or proc.stdout or b"").decode(errors="replace").split()))[-300:]
+        return {"pdf_path": None, "pages": None, "verified": False, "reason": f"renderer produced no file; output: {tail or 'none'}"}
     from pypdf import PdfReader
 
     reader = PdfReader(str(pdf))

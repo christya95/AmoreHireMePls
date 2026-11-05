@@ -1,8 +1,20 @@
+from pathlib import Path
+
 import pytest
 
 from amorehiremepls.ai import AIRunner, FakeProvider, Pricing
 from amorehiremepls.skills import catalog
-from amorehiremepls.tailoring import Tailor, build_docx, check_grounding, deterministic_tailor, find_soffice, parse_base_resume, verify_docx_structure
+from amorehiremepls.tailoring import (
+    Tailor,
+    _render_env,
+    build_docx,
+    check_grounding,
+    deterministic_tailor,
+    find_soffice,
+    parse_base_resume,
+    render_pdf,
+    verify_docx_structure,
+)
 from amorehiremepls.util import sha256_file
 from tests.fixtures.make_resume import make_base_resume
 
@@ -50,6 +62,65 @@ def test_docx_build_is_single_column_with_standard_headings(tmp_path):
     out = build_docx(base, deterministic_tailor(base, "Java"), tmp_path / "out.docx")
     s = verify_docx_structure(out)
     assert s["single_column"] and s["has_summary"] and s["has_experience"] and s["first_line"] == "Alex Example"
+
+
+def _fixture_docx(tmp_path):
+    base = parse_base_resume(make_base_resume(tmp_path / "base.docx"))
+    return build_docx(base, deterministic_tailor(base, "Java"), tmp_path / "artifacts" / "out.docx")
+
+
+@pytest.mark.skipif(not find_soffice(), reason="LibreOffice not installed")
+def test_render_pdf_with_real_libreoffice_keeps_profile_out_of_artifact_dir(tmp_path):
+    docx = _fixture_docx(tmp_path)
+    res = render_pdf(docx)
+    assert res["reason"] == "", res["reason"]
+    assert res["pdf_path"] == str(docx.with_suffix(".pdf")) and Path(res["pdf_path"]).exists()
+    assert res["verified"] and res["pages"] <= 2 and res["selectable_text"]
+    assert sorted(p.name for p in docx.parent.iterdir()) == ["out.docx", "out.pdf"]
+    # re-render overwrites the previous PDF and is still reported as fresh output
+    assert render_pdf(docx)["verified"]
+
+
+def _fake_soffice(tmp_path, body: str) -> str:
+    script = tmp_path / "fake-soffice"
+    script.write_text("#!/bin/sh\n" + body + "\n")
+    script.chmod(0o755)
+    return str(script)
+
+
+def test_render_pdf_failure_reason_includes_exit_code_and_redacted_stderr_tail(tmp_path):
+    docx = _fixture_docx(tmp_path)
+    exe = _fake_soffice(tmp_path, f'echo "{"x" * 400}" >&2; echo "javaldx failed in {Path.home()}/Library/Application Support" >&2; exit 77')
+    res = render_pdf(docx, exe=exe)
+    assert res["pdf_path"] is None and res["pages"] is None and res["verified"] is False
+    assert res["reason"].startswith("render failed: exit code 77; stderr: ")
+    tail = res["reason"].split("stderr: ", 1)[1]
+    assert len(tail) <= 300 and tail.endswith("javaldx failed in ~/Library/Application Support")
+    assert str(Path.home()) not in res["reason"]
+
+
+def test_render_pdf_failure_reason_without_stderr_and_on_timeout(tmp_path):
+    docx = _fixture_docx(tmp_path)
+    assert render_pdf(docx, exe=_fake_soffice(tmp_path, "exit 1"))["reason"] == "render failed: exit code 1; no stderr"
+    assert render_pdf(docx, timeout=1, exe=_fake_soffice(tmp_path, "sleep 5"))["reason"].startswith("render failed: timeout after 1s")
+
+
+def test_render_pdf_reports_missing_output_and_stale_pdf(tmp_path):
+    docx = _fixture_docx(tmp_path)
+    exe = _fake_soffice(tmp_path, 'echo "convert skipped" >&2; exit 0')
+    assert render_pdf(docx, exe=exe)["reason"] == "renderer produced no file; output: convert skipped"
+    docx.with_suffix(".pdf").write_bytes(b"%PDF-stale")
+    assert render_pdf(docx, exe=exe)["reason"].startswith("renderer produced no file")
+
+
+def test_render_env_adds_renderer_dir_and_keeps_real_home(tmp_path, monkeypatch):
+    (tmp_path / "bin").mkdir()
+    exe = _fake_soffice(tmp_path / "bin", "exit 0")
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setenv("SAL_LOG", "+WARN")
+    env = _render_env(exe)
+    assert env["PATH"].split(":")[0] == str((tmp_path / "bin").resolve()) and "/opt/homebrew/bin" in env["PATH"].split(":")
+    assert env["HOME"] == str(Path.home()) and "SAL_LOG" not in env
 
 
 @pytest.mark.mongo
