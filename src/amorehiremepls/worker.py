@@ -92,6 +92,10 @@ class Worker:
             if claimed:
                 self._start(run)
                 done["runs"] += 1
+        # a cancel request on an idle (waiting/paused) run has no node boundary to observe it; settle it here
+        for run in self.rt.store.c("runs").find({"requested": "cancel", "status": {"$in": ["waiting", "paused", "queued"]}}):
+            self.rt.store.update_run(run["_id"], status="cancelled", requested=None, interrupt=None, finished_at=utcnow(), note="cancelled while idle")
+            self.rt.store.run_event(run["_id"], "cancelled while idle")
         for run in self.rt.store.c("runs").find({"requested": "resume", "status": {"$in": ["waiting", "paused", "failed"]}}).limit(self.rt.settings.worker_concurrency):
             payload = run.get("resume_payload")
             self.rt.store.update_run(run["_id"], requested=None, resume_payload=None)

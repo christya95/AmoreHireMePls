@@ -279,3 +279,20 @@ def test_concurrent_upserts_of_same_identity_create_one_job(store):
     [t.join() for t in ts]
     assert len({r[0] for r in results}) == 1 and sum(1 for r in results if r[1]) == 1
     assert store.c("jobs").count_documents({"requisition_id": "R1"}) == 1
+
+
+# -- cancel requested on an idle (waiting) run is settled by the worker tick --------------------------------------
+@pytest.mark.mongo
+def test_cancel_request_on_waiting_run_is_settled_by_worker_tick(store, tmp_path):
+    from amorehiremepls.config import Settings
+    from amorehiremepls.runtime import Runtime
+    from amorehiremepls.worker import Worker
+    from tests.conftest import TEST_MONGO_URI
+
+    s = Settings(mongodb_uri=TEST_MONGO_URI, mongodb_database=store.db.name, artifact_dir=tmp_path / "a", private_dir=tmp_path / "p", log_dir=tmp_path / "l", _env_file=None)
+    rt = Runtime(s, store=store)
+    run = store.create_run("application", {"job_id": "job_idle"})
+    store.update_run(run["_id"], status="waiting", interrupt={"type": "needs_input"}, requested="cancel")
+    Worker(rt).tick()
+    doc = store.c("runs").find_one({"_id": run["_id"]})
+    assert doc["status"] == "cancelled" and doc.get("requested") is None and doc.get("interrupt") is None

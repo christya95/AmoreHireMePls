@@ -206,6 +206,7 @@ class ApplicationService:
                     "fact_version": self.profile.version,
                     "posting_hash": snapshot.get("posting_hash"),
                     "base_sha256": base.sha256 if base else None,
+                    "grounding.ok": True,  # a cached ungrounded artifact is re-tailored, not reused
                 }
             )
             if artifact is None:

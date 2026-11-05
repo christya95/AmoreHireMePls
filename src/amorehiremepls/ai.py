@@ -244,8 +244,18 @@ class LangChainProvider(Provider):
         try:
             from langchain_core.messages import HumanMessage
 
-            msg = self._llm.invoke([HumanMessage(content="Reply with the single word OK.")], max_tokens=5)
-            return {"provider": self.name, "model": self.model, "ok": True, "detail": str(getattr(msg, "content", ""))[:40]}
+            start = time.monotonic()
+            msg = self._llm.invoke([HumanMessage(content="Reply with the single word OK.")])
+            meta = getattr(msg, "usage_metadata", None) or {}
+            return {
+                "provider": self.name,
+                "model": self.model,
+                "ok": True,
+                "detail": str(getattr(msg, "content", ""))[:40],
+                "usage": {"input_tokens": meta.get("input_tokens"), "output_tokens": meta.get("output_tokens"), "total_tokens": meta.get("total_tokens")},
+                "response_model": (getattr(msg, "response_metadata", None) or {}).get("model_name"),
+                "latency_ms": int((time.monotonic() - start) * 1000),
+            }
         except Exception as exc:  # report, never raise secrets
             return {"provider": self.name, "model": self.model, "ok": False, "detail": type(exc).__name__}
 

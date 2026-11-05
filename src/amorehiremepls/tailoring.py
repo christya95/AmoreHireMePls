@@ -240,7 +240,9 @@ def check_grounding(tailored: dict, base: BaseResume) -> GroundingReport:
     for s in tailored.get("skills", []):
         if s.lower() not in base_skills_low and s.lower() not in base_low:
             violations.append(f"skill not in base: {s}")
-    if re.search(r"[-–—]", tailored.get("summary", "")):
+    summary = tailored.get("summary", "")
+    # The approved base summary is Joss's own wording and passes as-is; the no-dash style rule applies to rewritten text.
+    if summary.strip() != (base.summary or "").strip() and re.search(r"[-–—]", summary):
         violations.append("summary contains a hyphen or dash")
     return GroundingReport(not violations, violations, checked)
 

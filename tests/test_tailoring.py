@@ -39,6 +39,10 @@ def test_grounding_rejects_invented_tech_years_and_unknown_sources(tmp_path):
     assert not report.ok
     joined = " ".join(report.violations)
     assert "Kubernetes" in joined and "Terraform" in joined and "b_99" not in joined and "without base source" in joined and "7 years" in joined
+    # the approved base summary passes verbatim even when it contains a dash; a rewritten summary with a dash does not
+    base.summary = "Backend developer - APIs and data pipelines"
+    assert check_grounding({**good, "summary": base.summary}, base).ok
+    assert "hyphen or dash" in " ".join(check_grounding({**good, "summary": "Backend developer - rewritten"}, base).violations)
 
 
 def test_docx_build_is_single_column_with_standard_headings(tmp_path):
