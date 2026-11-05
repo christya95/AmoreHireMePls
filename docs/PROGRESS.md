@@ -135,6 +135,10 @@ Keep this file current. A later session should be able to continue from the "Exa
 
 - The job page "How well you match" card was a JSON dump of the stored assessment. It is now a ring (0–100), a matches / gaps / not-sure bar, and the same point lists. Raw JSON stays under Technical details. The score is computed in `fit_score()` from the existing rank and lists: base 94 / 78 / 55 / 32 / 14 for ranks 1–5, plus at most 8 points for the share of grounded matches, minus 6 per mandatory blocker (cap 12). Bands: red 0–39, yellow 40–69, green 70–89, blue 90–100. No extra model call. The jobs list shows the same number.
 
+## Page motion (2026-11-05)
+
+- Short ease-out motion in `app.css` only: page cards and the first six table rows fade in, buttons and the theme control lift slightly, the fit ring draws once, flash banners slide in. `prefers-reduced-motion: reduce` snaps movement (0.01 ms) and keeps a colour fade. No animation library.
+
 ## Exact next step
 
 Joss logs in to http://192.168.2.49:8790 (NAS) or the local web at http://127.0.0.1:8790. Company logos are on without a settings change. Redeploy the NAS after this commit with `scripts/deploy_nas.sh` when ready. The Faire package review and the role-family question are unchanged.
