@@ -303,10 +303,11 @@ The dashboard can remove an application that was never sent, or clear it and pre
 - **Delete.** Two steps: open "Remove or start over" (or More actions on the job) and type `delete`. The application is backed up under the private directory and tombstoned (`origin` `removed`) when nothing is on the GitHub ledger, and no sync item is queued. When a ledger id or a live outbox item already exists, the local document is marked withdrawn, a `record_withdrawal` item is queued, and existing outbox rows are not marked as pushed. The coordinator updates that one JSON row to `withdrawn` and leaves every other row in place. It does not write an empty list.
 - **Restart.** Type `restart`. The approval, handoff hold, and parked task are cleared. Tailored resumes are marked replaced so the new package has new file fingerprints. The next step is to read that package and approve it again. No browser task is started.
 - **Tests.** `tests/test_remove_and_restart.py` (7). Full suite 349 passed, ruff clean. The live records for the Workday handoff were not deleted or restarted.
+- **Deploy.** Not run. `op run` and `op signin` both returned `authorization timeout`, so the NAS stack is still `lepia/amorehiremepls:5959e62bfd09`. The commit on `origin/main` is `ecd69ce`.
 
 ## Exact next step
 
-Queue item 5 waits for a confirmed employer receipt. Do not draft recruiter Connect notes until one exists. Do not retry the Faire application or mark the BMO job closed; those are owner decisions (handoff questions 4 and 5). Open owner questions are 1, 2, 3, 4, 5, 7, 8, and 9. Question 6 is answered: tracker sync keeps running for an expired member.
+Deploy `ecd69ce` once 1Password is signed in (`op signin`, then operating rule 3 in `docs/HANDOFF.md`). Do not delete or restart the live Workday application while checking the new controls. Queue item 5 waits for a confirmed employer receipt. Do not draft recruiter Connect notes until one exists. Do not retry the Faire application or mark the BMO job closed; those are owner decisions (handoff questions 4 and 5). Open owner questions are 1, 2, 3, 4, 5, 7, 8, and 9. Question 6 is answered: tracker sync keeps running for an expired member.
 
 Greenhouse, Lever, and Ashby form filling, owner notifications, the human-check hold, and one later try are fixture-tested only. None of those paths has been live-submitted. Do not retry the Faire application or mark the BMO job closed; those are owner decisions (handoff questions 4 and 5).
 
