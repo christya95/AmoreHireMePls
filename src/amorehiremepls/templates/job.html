@@ -1,17 +1,50 @@
 {% extends "base.html" %}{% block content %}
-<div class="card"><h2>{{ job.employer }}: {{ job.title }}</h2>
-<p><span class="badge">{{ job.status }}</span> {{ job.location or '' }} · req {{ job.requisition_id or '—' }} · LinkedIn {{ job.linkedin_job_id or '—' }} · <a href="{{ job.posting_url }}" rel="noopener" target="_blank">posting</a> · sources {{ job.sources|join(', ') }}</p>
-{% if job.possible_duplicates %}<p class="badge warn">possible duplicates: {{ job.possible_duplicates|join(', ') }}</p>{% endif %}
-<form class="inline" method="post" action="/jobs/{{ job._id }}/qualify"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Re-qualify and rank</button></form>
-<form class="inline" method="post" action="/jobs/{{ job._id }}/run"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Start single-job run</button></form></div>
-<div class="grid">
-<div class="card"><h3>Qualification</h3><pre>{{ job.qualification|json }}</pre></div>
-<div class="card"><h3>Fit evidence</h3><pre>{{ job.fit|json }}</pre></div>
-<div class="card"><h3>Posting snapshot</h3>{% if job.latest_snapshot %}<p><small>fetched {{ job.latest_snapshot.fetched_at|toronto }} · hash {{ job.latest_snapshot.posting_hash }}</small></p><pre>{{ job.latest_snapshot.text[:3000] }}</pre>{% else %}<p>No snapshot.</p>{% endif %}</div>
-<div class="card"><h3>Form plan (generic adapter)</h3><p><small>Scanned fields and a submit selector let the Playwright adapter run this site. Leave empty for a manual handoff.</small></p>
-<form method="post" action="/jobs/{{ job._id }}/form-plan"><input type="hidden" name="csrf" value="{{ csrf }}"><textarea name="plan_json" rows="8" cols="60">{{ job.form_plan|json if job.form_plan else '{"fields": [], "next_selectors": [], "submit_selector": "", "receipt_text": "thank you", "receipt_includes_requisition": false}' }}</textarea><br><button class="secondary">Save form plan</button></form></div>
+<div class="stack">
+<div class="card">
+  <div class="welcome">
+    <span class="avatar lg style-soft">{{ job.employer|initials }}</span>
+    <div>
+      <h1>{{ job.title }}</h1>
+      <p>{{ job.employer }}{% if job.location %} · {{ job.location }}{% endif %} · req {{ job.requisition_id or '—' }}{% if job.linkedin_job_id %} · LinkedIn {{ job.linkedin_job_id }}{% endif %}</p>
+      <div class="flex mt"><span class="pill {{ job.status|tone }}">{{ job.status|human }}</span>{% if job.fit %}<span class="pill accent">fit rank {{ job.fit.rank }}</span>{% endif %}<a href="{{ job.posting_url }}" rel="noopener" target="_blank"><small>posting ↗</small></a><small>sources {{ job.sources|join(', ') }}</small></div>
+      {% if job.possible_duplicates %}<p class="mt"><span class="pill warn">possible duplicates: {{ job.possible_duplicates|join(', ') }}</span></p>{% endif %}
+    </div>
+    <div class="actions">
+      <form class="inline" method="post" action="/jobs/{{ job._id }}/qualify"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Re-qualify and rank</button></form>
+      <form class="inline" method="post" action="/jobs/{{ job._id }}/run"><input type="hidden" name="csrf" value="{{ csrf }}"><button><svg class="icon"><use href="#i-runs"/></svg>Start single-job run</button></form>
+    </div>
+  </div>
 </div>
-<div class="card"><h3>Applications</h3><table><tr><th>ID</th><th>Status</th><th>Origin</th><th>Updated</th></tr>{% for a in apps %}<tr><td><a href="/applications/{{ a._id }}">{{ a._id }}</a></td><td>{{ a.status }}</td><td>{{ a.provenance.origin }}</td><td>{{ a.updated_at|toronto }}</td></tr>{% endfor %}</table></div>
-<div class="card"><h3>Documents</h3><table><tr><th>File</th><th>SHA-256</th><th>Pages</th><th>Grounding</th><th>Method</th></tr>{% for d in artifacts %}<tr><td>{{ d.filename }}</td><td><small>{{ d.sha256[:16] }}…</small></td><td>{{ d.pages if d.pages is not none else 'unverified' }} {% if not d.page_limit_verified %}<span class="badge warn">{{ d.render_note }}</span>{% endif %}</td><td>{{ 'ok' if d.grounding.ok else d.grounding.violations|join('; ') }}</td><td>{{ d.method }}</td></tr>{% endfor %}</table></div>
-<div class="card"><h3>Runs</h3>{% for r in runs %}<a href="/runs/{{ r._id }}">{{ r._id }}</a> {{ r.status }}<br>{% endfor %}</div>
+
+<div class="grid-2">
+  <div class="card"><div class="card-h"><h3>Qualification</h3>{% if job.qualification %}<span class="pill {{ job.qualification.decision|tone }}">{{ job.qualification.decision|human }}</span>{% endif %}</div>
+    {% if job.qualification %}<ul>{% for r in job.qualification.reasons %}<li>{{ r }}</li>{% endfor %}</ul>
+    <details class="disclosure"><summary>Raw qualification</summary><pre>{{ job.qualification|json }}</pre></details>{% else %}<p class="note">Not qualified yet.</p>{% endif %}</div>
+  <div class="card"><div class="card-h"><h3>Fit evidence</h3></div>{% if job.fit %}<pre>{{ job.fit|json }}</pre>{% else %}<p class="note">No fit ranking yet (needs a configured model provider).</p>{% endif %}</div>
+</div>
+
+<div class="grid-2">
+  <div class="card"><div class="card-h"><h3>Posting snapshot</h3>{% if job.latest_snapshot %}<small>fetched {{ job.latest_snapshot.fetched_at|toronto }} · hash {{ job.latest_snapshot.posting_hash }}</small>{% endif %}</div>
+    {% if job.latest_snapshot %}<pre>{{ job.latest_snapshot.text[:3000] }}</pre>{% else %}<p class="note">No snapshot.</p>{% endif %}</div>
+  <div class="card"><div class="card-h"><h3>Form plan (generic adapter)</h3><span class="sub">Scanned fields and a submit selector let the Playwright adapter run this site. Leave empty for a manual handoff.</span></div>
+    <form method="post" action="/jobs/{{ job._id }}/form-plan"><input type="hidden" name="csrf" value="{{ csrf }}"><textarea class="mono" name="plan_json" rows="8">{{ job.form_plan|json if job.form_plan else '{"fields": [], "next_selectors": [], "submit_selector": "", "receipt_text": "thank you", "receipt_includes_requisition": false}' }}</textarea>
+    <div class="form-actions"><button class="secondary">Save form plan</button></div></form></div>
+</div>
+
+<div class="grid-2">
+  <div class="card flush"><div class="card-h"><h3>Applications</h3></div>
+    <div class="table-wrap"><table><thead><tr><th>ID</th><th>Status</th><th>Origin</th><th class="right">Updated</th></tr></thead>
+    <tbody>{% for a in apps %}<tr><td><a class="mono" href="/applications/{{ a._id }}">{{ a._id }}</a></td><td><span class="pill {{ a.status|tone }}">{{ a.status|human }}</span></td><td>{{ a.provenance.origin|human }}</td><td class="right nowrap">{{ a.updated_at|toronto }}</td></tr>
+    {% else %}<tr><td colspan="4"><div class="empty">No application yet. Start a run to prepare a review package.</div></td></tr>{% endfor %}</tbody></table></div></div>
+  <div class="card flush"><div class="card-h"><h3>Runs</h3></div>
+    <div class="table-wrap"><table><thead><tr><th>Run</th><th>Status</th><th class="right">Created</th></tr></thead>
+    <tbody>{% for r in runs %}<tr><td><a class="mono" href="/runs/{{ r._id }}">{{ r._id }}</a></td><td><span class="pill {{ r.status|tone }}">{{ r.status|human }}</span></td><td class="right nowrap">{{ r.created_at|toronto }}</td></tr>
+    {% else %}<tr><td colspan="3"><div class="empty">No runs for this job.</div></td></tr>{% endfor %}</tbody></table></div></div>
+</div>
+
+<div class="card flush"><div class="card-h"><h3>Documents</h3></div>
+  <div class="table-wrap"><table><thead><tr><th>File</th><th>SHA-256</th><th>Pages</th><th>Grounding</th><th>Method</th></tr></thead>
+  <tbody>{% for d in artifacts %}<tr><td class="wrap">{{ d.filename }}</td><td><code>{{ d.sha256[:16] }}…</code></td><td>{{ d.pages if d.pages is not none else 'unverified' }} {% if not d.page_limit_verified %}<span class="pill warn">{{ d.render_note }}</span>{% endif %}</td><td>{% if d.grounding.ok %}<span class="pill ok">ok</span>{% else %}<span class="pill bad">{{ d.grounding.violations|join('; ') }}</span>{% endif %}</td><td>{{ d.method }}</td></tr>
+  {% else %}<tr><td colspan="5"><div class="empty">No tailored documents yet.</div></td></tr>{% endfor %}</tbody></table></div></div>
+</div>
 {% endblock %}

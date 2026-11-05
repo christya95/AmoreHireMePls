@@ -1,0 +1,20 @@
+{% extends "base.html" %}{% block content %}
+<div class="stack">
+<div class="page-head"><div><h1>Applications</h1><p>Review packages prepared by the worker. Authorize, answer, hand off or reconcile from each package.</p></div></div>
+<div class="card flush">
+  <div class="card-h"><h3>Local applications</h3>
+    <div class="choices"><a class="pill {{ 'accent' if not status_filter }}" href="/applications">all {{ counts.values()|sum }}</a>{% for k in ['ready_for_review', 'needs_input', 'authorized', 'handoff', 'needs_verification', 'submitted', 'failed'] %}{% if counts.get(k) %}<a class="pill {{ 'accent' if status_filter == k else k|tone }}" href="/applications?status_filter={{ k }}">{{ k|human }} {{ counts[k] }}</a>{% endif %}{% endfor %}</div>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Employer / role</th><th>Status</th><th>Next</th><th>Document</th><th class="right">Updated</th></tr></thead>
+    <tbody>{% for a in apps %}{% set j = jobs.get(a.job_id, {}) %}{% set pkg = a.review_package or {} %}<tr>
+      <td><a class="row-person" href="/applications/{{ a._id }}"><span class="avatar style-soft">{{ (j.employer or '?')|initials }}</span><span><strong>{{ j.employer or a.job_id }}</strong><span class="sub">{{ j.title or '' }}{% if j.location %} · {{ j.location }}{% endif %}</span></span></a></td>
+      <td><span class="pill {{ a.status|tone }}">{{ a.status|human }}</span></td>
+      <td><small>{{ a.next_action or a.reason or '' }}</small></td>
+      <td>{% if pkg.document %}<small class="wrap">{{ pkg.document.filename }}</small>{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td class="right nowrap">{{ a.updated_at|toronto }}</td></tr>
+    {% else %}<tr><td colspan="5"><div class="empty"><svg class="icon"><use href="#i-applications"/></svg>No local applications{% if status_filter %} with status {{ status_filter|human }}{% endif %}. Imported history lives under <a href="/history">History</a>.</div></td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+</div>
+{% endblock %}

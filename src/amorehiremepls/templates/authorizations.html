@@ -1,11 +1,29 @@
 {% extends "base.html" %}{% block content %}
-<div class="card"><h3>Bounded batch authorization</h3>
-<form method="post" action="/authorizations/batch"><input type="hidden" name="csrf" value="{{ csrf }}">
-Kind: application submissions only (outreach, email and connection requests are approved one at a time).<br>
-Employers <input name="employers" placeholder="Acme, Globex"> Sites <input name="sites" placeholder="boards.greenhouse.io, jobs.lever.co"> Max fit rank <input name="max_fit_rank" type="number" value="2" style="width:3rem">
-Max count <input name="max_count" type="number" value="3" style="width:3rem"> Hours <input name="hours" type="number" value="48" style="width:4rem"> <input name="note" placeholder="note"> <button>Grant batch scope</button></form>
-<p><small>Stops on the first needs_verification or failure and never covers packages with outstanding unknowns.</small></p></div>
-<div class="card"><h3>Scopes</h3><table><tr><th>ID</th><th>Kind</th><th>Mode</th><th>Status</th><th>Target / filters</th><th>Used</th><th>Expires</th><th></th></tr>
-{% for s in scopes %}<tr><td><small>{{ s._id }}</small></td><td>{{ s.kind }}</td><td>{{ s.mode }}</td><td><span class="badge">{{ s.status }}</span></td><td><small>{{ s.binding.target_id or s.binding.job_filters }}</small></td><td>{{ s.used_count }}/{{ s.max_count }}</td><td>{{ s.expires_at|toronto }}</td>
-<td>{% if s.status == 'active' %}<form method="post" action="/authorizations/{{ s._id }}/revoke"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Revoke</button></form>{% endif %}</td></tr>{% endfor %}</table></div>
+<div class="stack">
+<div class="page-head"><div><h1>Authorizations</h1><p>Nothing is submitted or sent without a scope bound to the exact job, answers and document hashes, or a bounded batch scope with stop conditions.</p></div></div>
+
+<div class="card">
+  <div class="card-h"><h3>Bounded batch authorization</h3><span class="pill">application submissions only</span><span class="sub">Outreach, email and connection requests are approved one at a time. A batch stops on the first needs_verification or failure and never covers packages with outstanding unknowns.</span></div>
+  <form method="post" action="/authorizations/batch" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="form-grid">
+      <div class="field"><label>Employers</label><input name="employers" placeholder="Acme, Globex"></div>
+      <div class="field"><label>Sites</label><input name="sites" placeholder="boards.greenhouse.io, jobs.lever.co"></div>
+      <div class="field"><label>Max fit rank</label><input name="max_fit_rank" type="number" value="2" min="1" max="5"></div>
+      <div class="field"><label>Max count</label><input name="max_count" type="number" value="3" min="1" max="10"></div>
+      <div class="field"><label>Hours</label><input name="hours" type="number" value="48" min="1" max="168"></div>
+      <div class="field"><label>Note</label><input name="note"></div>
+    </div>
+    <div class="form-actions"><button><svg class="icon"><use href="#i-key"/></svg>Grant batch scope</button></div></form>
+</div>
+
+<div class="card flush">
+  <div class="card-h"><h3>Scopes</h3><span class="pill">{{ scopes|length }}</span></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>ID</th><th>Kind</th><th>Mode</th><th>Status</th><th>Target / filters</th><th>Used</th><th>Expires</th><th></th></tr></thead>
+    <tbody>{% for s in scopes %}<tr><td><small class="mono">{{ s._id }}</small></td><td>{{ s.kind|human }}</td><td><span class="pill {{ 'accent' if s.mode == 'batch' }}">{{ s.mode }}</span></td><td><span class="pill {{ s.status|tone }}">{{ s.status }}</span></td><td><small class="wrap">{{ s.binding.target_id or s.binding.job_filters }}</small></td><td>{{ s.used_count }}/{{ s.max_count }}</td><td class="nowrap">{{ s.expires_at|toronto }}</td>
+      <td>{% if s.status == 'active' %}<form method="post" action="/authorizations/{{ s._id }}/revoke"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary xs">Revoke</button></form>{% endif %}</td></tr>
+    {% else %}<tr><td colspan="8"><div class="empty"><svg class="icon"><use href="#i-auth"/></svg>No scopes granted yet.</div></td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+</div>
 {% endblock %}

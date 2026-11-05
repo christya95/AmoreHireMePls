@@ -1,18 +1,58 @@
 {% extends "base.html" %}{% block content %}
-<div class="grid">
-<div class="card"><h3>Import a job</h3><form method="post" action="/jobs/import"><input type="hidden" name="csrf" value="{{ csrf }}">
-<p><input name="url" placeholder="posting URL (LinkedIn, ATS, careers page)" size="60" required></p>
-<p><input name="employer" placeholder="employer"> <input name="title" placeholder="title"> <input name="requisition_id" placeholder="requisition ID"> <input name="location" placeholder="location"></p>
-<p><textarea name="posting_text" rows="5" cols="70" placeholder="paste the posting text (treated as untrusted data)"></textarea></p><button>Import and qualify</button></form></div>
-<div class="card"><h3>Discovery sources</h3><table>{% for s in sources %}<tr><td>{{ s.type }}</td><td>{{ s.key }}</td><td>{{ s.employer or '' }}</td></tr>{% endfor %}</table>
-<form method="post" action="/jobs/sources"><input type="hidden" name="csrf" value="{{ csrf }}"><select name="type">{% for t in source_types %}<option>{{ t }}</option>{% endfor %}</select> <input name="key" placeholder="board token / site" required> <input name="employer" placeholder="employer name"> <button>Add source</button></form>
-<form method="post" action="/jobs/discover"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Request discovery run now</button></form>
-<form method="post" action="/runs/batch"><input type="hidden" name="csrf" value="{{ csrf }}">Bounded batch: prepare up to <input name="max_count" type="number" value="3" min="1" max="10" style="width:4rem"> qualified jobs <button class="secondary">Queue batch</button> <small>(execution still needs authorization scopes)</small></form></div>
+<div class="stack">
+<div class="page-head"><div><h1>Jobs</h1><p>Import postings, run discovery, and start single or bounded batch runs. Execution still needs an authorization scope.</p></div></div>
+
+<div class="grid-main">
+  <div class="card">
+    <div class="card-h"><h3>Import a job</h3><span class="sub">Posting text is treated as untrusted data; it is qualified deterministically first.</span></div>
+    <form method="post" action="/jobs/import"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="field"><label for="url">Posting URL</label><input id="url" name="url" placeholder="https://… (LinkedIn, ATS, careers page)" required></div>
+      <div class="form-grid mt">
+        <div class="field"><label>Employer</label><input name="employer" placeholder="employer"></div>
+        <div class="field"><label>Title</label><input name="title" placeholder="title"></div>
+        <div class="field"><label>Requisition ID</label><input name="requisition_id" placeholder="R12345"></div>
+        <div class="field"><label>Location</label><input name="location" placeholder="Toronto, Ontario"></div>
+      </div>
+      <div class="field mt"><label>Posting text</label><textarea name="posting_text" rows="5" placeholder="paste the posting text"></textarea></div>
+      <div class="form-actions"><button><svg class="icon"><use href="#i-plus"/></svg>Import and qualify</button></div>
+    </form>
+  </div>
+  <div class="stack">
+    <div class="card">
+      <div class="card-h"><h3>Discovery sources</h3><form method="post" action="/jobs/discover" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary sm"><svg class="icon"><use href="#i-sync"/></svg>Run discovery now</button></form></div>
+      {% if sources %}<div class="table-wrap"><table class="compact"><thead><tr><th>Type</th><th>Key</th><th>Employer</th></tr></thead><tbody>{% for s in sources %}<tr><td>{{ s.type }}</td><td class="mono">{{ s.key }}</td><td>{{ s.employer or '' }}</td></tr>{% endfor %}</tbody></table></div>
+      {% else %}<p class="note">No sources yet. Add a board token or site below.</p>{% endif %}
+      <form method="post" action="/jobs/sources" class="form-row mt"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <div class="field narrow"><label>Type</label><select name="type">{% for t in source_types %}<option>{{ t }}</option>{% endfor %}</select></div>
+        <div class="field"><label>Board token / site</label><input name="key" required></div>
+        <div class="field"><label>Employer</label><input name="employer" placeholder="optional"></div>
+        <button class="secondary">Add source</button></form>
+    </div>
+    <div class="card">
+      <div class="card-h"><h3>Bounded batch</h3><span class="sub">Prepares review packages for the best ranked qualified jobs; nothing is submitted without a scope.</span></div>
+      <form method="post" action="/runs/batch" class="form-row"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <div class="field narrow"><label>Up to</label><input name="max_count" type="number" value="3" min="1" max="10"></div>
+        <div class="field narrow"><label>Status</label><select name="status_in"><option value="qualified">qualified</option><option value="needs_review">needs_review</option></select></div>
+        <button class="secondary">Queue batch</button></form>
+    </div>
+  </div>
 </div>
-<div class="card"><h3>Job queue</h3>
-<table><tr><th>Employer / title</th><th>Status</th><th>Fit</th><th>Qualification</th><th>Application</th><th>Updated</th></tr>
-{% for j in jobs %}<tr><td><a href="/jobs/{{ j._id }}">{{ j.employer }}: {{ j.title }}</a><br><small>{{ j.location or '' }} {{ j.requisition_id or j.linkedin_job_id or '' }}</small></td>
-<td><span class="badge">{{ j.status }}</span>{% if j.needs_reconciliation %} <span class="badge bad">reconcile</span>{% endif %}</td>
-<td>{% if j.fit %}rank {{ j.fit.rank }}{% endif %}</td><td><small>{% if j.qualification %}{{ j.qualification.decision }}: {{ j.qualification.reasons|join('; ') }}{% endif %}</small></td>
-<td>{% if apps.get(j._id) %}<a href="/applications/{{ apps[j._id]._id }}">{{ apps[j._id].status }}</a>{% endif %}</td><td>{{ j.updated_at|toronto }}</td></tr>{% endfor %}</table></div>
+
+<div class="card flush">
+  <div class="card-h"><h3>Job queue</h3>
+    <div class="choices">{% for f in ['', 'new', 'needs_review', 'qualified', 'applied', 'applied_historical'] %}<a class="pill {{ 'accent' if request.query_params.get('status_filter', '') == f else '' }}" href="/jobs{% if f %}?status_filter={{ f }}{% endif %}">{{ f|human if f else 'all' }}</a>{% endfor %}</div>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Employer / role</th><th>Status</th><th>Fit</th><th>Qualification</th><th>Application</th><th class="right">Updated</th></tr></thead>
+    <tbody>{% for j in jobs %}<tr>
+      <td><a class="row-person" href="/jobs/{{ j._id }}"><span class="avatar style-soft">{{ j.employer|initials }}</span><span><strong>{{ j.employer }}</strong><span class="sub">{{ j.title }}{% if j.location %} · {{ j.location }}{% endif %}{% if j.requisition_id or j.linkedin_job_id %} · {{ j.requisition_id or j.linkedin_job_id }}{% endif %}</span></span></a></td>
+      <td><span class="pill {{ j.status|tone }}">{{ j.status|human }}</span>{% if j.needs_reconciliation %} <span class="pill bad">reconcile</span>{% endif %}</td>
+      <td>{% if j.fit %}rank {{ j.fit.rank }}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td><small>{% if j.qualification %}{{ j.qualification.decision|human }}: {{ j.qualification.reasons|join('; ') }}{% endif %}</small></td>
+      <td>{% if apps.get(j._id) %}<a class="pill {{ apps[j._id].status|tone }}" href="/applications/{{ apps[j._id]._id }}">{{ apps[j._id].status|human }}</a>{% endif %}</td>
+      <td class="right nowrap">{{ j.updated_at|toronto }}</td></tr>
+    {% else %}<tr><td colspan="6"><div class="empty">No jobs match this filter.</div></td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+</div>
 {% endblock %}

@@ -1,11 +1,42 @@
 {% extends "base.html" %}{% block content %}
-<div class="card"><h2>Run {{ run._id }}</h2><p><span class="badge">{{ run.status }}</span> {{ run.kind }} · thread {{ run.thread_id }} · requested: {{ run.requested or 'none' }}</p>
-<form class="inline" method="post" action="/runs/{{ run._id }}/pause"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Pause</button></form>
-<form class="inline" method="post" action="/runs/{{ run._id }}/resume"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Resume</button></form>
-<form class="inline" method="post" action="/runs/{{ run._id }}/cancel"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Cancel</button></form>
-{% if run.interrupt %}<div class="card"><h3>Waiting: {{ run.interrupt.type }}</h3>
-{% if run.interrupt.application_id %}<p><a href="/applications/{{ run.interrupt.application_id }}">Open the review package</a> to supply inputs, authorize, or record a manual completion; the worker resumes automatically.</p>{% endif %}
-<pre>{{ run.interrupt|json }}</pre></div>{% endif %}
-{% if run.error %}<p class="badge bad">{{ run.error }}</p>{% endif %}
-<h3>Usage</h3><pre>{{ run.usage|json }}</pre><h3>Events</h3><pre>{{ run.events|json }}</pre>{% if run.summary %}<h3>Summary</h3><pre>{{ run.summary|json }}</pre>{% endif %}</div>
+<div class="stack">
+<div class="card">
+  <div class="welcome">
+    <div>
+      <h1>Run <span class="mono">{{ run._id }}</span></h1>
+      <p>{{ run.kind|human }} · thread <span class="mono">{{ run.thread_id }}</span></p>
+      <div class="flex mt"><span class="pill {{ run.status|tone }}">{{ run.status|human }}</span>{% if run.requested %}<span class="pill">{{ run.requested }} requested</span>{% endif %}{% if run.params.job_id %}<a href="/jobs/{{ run.params.job_id }}"><small>job {{ run.params.job_id }}</small></a>{% endif %}</div>
+    </div>
+    <div class="actions">
+      <form class="inline" method="post" action="/runs/{{ run._id }}/pause"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Pause</button></form>
+      <form class="inline" method="post" action="/runs/{{ run._id }}/resume"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Resume</button></form>
+      <form class="inline" method="post" action="/runs/{{ run._id }}/cancel"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Cancel</button></form>
+    </div>
+  </div>
+  {% if run.error %}<div class="flash bad mt">{{ run.error }}</div>{% endif %}
+</div>
+
+{% if run.interrupt %}
+<div class="card attention">
+  <div class="card-h"><h3>Waiting: {{ run.interrupt.type|human }}</h3><span class="pill warn">interrupt</span></div>
+  {% if run.interrupt.application_id %}<p><a class="btn" href="/applications/{{ run.interrupt.application_id }}"><svg class="icon"><use href="#i-arrow"/></svg>Open the review package</a> <small>supply inputs, authorize, or record a manual completion; the worker resumes automatically.</small></p>{% endif %}
+  <details class="disclosure"><summary>Interrupt payload</summary><pre>{{ run.interrupt|json }}</pre></details>
+</div>
+{% endif %}
+
+<div class="grid-2">
+  <div class="card"><div class="card-h"><h3>Usage</h3></div>
+    <table class="kv compact">
+      <tr><td>Calls</td><td>{{ run.usage.calls }}</td></tr>
+      <tr><td>Tokens in / out / cached</td><td>{{ run.usage.input_tokens }} / {{ run.usage.output_tokens }} / {{ run.usage.cached_tokens }}</td></tr>
+      <tr><td>Tool steps</td><td>{{ run.usage.tool_steps }}</td></tr>
+      <tr><td>Cost</td><td>{% if run.usage.cost_known %}${{ '%.4f'|format(run.usage.cost_usd or 0) }}{% else %}<span class="pill warn">unknown</span>{% endif %}</td></tr>
+    </table></div>
+  <div class="card"><div class="card-h"><h3>Summary</h3></div>{% if run.summary %}<pre>{{ run.summary|json }}</pre>{% else %}<p class="note">No summary yet.</p>{% endif %}</div>
+</div>
+
+<div class="card"><div class="card-h"><h3>Events</h3><span class="pill">{{ run.events|length }}</span></div>
+  <div class="list timeline">{% for e in run.events %}<div class="list-item"><span class="t">{{ e.at|toronto }}</span><div class="body"><strong>{{ e.message }}</strong>{% for k, v in e.items() if k not in ('at', 'message') %}<small class="mono wrap">{{ k }}: {{ v }}</small>{% endfor %}</div></div>
+  {% else %}<div class="empty">No events yet.</div>{% endfor %}</div></div>
+</div>
 {% endblock %}

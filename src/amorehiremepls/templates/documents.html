@@ -1,0 +1,20 @@
+{% extends "base.html" %}{% block content %}
+<div class="stack">
+<div class="page-head"><div><h1>Documents</h1><p>Tailored resumes generated from the approved base, with hashes, page verification and grounding results. The base itself is never modified.</p></div>
+  <div class="flex">{% if base_resume %}<span class="pill ok">base {{ base_resume.sha256[:12] }}… approved {{ base_resume.approved_on }}</span>{% else %}<a class="pill bad" href="/profile">no approved base resume</a>{% endif %}</div></div>
+<div class="card flush">
+  <div class="table-wrap"><table>
+    <thead><tr><th>File</th><th>Job</th><th>Kind</th><th>Pages</th><th>Grounding</th><th>Method</th><th class="right">Created</th></tr></thead>
+    <tbody>{% for d in artifacts %}{% set j = jobs.get(d.owner_id, {}) %}<tr>
+      <td class="wrap"><strong>{{ d.filename }}</strong><span class="sub mono">{{ d.sha256[:20] }}…</span></td>
+      <td>{% if j %}<a href="/jobs/{{ d.owner_id }}">{{ j.employer }}</a><span class="sub">{{ j.title }}</span>{% else %}<span class="mono">{{ d.owner_id }}</span>{% endif %}</td>
+      <td>{{ (d.kind or '')|human }}</td>
+      <td>{{ d.pages if d.pages is not none else 'unverified' }}{% if not d.page_limit_verified %} <span class="pill warn">{{ d.render_note or 'not verified' }}</span>{% endif %}</td>
+      <td>{% if d.grounding and d.grounding.ok %}<span class="pill ok">ok · {{ d.grounding.checked_bullets }} bullets</span>{% elif d.grounding %}<span class="pill bad">{{ d.grounding.violations|join('; ') }}</span>{% endif %}</td>
+      <td>{{ d.method }}</td>
+      <td class="right nowrap">{{ d.created_at|toronto }}</td></tr>
+    {% else %}<tr><td colspan="7"><div class="empty"><svg class="icon"><use href="#i-documents"/></svg>No tailored documents yet. They appear when a run prepares a review package.</div></td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+</div>
+{% endblock %}

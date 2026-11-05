@@ -1,5 +1,18 @@
 {% extends "base.html" %}{% block content %}
-<div class="card"><h3>Runs</h3><table><tr><th>Run</th><th>Kind</th><th>Status</th><th>Interrupt</th><th>Usage</th><th>Created</th></tr>
-{% for r in runs %}<tr><td><a href="/runs/{{ r._id }}">{{ r._id }}</a></td><td>{{ r.kind }} {{ r.params.job_id or '' }}</td><td><span class="badge">{{ r.status }}</span> {{ r.requested or '' }}</td><td>{{ r.interrupt.type if r.interrupt else '' }}</td>
-<td><small>{{ r.usage.calls }} calls, {{ r.usage.input_tokens }}/{{ r.usage.output_tokens }} tok{% if r.usage.cost_known %}, ${{ '%.4f'|format(r.usage.cost_usd or 0) }}{% else %}, cost unknown{% endif %}</small></td><td>{{ r.created_at|toronto }}</td></tr>{% endfor %}</table></div>
+<div class="stack">
+<div class="page-head"><div><h1>Runs</h1><p>Resumable LangGraph runs. Pause, resume or cancel from a run; interrupts link to the review package.</p></div></div>
+<div class="card flush">
+  <div class="table-wrap"><table>
+    <thead><tr><th>Run</th><th>Kind</th><th>Status</th><th>Waiting on</th><th>Usage</th><th class="right">Created</th></tr></thead>
+    <tbody>{% for r in runs %}<tr>
+      <td><a class="mono" href="/runs/{{ r._id }}">{{ r._id }}</a></td>
+      <td>{{ r.kind|human }}{% if r.params.job_id %}<span class="sub mono">{{ r.params.job_id }}</span>{% endif %}</td>
+      <td><span class="pill {{ r.status|tone }}">{{ r.status|human }}</span>{% if r.requested %} <small>{{ r.requested }} requested</small>{% endif %}</td>
+      <td>{{ (r.interrupt.type if r.interrupt else '')|human }}</td>
+      <td><small>{{ r.usage.calls }} calls · {{ r.usage.input_tokens }}/{{ r.usage.output_tokens }} tok{% if r.usage.cost_known %} · ${{ '%.4f'|format(r.usage.cost_usd or 0) }}{% else %} · cost unknown{% endif %}</small></td>
+      <td class="right nowrap">{{ r.created_at|toronto }}</td></tr>
+    {% else %}<tr><td colspan="6"><div class="empty"><svg class="icon"><use href="#i-runs"/></svg>No runs yet. Start one from a job.</div></td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+</div>
 {% endblock %}
