@@ -11,7 +11,7 @@
       <td>{% if r.interrupt %}{{ r.interrupt.type|label }}{% if r.interrupt.application_id %} · <a class="btn sm" href="/applications/{{ r.interrupt.application_id }}">Open application</a>{% endif %}{% endif %}</td>
       <td><small>{{ r.usage.calls }} calls{% if r.usage.cost_known %} · ${{ '%.4f'|format(r.usage.cost_usd or 0) }}{% else %} · cost unknown{% endif %}</small></td>
       <td><a href="/runs/{{ r._id }}">{{ r.kind|label }}</a><span class="sub mono">{{ r._id }}</span></td>
-      <td class="right nowrap">{{ r.created_at|toronto }}</td></tr>
+      <td class="right nowrap">{{ r.created_at|local }}</td></tr>
     {% else %}<tr><td colspan="6"><div class="empty"><svg class="icon"><use href="#i-runs"/></svg>No tasks yet. Tasks start from a job page ("Tailor resume").<div class="actions center mt"><a class="btn sm" href="/jobs">Go to jobs</a></div></div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>

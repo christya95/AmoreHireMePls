@@ -12,7 +12,7 @@
       <td class="wrap">{% include "_doc_actions.html" %}</td>
       <td>{% if d.grounding and d.grounding.ok %}<span class="pill ok">{{ d.grounding.checked_bullets }} lines, all from your facts</span>{% elif d.grounding %}<span class="pill bad">{{ d.grounding.violations|join('; ') }}</span>{% endif %}</td>
       <td>{{ d.method|label }}</td>
-      <td class="right nowrap">{{ d.created_at|toronto }}</td></tr>
+      <td class="right nowrap">{{ d.created_at|local }}</td></tr>
     {% else %}<tr><td colspan="6"><div class="empty"><svg class="icon"><use href="#i-documents"/></svg>No tailored resumes yet. Open a job and press "Tailor resume". The resume appears here.<div class="actions center mt"><a class="btn sm" href="/jobs">Go to jobs</a>{% if not base_resume %}<a class="btn secondary sm" href="/profile">Choose the base resume first</a>{% endif %}</div></div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>

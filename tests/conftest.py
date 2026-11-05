@@ -36,9 +36,18 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True)
-def _empty_candidate_folder(tmp_path, monkeypatch):
-    """Tests never read the real drop folder (candidate/): point every Settings() at an empty one."""
+def _test_environment(tmp_path, monkeypatch):
+    """Tests never read the real drop folder (candidate/): point every Settings() at an empty one. The suite's
+    fictional candidate lives in Toronto with a GitHub tracker, so the process-wide settings say so explicitly
+    (the code's own defaults are UTC and no tracker)."""
+    from amorehiremepls.config import get_settings
+
     monkeypatch.setenv("AMORE_CANDIDATE_DIR", str(tmp_path / "candidate-empty"))
+    monkeypatch.setenv("AMORE_TIMEZONE", "America/Toronto")
+    monkeypatch.setenv("AMORE_TRACKER_ENABLED", "true")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 @pytest.fixture

@@ -191,3 +191,56 @@ def make_column_header_resume(path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(path))
     return path
+
+
+SALES_NAME = "Jo Sample"
+SALES_CONTACT = "London, UK | jo@example.co.uk | 020 0000 0000 | linkedin.com/in/josample"
+
+
+def make_sales_resume(path: Path, bullets_per_role: int = 4) -> Path:
+    """A fictional enterprise account executive. Headings use sales wording (Core Competencies, Key Achievements,
+    Sales Experience) and the resume ends with two sections the parser does not know by name (Languages, Volunteer
+    Work) that must survive tailoring untouched."""
+    doc = Document()
+    doc.add_paragraph(SALES_NAME)
+    doc.add_paragraph(SALES_CONTACT)
+    doc.add_paragraph("Professional Profile")
+    doc.add_paragraph("Enterprise account executive with six years of full time experience selling data platforms to mid market finance teams across the UK.")
+    doc.add_paragraph("Core Competencies")
+    doc.add_paragraph("Enterprise sales, MEDDIC, Salesforce, Pipeline forecasting, Contract negotiation, Renewals, Executive presentations")
+    doc.add_paragraph("Key Achievements")
+    doc.add_paragraph("President's Club | 2025")
+    doc.add_paragraph("Closed the largest new logo of the year at 1.2 million ARR after a nine month cycle.", style="List Bullet")
+    doc.add_paragraph("Sales Experience")
+    doc.add_paragraph("Senior Account Executive at Ledgerly | March 2022 – Present")
+    bullets = [
+        "Grew a territory of 40 mid market finance accounts from 2.1 million to 3.4 million ARR in two years.",
+        "Ran MEDDIC qualified cycles with CFOs and controllers, keeping forecast accuracy above 90 percent.",
+        "Negotiated multi year renewals that lifted net retention to 118 percent.",
+        "Coached two new account executives through their first full quota year.",
+        "Built the territory plan in Salesforce that the regional team adopted.",
+        "Presented quarterly business reviews to executive sponsors at the top ten accounts.",
+    ]
+    for text in bullets[:bullets_per_role]:
+        doc.add_paragraph(text, style="List Bullet")
+    doc.add_paragraph("Account Executive at Northwind Analytics | June 2019 – February 2022")
+    for text in [
+        "Carried a 600 thousand quota selling reporting software to accounting firms, finishing at 112 percent.",
+        "Sourced 60 percent of pipeline through outbound sequences in Outreach and partner referrals.",
+        "Won the first three public sector customers for the product line.",
+        "Handed over clean account notes to customer success at every close.",
+    ][:bullets_per_role]:
+        doc.add_paragraph(text, style="List Bullet")
+    doc.add_paragraph("Sales Development Representative Intern at Northwind Analytics | January 2019 – May 2019")
+    doc.add_paragraph("Booked 90 qualified meetings in one quarter from cold outreach.", style="List Bullet")
+    doc.add_paragraph("Education")
+    doc.add_paragraph("BA Business Studies, Example University")
+    doc.add_paragraph("Licences & Certifications")
+    doc.add_paragraph("MEDDPICC Certified Practitioner")
+    doc.add_paragraph("Languages")
+    doc.add_paragraph("English (native), Spanish (professional)")
+    doc.add_paragraph("Volunteer Work")
+    doc.add_paragraph("Mentor, Sales Careers Network, 2023 to present")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(str(path))
+    return path

@@ -35,7 +35,7 @@ Each entry in `evidence["screenshots"]` is `{label, path, sha256, captured_at, u
 job's artifact directory (`<artifact_dir>/jobs/<job_id>/screenshots/`) when a job id is known, otherwise under
 `screenshot_dir`.
 
-Authenticated sessions: `login_interactive(site)` opens a headed browser on the Mac for Joss to sign
+Authenticated sessions: `login_interactive(site)` opens a headed browser on the desktop for the owner to sign
 in, then saves Playwright storage_state under the private session dir. Workers load that state.
 """
 

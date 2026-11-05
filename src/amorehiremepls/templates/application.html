@@ -66,7 +66,7 @@
   <div class="stack">
     <div class="card {{ 'attention' if a.status == 'ready_for_review' }}" id="authorize">
       <div class="card-h"><h3>Your approval</h3>{{ hint('authorization') }}<svg class="icon"><use href="#i-key"/></svg></div>
-      {% for s in scopes %}<p><span class="pill ok">approved for {{ s.mode|label|lower }}</span> <code class="raw">{{ s.id }}</code> <small>used {{ s.used_count }} of {{ s.max_count }} · ends {{ s.expires_at|toronto }}</small></p>{% endfor %}
+      {% for s in scopes %}<p><span class="pill ok">approved for {{ s.mode|label|lower }}</span> <code class="raw">{{ s.id }}</code> <small>used {{ s.used_count }} of {{ s.max_count }} · ends {{ s.expires_at|local }}</small></p>{% endfor %}
       {% if a.status == 'ready_for_review' %}
       <form method="post" action="/applications/{{ a._id }}/authorize" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}">
         <div class="form-row"><div class="field narrow"><label>Good for (hours)</label><input name="hours" type="number" value="24" min="1" max="168"></div><div class="field"><label>Note to yourself</label><input name="note" placeholder="optional"></div></div>
@@ -81,7 +81,7 @@
     <div class="card" id="updates">
       <div class="card-h"><h3>Updates</h3><span class="sub">What has happened for this application, from the saved record. Refresh the page to see new lines.</span></div>
       {% if updates %}
-      <div class="timeline">{% for u in updates %}<div class="list-item"><span class="t">{{ u.at|toronto }}</span><span>{{ u.text }}</span></div>{% endfor %}</div>
+      <div class="timeline">{% for u in updates %}<div class="list-item"><span class="t">{{ u.at|local }}</span><span>{{ u.text }}</span></div>{% endfor %}</div>
       {% else %}<p class="note">No updates yet.</p>{% endif %}
     </div>
     <div class="card" id="record">

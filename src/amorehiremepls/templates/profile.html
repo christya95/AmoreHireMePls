@@ -3,6 +3,16 @@
 <div class="stack">
 <div class="page-head"><div><h1>Your profile</h1><p>The facts about you that every resume line and form answer comes from. If a fact is missing, the app asks you instead of guessing. How the dashboard looks is under <a href="/settings">Settings</a>. {{ hint('grounding') }}</p></div></div>
 
+<div class="card">
+  <div class="card-h"><h3>Your profile file</h3>
+    {% if toml.state == 'missing' %}<span class="pill">not found</span>{% elif toml.state == 'new' %}<span class="pill warn">ready to load</span>{% elif toml.state == 'changed' %}<span class="pill warn">changed since last load</span>{% else %}<span class="pill ok">loaded</span>{% endif %}
+    <span class="sub">One file, <code>{{ toml.path }}</code>, holds who you are, what you want, what to skip and how your notes should sound. It stays on this computer and is loaded only when you press the button.</span></div>
+  {% if toml.state == 'missing' %}<div class="empty">No <code>profile.toml</code> in the candidate folder yet. Copy <code>profile.example.toml</code> (written for a fictional sales account executive) to <code>profile.toml</code>, change it to describe you, then come back here. Everything on this page can also be edited directly below.</div>
+  {% else %}<p class="note">{% if toml.state == 'loaded' %}Loaded {{ toml.loaded_at|local }}. {% elif toml.state == 'changed' %}The file changed since it was loaded {{ toml.loaded_at|local }}. {% else %}Found, not loaded yet. {% endif %}Loading replaces the sections present in the file and keeps everything else. <code class="raw" title="file fingerprint">{{ toml.sha256[:16] }}</code></p>
+  {% if toml_report %}<p class="note">{% if toml_report.ok %}Last load: facts {{ toml_report.facts }}, answers {{ toml_report.answers }}, jobs {{ toml_report.employment }}, education {{ toml_report.education }}, skills {{ toml_report.skills }}; sections {{ toml_report.sections|join(', ') }}.{% for w in toml_report.warnings %} {{ w }}{% endfor %}{% else %}Last attempt failed: {{ toml_report.error }}{% endif %}</p>{% endif %}
+  <form method="post" action="/profile/load-toml" class="form-actions"><input type="hidden" name="csrf" value="{{ csrf }}"><button {% if toml.state == 'loaded' %}class="secondary"{% endif %}>{{ 'Load again' if toml.state == 'loaded' else 'Load profile file' }}</button></form>{% endif %}
+</div>
+
 <div class="grid-2">
   <div class="card">
     <div class="card-h"><h3>Base resume</h3>{% if p.base_resume %}<span class="pill ok">approved {{ p.base_resume.approved_on }}</span>{% else %}<span class="pill bad">not chosen</span>{% endif %}<span class="sub">The one resume every tailored version starts from. A copy is kept privately. The original is never edited.</span></div>
@@ -51,23 +61,57 @@
 </div>
 
 <div class="card">
-  <div class="card-h"><h3>Your rules for jobs</h3><span class="sub">Every job is checked against these before anything else happens.</span></div>
+  <div class="card-h"><h3>Your rules for jobs</h3><span class="sub">Every job is checked against these before anything else happens. Lists are separated by commas.</span></div>
   <form method="post" action="/profile/preferences" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="form-grid">
+      <div class="field"><label>Your profession</label><input name="profession" value="{{ p.candidate.profession }}" placeholder="e.g. account executive, clinical psychologist, backend developer"><span class="hint">Told to the AI so it judges fit and writes in the language of your field.</span></div>
       <div class="field"><label>Employment types you want</label><input name="employment_types" value="{{ p.preferences.employment_types|join(', ') }}"></div>
-      <div class="field"><label>Locations you want</label><input name="locations" value="{{ p.preferences.locations|join(', ') }}"><span class="hint">{{ p.preferences.remote_rule }}</span></div>
     </div>
-    <div class="field"><label>Kinds of role you want</label><input name="role_families" value="{{ p.preferences.role_families|join(', ') }}"></div>
-    <div class="field"><label>Kinds of role you do not want</label><input name="excluded_role_families" value="{{ p.preferences.excluded_role_families|join(', ') }}"></div>
+    <div class="field"><label>Kinds of role you want</label><input name="role_families" value="{{ p.preferences.role_families|join(', ') }}" placeholder="words that appear in titles you want"></div>
     <div class="form-grid">
-      <div class="field"><label>Lowest base salary you accept ({{ p.compensation.currency }})</label><input name="floor_base" type="number" value="{{ p.compensation.floor_base }}"></div>
+      <div class="field"><label>Kinds of role you do not want</label><input name="excluded_role_families" value="{{ p.preferences.excluded_role_families|join(', ') }}"></div>
+      <div class="field"><label>Exceptions to that</label><input name="excluded_role_family_exceptions" value="{{ p.preferences.excluded_role_family_exceptions|join(', ') }}"><span class="hint">Title phrases to keep even when a word above appears in them.</span></div>
+    </div>
+    <div class="form-grid">
+      <div class="field"><label>Places you want</label><input name="locations" value="{{ p.preferences.locations|join(', ') }}" placeholder="cities, regions, countries"><span class="hint">Blank means any location. {{ p.preferences.remote_rule }}</span></div>
+      <div class="field"><label>Remote jobs must say they are open to</label><input name="remote_eligible_terms" value="{{ p.preferences.remote_eligible_terms|join(', ') }}" placeholder="e.g. your province or country"></div>
+      <div class="field"><label>How to name your area in messages</label><input name="region_label" value="{{ p.preferences.region_label }}" placeholder="e.g. the UK"></div>
+    </div>
+    <div class="form-grid">
+      <div class="field narrow"><label>Currency</label><input name="currency" value="{{ p.compensation.currency }}" maxlength="3" placeholder="CAD"></div>
+      <div class="field"><label>Lowest base salary you accept</label><input name="floor_base" type="number" value="{{ p.compensation.floor_base }}"></div>
       <div class="field"><label>Salary you aim for</label><input name="target_base" value="{{ p.compensation.target_base or '' }}"></div>
       <div class="field"><label>When a job shows a salary range, ask for</label><select name="band_rule">{% for o in ['midpoint','upper_half','minimum'] %}<option value="{{ o }}" {{ 'selected' if o==p.compensation.band_rule }}>{{ o|label }}</option>{% endfor %}</select></div>
       <div class="field"><label>When a form asks for salary and none is published</label><select name="unknown_rule">{% for o in ['needs_input','leave_blank'] %}<option value="{{ o }}" {{ 'selected' if o==p.compensation.unknown_rule }}>{{ 'Ask me' if o == 'needs_input' else o|label }}</option>{% endfor %}</select></div>
-      <div class="field"><label>Very small or very new companies</label><select name="small_startup_rule">{% for o in ['needs_review','ignore'] %}<option value="{{ o }}" {{ 'selected' if o==p.preferences.small_startup_rule }}>{{ 'Ask me first' if o == 'needs_review' else o|label }}</option>{% endfor %}</select></div>
     </div>
-    <div class="field"><label>Employers to skip (one per line: Name | other names, other names)</label><textarea name="excluded_employers" rows="6">{% for e in p.preferences.excluded_employers %}{{ e.name }}{% if e.aliases %} | {{ e.aliases|join(', ') }}{% endif %}
+    <div class="form-grid">
+      <div class="field"><label>Very small or very new companies</label><select name="small_startup_rule">{% for o in ['needs_review','ignore'] %}<option value="{{ o }}" {{ 'selected' if o==p.preferences.small_startup_rule }}>{{ 'Ask me first' if o == 'needs_review' else o|label }}</option>{% endfor %}</select></div>
+      <div class="field"><label>Extra phrases that mean a very small company in your field</label><input name="startup_signals_extra" value="{{ p.preferences.startup_signals_extra|join(', ') }}" placeholder="e.g. founding engineer, first sales hire"></div>
+    </div>
+    <div class="field"><label>Employers to skip (one per line: Name | other names, other names)</label><textarea name="excluded_employers" rows="5">{% for e in p.preferences.excluded_employers %}{{ e.name }}{% if e.aliases %} | {{ e.aliases|join(', ') }}{% endif %}
 {% endfor %}</textarea></div>
+
+    <h4 class="mt">Your recruiter notes</h4>
+    <div class="form-grid">
+      <div class="field"><label>Roles to ask about</label><input name="outreach_role_phrase" value="{{ p.preferences.outreach_rules.get('role_phrase', '') }}" placeholder="e.g. permanent enterprise sales roles"></div>
+      <div class="field"><label>One line about what you do</label><input name="outreach_one_liner" value="{{ p.preferences.outreach_rules.get('one_liner', '') }}" placeholder="e.g. I sell data platforms to mid market finance teams"></div>
+      <div class="field narrow"><label>Connect note limit (characters)</label><input name="outreach_max_chars" type="number" min="60" max="2000" value="{{ p.preferences.outreach_rules.get('connect_note_max_chars', 300) }}"></div>
+    </div>
+    <div class="form-grid checks">
+      <label class="check"><input type="checkbox" name="outreach_ask_other_roles" value="1" {{ 'checked' if p.preferences.outreach_rule('ask_other_roles', True) }}> Always ask whether other roles may fit</label>
+      <label class="check"><input type="checkbox" name="outreach_no_dashes" value="1" {{ 'checked' if p.preferences.outreach_rules.get('no_dashes', True) }}> No hyphens or dashes in notes</label>
+      <label class="check"><input type="checkbox" name="outreach_no_layoff_mention" value="1" {{ 'checked' if p.preferences.outreach_rules.get('no_layoff_mention', True) }}> Never mention a layoff</label>
+    </div>
+
+    <h4 class="mt">Your resume</h4>
+    <div class="form-grid">
+      <div class="field narrow"><label>Page limit</label><input name="resume_max_pages" type="number" min="1" max="6" value="{{ p.preferences.resume.max_pages }}"><span class="hint">A tailored PDF over this is never sent.</span></div>
+      <div class="field narrow"><label>Bullets per role, at most</label><input name="resume_max_bullets" type="number" min="1" max="12" value="{{ p.preferences.resume.max_bullets_per_role }}"></div>
+      <div class="field"><label>Words the AI may use even if your resume lacks them</label><input name="resume_allowed_terms" value="{{ p.preferences.resume.allowed_terms|join(', ') }}" placeholder="e.g. your city, your job title"></div>
+    </div>
+    <div class="form-grid checks">
+      <label class="check"><input type="checkbox" name="style_no_dashes" value="1" {{ 'checked' if p.preferences.style.no_dashes }}> No hyphens or dashes in a rewritten summary</label>
+    </div>
     <div class="form-actions"><button>Save rules</button></div></form>
 </div>
 
@@ -84,6 +128,5 @@
     <button class="secondary">Add person</button></form>
 </div>
 
-<div class="card"><details class="disclosure"><summary>Rules for recruiter notes (technical)</summary><pre>{{ p.preferences.outreach_rules|json }}</pre></details></div>
 </div>
 {% endblock %}

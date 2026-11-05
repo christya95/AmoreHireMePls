@@ -225,24 +225,9 @@ _INJECTION_RE = re.compile("|".join(INJECTION_PATTERNS), re.IGNORECASE)
 
 CONTRACT_TERMS = ("contract", "contractor", "temporary", "temp ", "fixed term", "fixed-term", "internship", "intern ", "co-op", "coop", "freelance", "part-time", "part time")
 PERMANENT_TERMS = ("permanent", "full-time", "full time", "fulltime", "regular")
-ONTARIO_TERMS = (
-    "ontario",
-    "toronto",
-    "gta",
-    "mississauga",
-    "milton",
-    "oakville",
-    "markham",
-    "vaughan",
-    "brampton",
-    "burlington",
-    "hamilton",
-    "waterloo",
-    "kitchener",
-    "ottawa",
-    "canada",
-)
-STARTUP_SIGNALS = ("early stage", "early-stage", "seed stage", "pre-seed", "series a", "founding engineer", "small team of", "first engineer")
+# Profession neutral signs of a very small or very new company. A candidate adds their own field's phrases
+# ("founding engineer", "first sales hire") under [preferences].startup_signals_extra.
+STARTUP_SIGNALS = ("early stage", "early-stage", "seed stage", "pre-seed", "series a", "small team of", "founding team", "first hire", "first employee")
 
 
 class Qualification(BaseModel):
@@ -257,6 +242,11 @@ class Qualification(BaseModel):
 
 def detect_injection(text: str) -> list[str]:
     return sorted({m.group(0).lower() for m in _INJECTION_RE.finditer(text or "")})
+
+
+def _phrase_in(term: str, text: str) -> bool:
+    """Whole-word (or whole-phrase) match of a normalised term inside normalised text."""
+    return bool(term) and re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", text) is not None
 
 
 def work_arrangement(policy: str | None) -> str | None:
@@ -315,40 +305,43 @@ def qualify(job: dict, extracted: dict, profile: Profile, posting_text: str = ""
             decision = "needs_review"
             reasons.append("employment type not stated")
 
-    # role family
-    if any(x in title_low for x in prefs.excluded_role_families):
+    # role family. An exception phrase in the title ("ai engineer") keeps it even when an excluded word also appears.
+    excepted = any(x in title_low for x in prefs.excluded_role_family_exceptions)
+    if not excepted and any(x in title_low for x in prefs.excluded_role_families):
         hit = next(x for x in prefs.excluded_role_families if x in title_low)
-        if "ai engineer" in title_low and hit in ("staff", "principal"):
-            pass
-        else:
-            return Qualification(decision="excluded", reasons=[f"title family excluded: '{hit}'"], employment_type=etype, flags=flags)
+        return Qualification(decision="excluded", reasons=[f"title family excluded: '{hit}'"], employment_type=etype, flags=flags)
     if prefs.role_families and not any(x in title_low for x in prefs.role_families):
         decision = "needs_review"
         reasons.append("title is outside the preferred role families")
         flags.append("role_family_unclear")
 
-    # location
+    # location: the candidate's place words accept a posting; remote postings need one of the remote eligibility words
     loc = normalize_text(" ".join(filter(None, [job.get("location") or "", extracted.get("location") or "", extracted.get("remote_policy") or ""])))
     remote = "remote" in loc or (extracted.get("remote_policy") or "").lower() == "remote" or "remote" in text_low
+    place_terms = [normalize_text(t) for t in prefs.locations if t.strip()]
+    remote_terms = [normalize_text(t) for t in (prefs.remote_eligible_terms or prefs.locations) if t.strip()]
+    region = prefs.region_label or (", ".join(prefs.locations[:3]) if prefs.locations else "your locations")
     location_ok: bool | None
-    if any(t in loc for t in ONTARIO_TERMS):
+    if not place_terms:
+        location_ok = None if not loc else True  # no location rule saved: nothing to check
+    elif any(_phrase_in(t, loc) for t in place_terms):
         location_ok = True
     elif remote:
-        if any(t in text_low for t in ("ontario", "canada", "canadian residents")):
+        if any(_phrase_in(t, text_low) for t in remote_terms):
             location_ok = True
         else:
             location_ok = None
             decision = "needs_review"
-            reasons.append("remote role; eligibility for Ontario residents not stated")
+            reasons.append(f"remote role; eligibility for {region} residents not stated")
     elif not loc:
         location_ok = None
         decision = "needs_review"
         reasons.append("location not stated")
     else:
         location_ok = False
-        return Qualification(decision="excluded", reasons=[f"location '{loc}' is outside Ontario/Canada"], employment_type=etype, flags=flags, location_ok=False)
+        return Qualification(decision="excluded", reasons=[f"location '{loc}' is outside {region}"], employment_type=etype, flags=flags, location_ok=False)
 
-    # work arrangement: only a review reason when the posting states a kind Joss has not accepted
+    # work arrangement: only a review reason when the posting states a kind the candidate has not accepted
     arrangement = work_arrangement(extracted.get("remote_policy"))
     if arrangement and arrangement not in prefs.work_arrangements:
         decision = "needs_review"
@@ -367,7 +360,7 @@ def qualify(job: dict, extracted: dict, profile: Profile, posting_text: str = ""
         elif cur and cur != comp.currency:
             salary_outcome = "foreign_currency"
             decision = "needs_review"
-            reasons.append(f"salary in {cur}; confirm CAD base")
+            reasons.append(f"salary in {cur}; confirm the base in {comp.currency or 'your currency'}")
         elif (extracted.get("salary_period") or "annual") != "annual":
             salary_outcome = "non_annual"
             decision = "needs_review"
@@ -391,7 +384,8 @@ def qualify(job: dict, extracted: dict, profile: Profile, posting_text: str = ""
         flags.append("salary_unknown")
         reasons.append("no published salary; stays unknown")
 
-    if prefs.small_startup_rule == "needs_review" and any(s in text_low for s in STARTUP_SIGNALS):
+    signals = [normalize_text(s) for s in (*STARTUP_SIGNALS, *prefs.startup_signals_extra) if s.strip()]
+    if prefs.small_startup_rule == "needs_review" and any(s in text_low for s in signals):
         flags.append("possible_small_startup")
         decision = "needs_review"
         reasons.append("posting signals an early-stage company; confirm employer size preference")
@@ -429,7 +423,6 @@ _EVIDENCE_STOP = {
     "your",
     "candidate",
     "whether",
-    "backend",
     "technologies",
     "technology",
     "tools",
@@ -508,31 +501,68 @@ _EVIDENCE_STOP = {
     "working",
     "work",
 }
-# Words that make a gap line about a technology. A line that names none of these is never dropped.
-_TECH_WORD = re.compile(
-    r"\b(?:java|kotlin|scala|python|golang|typescript|javascript|node(?:\.js)?|spring|hibernate|rest(?:ful)?|apis?|graphql|grpc|microservices?|"
-    r"databases?|sql|nosql|postgres(?:ql)?|mysql|oracle|mongodb|redis|dynamodb|kafka|rabbitmq|docker|kubernetes|k8s|containers?|"
-    r"aws|azure|gcp|cloud|ci/?cd|jenkins|junit|pytest|test(?:s|ing)?|git|linux|terraform|openshift)\b",
-    re.I,
-)
-# Category words on a gap line. Any member of the category in the evidence answers the category word; a member named
-# on the line (Azure, MongoDB, JUnit) must appear in the evidence itself.
-_CATEGORIES: tuple[tuple[re.Pattern[str], re.Pattern[str]], ...] = (
-    (re.compile(r"APIs?|REST(?:ful)?", re.I), re.compile(r"\bAPIs?\b|\bREST(?:ful)?\b", re.I)),
-    (re.compile(r"databases?", re.I), re.compile(r"\bdatabases?\b|\bSQL\b|\bPostgreSQL\b|\bPostgres\b|\bMySQL\b|\bOracle\b|\bMongoDB\b|\bRedis\b|\bDynamoDB\b", re.I)),
-    (re.compile(r"cloud", re.I), re.compile(r"\bcloud\b|\bAWS\b|\bAzure\b|\bGCP\b", re.I)),
-    (re.compile(r"containers?|containeri[sz]ation", re.I), re.compile(r"\bcontainers?\b|\bdocker\b|\bkubernetes\b|\bk8s\b", re.I)),
-    (re.compile(r"CI|CD|CI/?CD", re.I), re.compile(r"\bCI/?CD\b|\bCI\b|\bGitHub Actions\b|\bJenkins\b|\bGitLab\b|\bpipelines?\b", re.I)),
-    (re.compile(r"test(?:s|ing)?", re.I), re.compile(r"\btest(?:s|ing)?\b|\bJUnit\b|\bpytest\b|\bTDD\b", re.I)),
-)
-# A line about any of these is never dropped by a technology match, whatever the evidence says.
+# A gap line about any of these is never dropped by a skills match, whatever the evidence says: seniority, leadership,
+# ownership, design authority, support duties, credentials and durations are not skills. A candidate adds names of
+# their own (an employer, a domain) under [fit].hold_back_terms.
 _ALWAYS_KEEP = re.compile(
     r"\bsenior(?:ity)?\b|\bstaff\b|\bprincipal\b|\blead(?:s|ing|er|ership)?\b|\bled\b|\bmentor\w*|\bmanag\w*|\bownership\b|\bown(?:ed|s)?\b|"
     r"\barchitect\w*|\bdesign authority\b|\bon[- ]?call\b|\bproduction support\b|\bincident\w*|\bcertif\w*|\bdegree\b|\bbachelor\w*|\bmaster'?s?\b|"
-    r"\byears?\b|\byrs\b|\bmonths?\b|\bBMO\b",
+    r"\blicen[cs]e\w*|\byears?\b|\byrs\b|\bmonths?\b",
     re.I,
 )
 _TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9+#.]*")
+
+
+def _alt(words: list[str]) -> str:
+    return "|".join(re.escape(w.strip()) for w in words if w.strip())
+
+
+@dataclass
+class FitTerms:
+    """What makes a gap line "about a skill" for one candidate: skill words (from [fit].skill_terms, the term alias
+    members and the evidence's own skill lines), category words answered by any member, and names held back."""
+
+    skill_words: re.Pattern[str] | None
+    categories: list[tuple[re.Pattern[str], re.Pattern[str]]]
+    hold_back: re.Pattern[str] | None
+    # Words of the candidate's own field ("backend", "clinical", "enterprise") that describe rather than claim.
+    ignore: set[str] = field(default_factory=set)
+
+
+def fit_terms(rules: Any | None, evidence_skills: list[str] | None = None, field_words: list[str] | None = None) -> FitTerms:
+    skill_words: list[str] = list(getattr(rules, "skill_terms", None) or [])
+    ignore = {w for phrase in (field_words or []) for w in re.findall(r"[a-z0-9]+", str(phrase).lower()) if len(w) > 2}
+    categories: list[tuple[re.Pattern[str], re.Pattern[str]]] = []
+    for alias in getattr(rules, "term_aliases", None) or []:
+        words, members = list(alias.words), list(alias.evidence)
+        if not words:
+            continue
+        skill_words.extend(words)
+        skill_words.extend(members)
+        proof = _alt(members or words)
+        categories.append((re.compile(_alt(words), re.I), re.compile(rf"(?<![A-Za-z0-9+#])(?:{proof})(?![A-Za-z0-9+#])", re.I)))
+    for s in evidence_skills or []:
+        s = s.strip()
+        if 2 <= len(s) <= 40:
+            skill_words.append(s)
+    alt = _alt(sorted(set(skill_words), key=len, reverse=True))
+    hold = _alt(getattr(rules, "hold_back_terms", None) or [])
+    return FitTerms(
+        skill_words=re.compile(rf"(?<![A-Za-z0-9+#])(?:{alt})(?![A-Za-z0-9+#])", re.I) if alt else None,
+        categories=categories,
+        hold_back=re.compile(rf"(?<![A-Za-z0-9])(?:{hold})(?![A-Za-z0-9])", re.I) if hold else None,
+        ignore=ignore,
+    )
+
+
+def _evidence_skills(facts: list[str]) -> list[str]:
+    """Skill names from the compact facts (`skill_N: Java`, `pskill_N: Java`)."""
+    out: list[str] = []
+    for f in facts:
+        head, _, body = f.partition(":")
+        if head.startswith(("skill_", "pskill_")) and body.strip():
+            out.append(body.strip())
+    return out
 
 
 def _clip(text: str, limit: int) -> str:
@@ -595,7 +625,7 @@ def _resume_lines(profile: Profile, posting_text: str) -> list[str]:
     try:
         from .tailoring import parse_base_resume
 
-        parsed = parse_base_resume(path)
+        parsed = parse_base_resume(path, rules=profile.preferences.resume)
     except Exception as exc:
         log.warning("base resume could not be read for fit ranking: %s", type(exc).__name__)
         return []
@@ -718,16 +748,19 @@ def _word_in(word: str, evidence: str, flags: int) -> bool:
     return re.search(rf"(?<![A-Za-z0-9+#]){re.escape(word)}(?![A-Za-z0-9+#])", evidence, flags) is not None
 
 
-def line_already_supported(line: str, evidence: str) -> bool:
-    """True when a gap line is only about technologies and every word that carries meaning is already in the evidence.
+def line_already_supported(line: str, evidence: str, terms: FitTerms | None = None) -> bool:
+    """True when a gap line is only about skills and every word that carries meaning is already in the evidence.
 
     Conservative by design: a doubtful line stays a gap. Lines about seniority, leadership, architecture, on-call,
-    certifications, education, durations, or BMO are never dropped. A line without a known technology word is never
-    dropped. Every other word on the line, including numbers ("Java 21") and short names ("C#"), must itself appear in
-    the evidence; a capitalised word must match case ("Batch" in "Spring Batch"). Only a category word (databases,
-    APIs, cloud, containers, CI/CD, testing) is answered by a member of that category (PostgreSQL, REST, AWS, Docker).
+    certifications, education, durations, or a held-back name are never dropped. A line without a known skill word
+    (``terms``: the candidate's fit rules plus the evidence's own skill lines) is never dropped; with no terms at all
+    nothing is ever dropped. Every other word on the line, including numbers ("Java 21") and short names ("C#"), must
+    itself appear in the evidence; a capitalised word must match case ("Batch" in "Spring Batch"). Only a category
+    word from the term aliases (databases, cloud, ...) is answered by a member of that category (PostgreSQL, AWS).
     """
-    if _ALWAYS_KEEP.search(line) or not _TECH_WORD.search(line):
+    if terms is None or terms.skill_words is None:
+        return False
+    if _ALWAYS_KEEP.search(line) or (terms.hold_back and terms.hold_back.search(line)) or not terms.skill_words.search(line):
         return False
     checked = False
     for index, raw in enumerate(_TOKEN_RE.findall(line)):
@@ -736,13 +769,14 @@ def line_already_supported(line: str, evidence: str) -> bool:
             word = word.lower()  # sentence-start capitalisation ("No", "Lacks"), not a name or an acronym
         if not word:
             continue
-        category = next((proof for member, proof in _CATEGORIES if member.fullmatch(word)), None)
+        category = next((proof for member, proof in terms.categories if member.fullmatch(word)), None)
         if category is not None:
             checked = True
             if category.search(evidence):
                 continue
             return False
-        if word.lower() in _EVIDENCE_STOP or (len(word) < 3 and word.isalpha() and word.islower()):
+        is_skill = terms.skill_words.fullmatch(word) is not None  # a skill word is always checked, even if it is also a field word
+        if not is_skill and (word.lower() in _EVIDENCE_STOP or word.lower() in terms.ignore or (len(word) < 3 and word.isalpha() and word.islower())):
             continue
         checked = True
         flags = 0 if any(ch.isupper() for ch in word) else re.I
@@ -751,10 +785,10 @@ def line_already_supported(line: str, evidence: str) -> bool:
     return checked
 
 
-def _drop_supported(lines: list, evidence: str) -> tuple[list, list]:
+def _drop_supported(lines: list, evidence: str, terms: FitTerms | None) -> tuple[list, list]:
     kept, dropped = [], []
     for line in lines:
-        if isinstance(line, str) and line_already_supported(line, evidence):
+        if isinstance(line, str) and line_already_supported(line, evidence, terms):
             dropped.append(line)
         else:
             kept.append(line)
@@ -880,6 +914,7 @@ class Discovery:
                     candidate_facts=facts,
                     experience_summary=compute_experience(self.profile.employment).as_dict(),
                     role_rules={"families": self.profile.preferences.role_families},
+                    candidate_profession=self.profile.profession(),
                 ),
                 fact_version=self.profile.version,
                 posting_hash=snapshot.get("posting_hash"),
@@ -888,10 +923,11 @@ class Discovery:
         except ProviderUnavailable:
             return job
         fit = res.output
+        terms = fit_terms(self.profile.preferences.fit, _evidence_skills(facts), [*self.profile.preferences.role_families, self.profile.profession()])
         grounded = [p for p in fit.get("fit_points", []) if _cites(p, known)]
         dropped = [p for p in fit.get("fit_points", []) if p not in grounded]
-        gaps, gaps_dropped = _drop_supported(fit.get("genuine_gaps") or [], evidence)
-        missing, missing_dropped = _drop_supported(fit.get("missing_evidence") or [], evidence)
+        gaps, gaps_dropped = _drop_supported(fit.get("genuine_gaps") or [], evidence, terms)
+        missing, missing_dropped = _drop_supported(fit.get("missing_evidence") or [], evidence, terms)
         fit["fit_points"], fit["ungrounded_points_dropped"] = grounded, dropped
         fit["genuine_gaps"], fit["missing_evidence"] = gaps, missing
         fit["contradicted_by_facts"] = gaps_dropped + missing_dropped

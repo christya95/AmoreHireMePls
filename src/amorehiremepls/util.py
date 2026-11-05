@@ -10,9 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
-from zoneinfo import ZoneInfo
-
-TORONTO = ZoneInfo("America/Toronto")
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 _TRACKING_PARAMS = {
     "utm_source",
@@ -43,16 +41,33 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def toronto_now() -> datetime:
-    return datetime.now(TORONTO)
+def local_zone() -> ZoneInfo:
+    """The candidate's time zone (`AMORE_TIMEZONE`). An unknown name falls back to UTC rather than failing a page."""
+    from .config import get_settings
+
+    name = (get_settings().timezone or "UTC").strip()
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo("UTC")
 
 
-def to_toronto(dt: datetime | None) -> datetime | None:
+def zone_label() -> str:
+    """Short name for the configured zone in copy: 'Europe/London' -> 'London', 'America/Vancouver' -> 'Vancouver'."""
+    key = local_zone().key
+    return key.rsplit("/", 1)[-1].replace("_", " ")
+
+
+def local_now() -> datetime:
+    return datetime.now(local_zone())
+
+
+def to_local(dt: datetime | None) -> datetime | None:
     if dt is None:
         return None
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
-    return dt.astimezone(TORONTO)
+    return dt.astimezone(local_zone())
 
 
 def sha256_bytes(data: bytes) -> str:

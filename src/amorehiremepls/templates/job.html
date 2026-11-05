@@ -74,23 +74,23 @@
 
 <div class="card flush"><div class="card-h"><h3>Resumes for this job</h3>{{ hint('grounding') }}<span class="sub">Tailored from your approved base resume. Open the PDF to read exactly what would be uploaded.</span></div>
   <div class="table-wrap"><table><thead><tr><th>File</th><th>Open or download</th><th>Facts check</th><th>Written by</th><th class="right">Created</th></tr></thead>
-  <tbody>{% for d in artifacts %}<tr class="{{ 'superseded' if d.superseded }}"><td class="wrap"><strong>{{ d.filename }}</strong>{% if d.superseded %}<span class="sub">replaced by a newer version</span>{% endif %}</td><td class="wrap">{% include "_doc_actions.html" %}</td><td>{% if d.grounding.ok %}<span class="pill ok">every line is from your facts</span>{% else %}<span class="pill bad">{{ d.grounding.violations|join('; ') }}</span>{% endif %}</td><td>{{ d.method|label }}</td><td class="right nowrap">{{ d.created_at|toronto }}</td></tr>
+  <tbody>{% for d in artifacts %}<tr class="{{ 'superseded' if d.superseded }}"><td class="wrap"><strong>{{ d.filename }}</strong>{% if d.superseded %}<span class="sub">replaced by a newer version</span>{% endif %}</td><td class="wrap">{% include "_doc_actions.html" %}</td><td>{% if d.grounding.ok %}<span class="pill ok">every line is from your facts</span>{% else %}<span class="pill bad">{{ d.grounding.violations|join('; ') }}</span>{% endif %}</td><td>{{ d.method|label }}</td><td class="right nowrap">{{ d.created_at|local }}</td></tr>
   {% else %}<tr><td colspan="5"><div class="empty"><svg class="icon"><use href="#i-documents"/></svg>No tailored resume yet. "Tailor resume" above writes one and then waits for you to read it.</div></td></tr>{% endfor %}</tbody></table></div>
   {% if screenshots %}<div class="pad evidence-row"><div class="card-h"><h3>Proof of applying</h3>{{ hint('evidence') }}<span class="sub">Screenshots the app took while applying. Open the application package for the full record.</span></div>{% with shots = screenshots %}{% include "_shots.html" %}{% endwith %}</div>{% endif %}</div>
 
 <div class="grid-2">
   <div class="card flush"><div class="card-h"><h3>Applications</h3><span class="sub">The application prepared here, plus anything loaded from your tracker for this employer.</span></div>
     <div class="table-wrap"><table><thead><tr><th>Application</th><th>Status</th><th class="right">Updated</th></tr></thead>
-    <tbody>{% for a in apps %}<tr><td><a href="/applications/{{ a._id }}"><strong>Open the application</strong></a><span class="sub">{{ a.provenance.origin|label }}</span></td><td>{{ status(a.status) }}</td><td class="right">{{ a.updated_at|toronto }}</td></tr>
+    <tbody>{% for a in apps %}<tr><td><a href="/applications/{{ a._id }}"><strong>Open the application</strong></a><span class="sub">{{ a.provenance.origin|label }}</span></td><td>{{ status(a.status) }}</td><td class="right">{{ a.updated_at|local }}</td></tr>
     {% else %}<tr><td colspan="3"><div class="empty">No application yet. "Tailor resume" prepares one.</div></td></tr>{% endfor %}</tbody></table></div></div>
   <div class="card flush"><div class="card-h"><h3>Background tasks</h3><span class="sub">Work the app did on its own for this job.</span></div>
     <div class="table-wrap"><table><thead><tr><th>Task</th><th>Status</th><th class="right">Started</th></tr></thead>
-    <tbody>{% for r in runs %}<tr><td><a href="/runs/{{ r._id }}"><strong>{{ r.kind|label }}</strong></a><span class="sub mono">{{ r._id }}</span></td><td>{{ status(r.status) }}</td><td class="right nowrap">{{ r.created_at|toronto }}</td></tr>
+    <tbody>{% for r in runs %}<tr><td><a href="/runs/{{ r._id }}"><strong>{{ r.kind|label }}</strong></a><span class="sub mono">{{ r._id }}</span></td><td>{{ status(r.status) }}</td><td class="right nowrap">{{ r.created_at|local }}</td></tr>
     {% else %}<tr><td colspan="3"><div class="empty">No tasks for this job yet.</div></td></tr>{% endfor %}</tbody></table></div></div>
 </div>
 
 <div class="grid-2">
-  <div class="card"><div class="card-h"><h3>Copy of the job ad</h3>{{ hint('snapshot') }}{% if job.latest_snapshot %}<small>saved {{ job.latest_snapshot.fetched_at|toronto }} <code class="raw" title="posting hash">{{ job.latest_snapshot.posting_hash[:12] }}</code></small>{% endif %}</div>
+  <div class="card"><div class="card-h"><h3>Copy of the job ad</h3>{{ hint('snapshot') }}{% if job.latest_snapshot %}<small>saved {{ job.latest_snapshot.fetched_at|local }} <code class="raw" title="posting hash">{{ job.latest_snapshot.posting_hash[:12] }}</code></small>{% endif %}</div>
     {% if job.latest_snapshot %}<pre>{{ job.latest_snapshot.text[:3000] }}</pre>{% else %}<p class="note">No copy saved yet.</p>{% endif %}</div>
   <div class="card"><div class="card-h"><h3>Form instructions (advanced)</h3><span class="sub">Only needed when the app should fill in this job site by itself. Leave it empty and the app hands the application to you to finish instead.</span></div>
     <details class="disclosure"><summary>Edit the form instructions (JSON)</summary>

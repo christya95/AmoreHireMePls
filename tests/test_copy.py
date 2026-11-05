@@ -89,14 +89,14 @@ def _login(client) -> str:
 def _seed(client, tmp_path) -> dict[str, str]:
     """Real flow where it is cheap (import, run, worker tick, approval, recipient, draft) plus direct inserts for the
     rarer states so every page has at least one row of each kind."""
-    from amorehiremepls.profile import build_profile_from_skills
     from amorehiremepls.worker import Worker
     from tests.fixtures.make_resume import make_base_resume
+    from tests.fixtures.profile_fixture import build_test_profile
     from tests.test_profile import FAKE_APPLY, FAKE_FACTS, FAKE_SALARY
 
     csrf = _login(client)
     rt = client.app.state.rt
-    rt.profiles.save(build_profile_from_skills(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY), actor="test")
+    rt.profiles.save(build_test_profile(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY), actor="test")
     rt.profiles.select_base_resume(make_base_resume(tmp_path / "base.docx"), "2026-10-01", "test", rt.settings.private_dir)
     rt.reload_profile()
     data = {

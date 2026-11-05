@@ -427,8 +427,8 @@ def test_tailor_service_falls_back_when_model_output_is_ungrounded_and_records_h
 
 def test_tailor_skill_states_the_two_page_budget():
     spec = catalog.get("tailor_resume")
-    assert spec.version == "2026-11-05.2"
-    assert "two pages" in spec.system_prompt.lower() and "two page budget" in spec.system_prompt.lower()
+    assert spec.version == "2026-11-05.3"
+    assert "page_budget" in spec.system_prompt and "max_bullets_per_role" in spec.system_prompt
     assert "supplemental_evidence" in spec.system_prompt and "supplemental_evidence" in spec.input_model.model_fields
 
 
@@ -497,7 +497,7 @@ def test_over_two_pages_is_not_approvable_or_submittable(store, tmp_path):
     assert any("after tightening" in o for o in app["review_package"]["outstanding"])
     assert page_limit_block_reason(doc)
     assert len(provider.calls) == 2 and sum("previous draft" in c["user"] for c in provider.calls) == 1
-    assert all("two pages" in c["system"].lower() for c in provider.calls)
+    assert all("page_budget" in c["system"] for c in provider.calls)
     called: list = []
     svc.apps.update_one({"_id": app["_id"]}, {"$set": {"status": "ready_for_review", "review_package.outstanding": []}})
     out = svc.execute(app["_id"], "w1", lambda plan: called.append(plan) or {"verified": True})

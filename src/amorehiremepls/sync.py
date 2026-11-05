@@ -52,18 +52,27 @@ class SyncOutbox:
         self.store = store
         self.coll = store.c("sync_outbox")
 
-    def enqueue(self, application_id: str, kind: str = "record_submission") -> dict:
+    def enqueue(self, application_id: str, kind: str = "record_submission", enabled: bool | None = None) -> dict:
+        """Queue one application for the GitHub ledger. With the tracker off (``AMORE_TRACKER_ENABLED=false``) the
+        item is recorded as ``not_applicable`` so the application still shows as recorded, and nothing is retried."""
+        if enabled is None:
+            from .config import get_settings
+
+            enabled = bool(get_settings().tracker_enabled)
         doc = {
             "_id": new_id("sync"),
             "application_id": application_id,
             "kind": kind,
-            "status": "sync_pending",
+            "status": "sync_pending" if enabled else "not_applicable",
             "attempts": 0,
             "next_attempt_at": utcnow(),
             "created_at": utcnow(),
             "updated_at": utcnow(),
             "history": [],
         }
+        if not enabled:
+            doc["note"] = "GitHub tracker is off (AMORE_TRACKER_ENABLED=false); recorded in the database only"
+            self.store.c("applications").update_one({"_id": application_id}, {"$set": {"sync.state": "not_applicable", "updated_at": utcnow()}})
         if not self.store.insert_unique("sync_outbox", doc):
             return self.coll.find_one({"application_id": application_id, "kind": kind})
         return doc
@@ -384,7 +393,15 @@ class SyncCoordinator:
             return False
 
     def status(self) -> dict[str, Any]:
-        info: dict[str, Any] = {"clone": str(self.root), "clone_present": (self.root / ".git").exists(), "push_enabled": self.push_enabled, "outbox": self.outbox.summary()}
+        from .config import get_settings
+
+        info: dict[str, Any] = {
+            "enabled": bool(get_settings().tracker_enabled),
+            "clone": str(self.root),
+            "clone_present": (self.root / ".git").exists(),
+            "push_enabled": self.push_enabled,
+            "outbox": self.outbox.summary(),
+        }
         if info["clone_present"]:
             try:
                 info["head"] = git(self.root, "rev-parse", "--short", "HEAD")

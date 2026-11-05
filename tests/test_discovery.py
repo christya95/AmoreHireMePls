@@ -12,15 +12,17 @@ from amorehiremepls.discovery import (
     LeverSource,
     compact_facts,
     detect_injection,
+    fit_terms,
     line_already_supported,
     make_snapshot,
     qualify,
 )
-from amorehiremepls.profile import BaseResume, Employment, Profile, Provenance, build_profile_from_skills
+from amorehiremepls.profile import BaseResume, Employment, Profile, Provenance
 from amorehiremepls.skills import catalog
 from tests.fixtures.make_resume import make_base_resume, make_long_resume
+from tests.fixtures.profile_fixture import build_test_profile, tech_fit_terms
 
-PROFILE = build_profile_from_skills(None, "Personal floor remains CAD 123,000 to decide. Personal target CAD 130,000 is a preference.")
+PROFILE = build_test_profile(None, "Personal floor remains CAD 123,000 to decide. Personal target CAD 130,000 is a preference.")
 
 
 def _job(title="Backend Developer", employer="Acme", location="Toronto, Ontario"):
@@ -202,24 +204,27 @@ def test_missing_resume_file_still_sends_employment(tmp_path):
     assert [f.split(":")[0] for f in facts] == ["emp_abc12345"]
 
 
+TERMS = tech_fit_terms()
+
+
 def test_supported_technology_is_not_left_as_a_gap():
     evidence = (
         "skill_1: Java\nskill_2: Spring Boot\nskill_4: REST APIs\nskill_5: PostgreSQL\nskill_6: Docker\ncert_1: AWS Certified Cloud Practitioner\n"
         "b_3: Software Developer: Led a hackathon with senior engineers over three years.\nb_4: Software Developer: Wrote pytest suites and GitHub Actions pipelines."
     )
-    assert line_already_supported("No evidence of Java-specific development experience.", evidence)
-    assert line_already_supported("Java", evidence)
-    assert line_already_supported("API development", evidence)
-    assert line_already_supported("No evidence of Spring.", evidence)
-    assert line_already_supported("Lacks Java.", evidence)
-    assert line_already_supported("Docker is not mentioned.", evidence)
-    assert line_already_supported("No evidence of specific backend technologies, frameworks, or databases.", evidence)
-    assert line_already_supported("No evidence of cloud experience.", evidence)
-    assert line_already_supported("No evidence of CI/CD.", evidence)
-    assert not line_already_supported("No evidence of BMO-specific experience or domain knowledge.", evidence)
-    assert not line_already_supported("No evidence of seniority, leadership, or architecture ownership.", evidence)
-    assert not line_already_supported("production support or on-call experience", evidence)
-    assert not line_already_supported("Spring Batch", evidence)
+    assert line_already_supported("No evidence of Java-specific development experience.", evidence, TERMS)
+    assert line_already_supported("Java", evidence, TERMS)
+    assert line_already_supported("API development", evidence, TERMS)
+    assert line_already_supported("No evidence of Spring.", evidence, TERMS)
+    assert line_already_supported("Lacks Java.", evidence, TERMS)
+    assert line_already_supported("Docker is not mentioned.", evidence, TERMS)
+    assert line_already_supported("No evidence of specific backend technologies, frameworks, or databases.", evidence, TERMS)
+    assert line_already_supported("No evidence of cloud experience.", evidence, TERMS)
+    assert line_already_supported("No evidence of CI/CD.", evidence, TERMS)
+    assert not line_already_supported("No evidence of BMO-specific experience or domain knowledge.", evidence, TERMS)
+    assert not line_already_supported("No evidence of seniority, leadership, or architecture ownership.", evidence, TERMS)
+    assert not line_already_supported("production support or on-call experience", evidence, TERMS)
+    assert not line_already_supported("Spring Batch", evidence, TERMS)
 
 
 def test_gap_heuristic_cannot_hide_a_narrower_or_different_gap():
@@ -241,7 +246,7 @@ def test_gap_heuristic_cannot_hide_a_narrower_or_different_gap():
         "No evidence of unit testing.",
         "No evidence of Java at Scotiabank.",
     ):
-        assert not line_already_supported(line, evidence), line
+        assert not line_already_supported(line, evidence, TERMS), line
     # Seniority, leadership, architecture, durations, and certifications are never dropped by a skills match,
     # even when the evidence happens to use the word.
     for line in (
@@ -253,11 +258,15 @@ def test_gap_heuristic_cannot_hide_a_narrower_or_different_gap():
         "No evidence of an AWS certification.",
         "No evidence of a degree in Java development.",
     ):
-        assert not line_already_supported(line, evidence), line
+        assert not line_already_supported(line, evidence, TERMS), line
     # Nothing to check means nothing to drop.
-    assert not line_already_supported("", evidence)
-    assert not line_already_supported("No evidence.", evidence)
-    assert not line_already_supported("No evidence of banking domain knowledge.", evidence)
+    assert not line_already_supported("", evidence, TERMS)
+    assert not line_already_supported("No evidence.", evidence, TERMS)
+    assert not line_already_supported("No evidence of banking domain knowledge.", evidence, TERMS)
+    # Without any fit terms (a candidate who set none) nothing is ever dropped; the evidence's own skill lines count.
+    assert not line_already_supported("Lacks Java.", evidence)
+    assert not line_already_supported("Lacks Java.", evidence, fit_terms(None))
+    assert line_already_supported("Lacks Java.", evidence, fit_terms(None, ["Java"]))
 
 
 @pytest.mark.mongo
@@ -301,6 +310,6 @@ def test_rank_fit_sends_resume_evidence_and_drops_contradicted_gaps(store, tmp_p
     # The exact-input cache is keyed on the prompt version and the facts sent, so a result from an older
     # assess_fit version is never handed back. "Check fit again" on the same inputs is the cached call.
     cached = store.c("cache").find_one({"cache_key": ranked["fit_cache_key"]})
-    assert cached and cached["skill"] == catalog.get("assess_fit").prompt_id() == "assess_fit@2026-11-05.2"
+    assert cached and cached["skill"] == catalog.get("assess_fit").prompt_id() == "assess_fit@2026-11-05.3"
     disc.rank_fit(job["_id"])
     assert len(provider.calls) == 1

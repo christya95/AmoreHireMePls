@@ -5,7 +5,7 @@
 
 <div class="grid-main">
   <div class="card flush">
-    <div class="card-h"><h3>Step 1 · Employers you can contact</h3><span class="sub">Only employers where an application was confirmed. Find in-house recruiters or talent acquisition people there and add them on the right. RBC and the big tech firms are left out on purpose.</span></div>
+    <div class="card-h"><h3>Step 1 · Employers you can contact</h3><span class="sub">Only employers where an application was confirmed. Find in-house recruiters or talent acquisition people there and add them on the right. Employers on your skip list (Profile) are left out on purpose.</span></div>
     <div class="table-wrap"><table><thead><tr><th>Employer</th><th>Role you applied to</th><th class="right">Date</th></tr></thead>
     <tbody>{% for a in submitted %}{% set j = jobs.get(a.job_id) %}<tr><td><span class="row-person">{{ company(j.employer if j else None, j) }}{{ j.employer if j else a.job_id }}</span></td><td>{{ j.title if j else '' }}</td><td class="right nowrap">{{ a.application_date or (a.record.application_date if a.record else '') }}</td></tr>
     {% else %}<tr><td colspan="3"><div class="empty">No confirmed applications yet, so there is nobody to contact. This page opens up after the first confirmed application.<div class="actions center mt"><a class="btn secondary sm" href="/applications">Open applications</a></div></div></td></tr>{% endfor %}</tbody></table></div>
@@ -15,7 +15,7 @@
     <form method="post" action="/outreach/recipients" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
       <div class="form-grid"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Employer</label><input name="employer" required></div></div>
       <div class="field"><label>LinkedIn profile link</label><input name="profile_url" placeholder="linkedin.com/in/…"></div>
-      <div class="form-grid"><div class="field"><label>Email, if you know it is theirs (optional)</label><input name="email"></div><div class="field"><label>What they do there</label><input name="remit" placeholder="Talent Acquisition, Engineering"></div></div>
+      <div class="form-grid"><div class="field"><label>Email, if you know it is theirs (optional)</label><input name="email"></div><div class="field"><label>What they do there</label><input name="remit" placeholder="Talent Acquisition"></div></div>
       <div class="form-actions"><button><svg class="icon"><use href="#i-plus"/></svg>Save person</button></div></form>
   </div>
 </div>
@@ -43,7 +43,7 @@
   <div class="table-wrap"><table>
     <thead><tr><th>When</th><th>Person</th><th>Type</th><th>Status</th><th>Text</th><th>Checks</th><th>Actions</th></tr></thead>
     <tbody>{% for m in messages %}<tr>
-      <td class="nowrap">{{ m.created_at|toronto }}</td><td>{% set rp = names.get(m.recipient_id) %}{% if rp %}<strong>{{ rp.display_name }}</strong><span class="sub">{{ rp.employer }}</span>{% else %}<small class="mono">{{ m.recipient_id }}</small>{% endif %}</td><td>{{ m.kind|label }}</td>
+      <td class="nowrap">{{ m.created_at|local }}</td><td>{% set rp = names.get(m.recipient_id) %}{% if rp %}<strong>{{ rp.display_name }}</strong><span class="sub">{{ rp.employer }}</span>{% else %}<small class="mono">{{ m.recipient_id }}</small>{% endif %}</td><td>{{ m.kind|label }}</td>
       <td>{{ status(m.status) }}{% if m.last_send_result %}<span class="sub">{{ m.last_send_result.status|label }}: {{ m.last_send_result.reasons|join('; ') if m.last_send_result.reasons else m.last_send_result.reason or '' }}</span>{% endif %}</td>
       <td class="wrap msg-text">{{ m.text }}<span class="sub">{{ m.validation.length }} characters · {{ m.method|label }}</span></td>
       <td>{% if m.validation.ok %}<span class="pill ok">passes</span>{% else %}{% for p in m.validation.problems %}<span class="pill bad">{{ p }}</span>{% endfor %}{% endif %}</td>

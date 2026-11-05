@@ -99,14 +99,74 @@ def emergency_stop(active: bool = True, reason: str = "cli"):
 
 @profile_app.command("import")
 def profile_import(
-    facts_skill: Path | None = typer.Option(None, help="Path to the private joss-application-facts SKILL.md"),
-    salary_skill: Path | None = typer.Option(None, help="Path to the private joss-desired-salary SKILL.md"),
-    apply_skill: Path | None = typer.Option(None, help="Path to the private apply-joss-jobs SKILL.md (employment dates, work authorization, degree, confirmed answers)"),
+    from_path: Path = typer.Option(Path("candidate/profile.toml"), "--from", help="Your filled in candidate/profile.toml (copy candidate/profile.example.toml to start)."),
+    dry_run: bool = typer.Option(False, help="Parse and apply in memory, print counts and fingerprints, save nothing."),
+    confirmed_on: str | None = typer.Option(None, help="YYYY-MM-DD you confirmed these facts; today when omitted."),
+):
+    """Load candidate/profile.toml into the protected profile store (never into git). Sections present in the file replace
+    the saved values; facts, answers, employment and education are matched by key. Prints counts only, never values."""
+    from .candidate_profile import CONTROL_KEY as TOML_CONTROL_KEY
+    from .candidate_profile import ProfileTomlError, apply_profile_toml, load_profile_toml, preference_fingerprint
+    from .util import sha256_file, utcnow
+
+    rt = _rt()
+    try:
+        data = load_profile_toml(from_path)
+    except ProfileTomlError as exc:
+        typer.echo(f"profile.toml problem: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    p = rt.profiles.load()
+    report = apply_profile_toml(p, data, confirmed_on=confirmed_on or utcnow().date().isoformat(), store=None if dry_run else rt.store)
+    out = {"dry_run": dry_run, "file_sha256": sha256_file(from_path), **report.as_dict(), "fingerprint": preference_fingerprint(p)}
+    if not dry_run:
+        rt.profiles.save(p, actor="cli:profile.toml")
+        rt.store.set_control(TOML_CONTROL_KEY, {"sha256": out["file_sha256"], "loaded_at": utcnow().isoformat(), "path": str(from_path)})
+    _echo(out)
+
+
+@profile_app.command("export")
+def profile_export(
+    to_path: Path = typer.Option(Path("candidate/profile.toml"), "--to", help="Where to write; must be under the candidate folder or runtime/ (both gitignored)."),
+    facts: bool = typer.Option(True, help="Include personal facts, answers, employment and education (not only preferences)."),
+    force: bool = typer.Option(False, help="Overwrite an existing file."),
+):
+    """Write the saved profile back out in the profile.toml shape, so an existing setup becomes an editable file."""
+    from .candidate_profile import export_profile_toml
+
+    rt = _rt()
+    resolved = to_path.resolve()
+    allowed = (rt.settings.candidate_dir.resolve(), Path("runtime").resolve())
+    if not any(str(resolved).startswith(str(a)) for a in allowed):
+        typer.echo("refusing to write personal data outside the candidate folder or runtime/", err=True)
+        raise typer.Exit(1)
+    if resolved.exists() and not force:
+        typer.echo(f"{to_path} exists; pass --force to overwrite", err=True)
+        raise typer.Exit(1)
+    text = export_profile_toml(rt.profiles.load(), include_facts=facts)
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    resolved.write_text(text, encoding="utf-8")
+    _echo({"written": str(to_path), "bytes": len(text.encode("utf-8")), "facts_included": facts})
+
+
+@profile_app.command("fingerprint")
+def profile_fingerprint():
+    """Hashes of each preference block of the saved profile. Compare two setups without printing any values."""
+    from .candidate_profile import preference_fingerprint
+
+    rt = _rt()
+    _echo(preference_fingerprint(rt.profiles.load()))
+
+
+@profile_app.command("import-skills")
+def profile_import_skills(
+    facts_skill: Path | None = typer.Option(None, help="Path to a private application-facts SKILL.md (legacy format)"),
+    salary_skill: Path | None = typer.Option(None, help="Path to a private desired-salary SKILL.md (legacy format)"),
+    apply_skill: Path | None = typer.Option(None, help="Path to a private apply-jobs SKILL.md (employment dates, work authorization, degree, confirmed answers)"),
     overrides: Path | None = typer.Option(None, help="Private JSON under runtime/ with employment/education/answers/skills not expressible in the skills"),
-    confirmed_on: str = "2026-10-15",
+    confirmed_on: str | None = typer.Option(None, help="YYYY-MM-DD the facts were confirmed; today when omitted"),
     replace: bool = False,
 ):
-    """Import approved facts into the protected profile store (never into git). Nothing personal is defaulted in code."""
+    """Legacy path: import approved facts from the original markdown skill files. New setups use `amore profile import`."""
     from .profile import build_profile_from_skills, merge_employment, refresh_unknowns
 
     rt = _rt()
@@ -187,11 +247,15 @@ def profile_show(redact: bool = True):
 
 
 @tracker_app.command("clone")
-def tracker_clone(url: str = "https://github.com/christya95/job-application-records.git"):
+def tracker_clone(url: str = typer.Option("", help="Git URL of your private application ledger; defaults to AMORE_TRACKER_REMOTE_URL.")):
     """Clone the private tracker into the configured private clone dir (needs git credentials on this host)."""
     from .sync import ensure_clone
 
     rt = _rt()
+    url = url or rt.settings.tracker_remote_url
+    if not url:
+        typer.echo("no tracker URL: set AMORE_TRACKER_REMOTE_URL (and AMORE_TRACKER_ENABLED=true) or pass --url", err=True)
+        raise typer.Exit(1)
     ensure_clone(rt.settings.tracker_clone_dir, url)
     _echo(rt.sync.status())
 

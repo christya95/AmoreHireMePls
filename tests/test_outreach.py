@@ -2,17 +2,29 @@ import pytest
 
 from amorehiremepls.ai import AIRunner, FakeProvider, Pricing
 from amorehiremepls.outreach import OutreachService, RecipientStore, template_connect_note, validate_connect_note
-from amorehiremepls.profile import Provenance, RecipientExclusion, build_profile_from_skills
+from amorehiremepls.profile import Provenance, RecipientExclusion
 from amorehiremepls.skills import catalog
+from tests.fixtures.profile_fixture import TECH_RULES, build_test_profile, sales_preferences
 from tests.test_profile import FAKE_APPLY, FAKE_FACTS, FAKE_SALARY
 
-RULES = {"connect_note_max_chars": 300, "no_dashes": True, "no_layoff_mention": True, "mention_applied_role": True, "ask_other_permanent_backend_roles": True}
+RULES = TECH_RULES
+NOTE_KW = {"one_liner": RULES["one_liner"], "role_phrase": RULES["role_phrase"], "sign_off_name": "Al"}
 
 
 def test_connect_note_rules_enforced_in_code():
-    good = template_connect_note("Sam", "Acme", "Backend Developer")
+    good = template_connect_note("Sam", "Acme", "Backend Developer", **NOTE_KW)
     v = validate_connect_note(good, "Backend Developer", RULES)
-    assert v.ok and v.length < 300
+    assert v.ok and v.length < 300 and good.endswith("Thanks, Al") and "Java and Python" in good
+    # the legacy rule key still works, and the role phrase comes from the rules rather than from code
+    legacy = {**RULES, "ask_other_permanent_backend_roles": True}
+    legacy.pop("ask_other_roles")
+    assert validate_connect_note(good, "Backend Developer", legacy).ok
+    sales = sales_preferences().outreach_rules
+    note = template_connect_note("Sam", "Acme", "Account Executive", one_liner=sales["one_liner"], role_phrase=sales["role_phrase"], sign_off_name="Jo")
+    assert validate_connect_note(note, "Account Executive", sales).ok and "enterprise sales" in note and "backend" not in note
+    assert any("enterprise sales" in p for p in validate_connect_note(good, "Backend Developer", sales).problems)
+    bare = template_connect_note("Sam", "Acme", None)
+    assert bare == "Hi Sam, I noticed you recruit for Acme. Would you be open to a quick note about other roles that may fit? Thanks"
     bad = "Hi Sam, after my recent lay-off I applied to Acme as a Backend Developer. Any other roles? [NAME]"
     v = validate_connect_note(bad, "Backend Developer", RULES)
     assert not v.ok and any("dash" in p for p in v.problems) and any("layoff" in p for p in v.problems) and any("placeholder" in p for p in v.problems)
@@ -24,7 +36,7 @@ def test_connect_note_rules_enforced_in_code():
 
 @pytest.mark.mongo
 def test_aliases_prior_conversations_unknown_history_and_pending_actions_block_first_contact(store):
-    profile = build_profile_from_skills(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY)
+    profile = build_test_profile(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY)
     rs = RecipientStore(store, profile)
     a = rs.upsert(name="Sam Recruiter", employer="Acme", profile_url="https://www.linkedin.com/in/sam-recruiter/?trk=x", remit="Talent Acquisition, Engineering")
     b = rs.upsert(name="S. Recruiter", employer="Acme Inc", profile_url="https://linkedin.com/in/sam-recruiter", email="sam@acme.example")
@@ -51,7 +63,7 @@ def test_aliases_prior_conversations_unknown_history_and_pending_actions_block_f
 
 @pytest.mark.mongo
 def test_identity_exclusions_resolved_only_and_employer_exclusions(store):
-    profile = build_profile_from_skills(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY)
+    profile = build_test_profile(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY)
     rs = RecipientStore(store, profile)
     jess_unknown = rs.upsert(name="Jessica Someone", employer="Acme", profile_url="https://linkedin.com/in/jessica-someone")
     # no default named exclusions: unknown history alone fails closed until reconciled
@@ -75,7 +87,7 @@ def test_identity_exclusions_resolved_only_and_employer_exclusions(store):
 
 @pytest.mark.mongo
 def test_draft_rejects_bad_model_output_and_send_is_handoff_or_scoped(store):
-    profile = build_profile_from_skills(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY)
+    profile = build_test_profile(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY)
     provider = FakeProvider({"OutreachOutput": lambda u: {"text": "Hi Sam, I was laid-off recently. Any roles?"}})
     svc = OutreachService(store, profile, AIRunner(store, provider, catalog, Pricing(None)))
     rec = svc.recipients.upsert(name="Sam Recruiter", employer="Acme", profile_url="https://linkedin.com/in/sam-recruiter")

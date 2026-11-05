@@ -1,4 +1,5 @@
-# Everything dropped in this folder stays on this computer. Only this file and the README are tracked.
+# Everything dropped in this folder stays on this computer. Only this file, the README and the fictional example are tracked.
 *
 !.gitignore
 !README.md
+!profile.example.toml

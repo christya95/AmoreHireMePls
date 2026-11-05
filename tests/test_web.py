@@ -89,14 +89,14 @@ def test_import_job_authorize_flow_and_pages_render(client):
 
 
 def test_review_page_and_single_scope_authorization(client, tmp_path):
-    from amorehiremepls.profile import build_profile_from_skills
     from amorehiremepls.worker import Worker
     from tests.fixtures.make_resume import make_base_resume
+    from tests.fixtures.profile_fixture import build_test_profile
     from tests.test_profile import FAKE_APPLY, FAKE_FACTS, FAKE_SALARY
 
     csrf = _login(client)
     rt = client.app.state.rt
-    rt.profiles.save(build_profile_from_skills(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY), actor="test")
+    rt.profiles.save(build_test_profile(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY), actor="test")
     base = make_base_resume(tmp_path / "base.docx")
     rt.profiles.select_base_resume(base, "2026-10-01", "test", rt.settings.private_dir)
     rt.reload_profile()
@@ -136,9 +136,9 @@ def test_review_page_and_single_scope_authorization(client, tmp_path):
 
 
 def test_regenerate_documents_supersedes_artifacts_and_invalidates_approval(client, tmp_path):
-    from amorehiremepls.profile import build_profile_from_skills
     from amorehiremepls.worker import Worker
     from tests.fixtures.make_resume import make_base_resume
+    from tests.fixtures.profile_fixture import build_test_profile
     from tests.test_profile import FAKE_APPLY, FAKE_FACTS, FAKE_SALARY
 
     csrf = _login(client)
@@ -152,7 +152,7 @@ def test_regenerate_documents_supersedes_artifacts_and_invalidates_approval(clie
     assert client.post("/jobs/job_missing/regenerate", data={"csrf": csrf}).status_code == 404
     assert client.post(f"/jobs/{job_id}/regenerate", data={}).status_code == 422
 
-    rt.profiles.save(build_profile_from_skills(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY), actor="test")
+    rt.profiles.save(build_test_profile(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY), actor="test")
     base = make_base_resume(tmp_path / "base.docx")
     rt.profiles.select_base_resume(base, "2026-10-01", "test", rt.settings.private_dir)
     rt.reload_profile()

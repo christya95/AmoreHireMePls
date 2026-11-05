@@ -16,13 +16,14 @@ from pathlib import Path
 from typing import Any
 
 from .actions import ActionHandoff, ActionStore, Outcome
+from .ats.rules import SENSITIVE_BLANK_REASON, YEARS_RULE
 from .authorization import material_hash
 from .browser import Plan, normalize_screenshots
 from .db import Store
 from .jobs import JobStore
 from .profile import BandEvidence, Profile, compute_experience, desired_salary
 from .tailoring import Tailor, page_limit_block_reason
-from .util import new_id, sha256_file, to_toronto, utcnow
+from .util import local_zone, new_id, sha256_file, to_local, utcnow
 
 log = logging.getLogger(__name__)
 
@@ -48,20 +49,21 @@ FIELD_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"resume|cv\b|curriculum", re.I), "__resume__"),
     (re.compile(r"degree|education level|highest level", re.I), "degree_level"),
     (re.compile(r"school|university|college|institution", re.I), "school"),
-    (re.compile(r"years? of (professional |software |backend )?experience", re.I), "__years_full_time__"),
+    (YEARS_RULE, "__years_full_time__"),
     (re.compile(r"total years|years of experience", re.I), "__years_total__"),
     (re.compile(r"employment type|job type|looking for", re.I), "employment_preference"),
-    (re.compile(r"ai (tools|workflow)|copilot", re.I), "ai_workflow"),
     (re.compile(r"notice period", re.I), "notice_period"),
     (re.compile(r"start date|available to start|availability|earliest start|when (can|could) you start", re.I), "availability"),
 ]
+# A candidate's own recurring question ("Do you use AI tools?", "Are you licensed in this state?") is a fact with a
+# `question_pattern`; those are matched after the built-in rules. See [[facts]] in candidate/profile.toml.
 # A question for one kind of link may be answered by another saved link when the first is not on file.
 LINK_FALLBACKS: dict[str, tuple[str, ...]] = {"website_url": ("website_url", "portfolio_url", "github_url"), "portfolio_url": ("portfolio_url", "website_url", "github_url")}
 YES_WORDS = ("yes", "authorized", "authorised", "eligible", "i am", "no sponsorship", "do not require")
 NO_WORDS = ("no", "not ", "require sponsorship", "need sponsorship")
 
 # -- self-identification (EEOC / employment equity) ----------------------------------------------------------------
-# Only the answers Joss gave explicitly, matched to the option text of the form's own question. Deterministic: when no
+# Only the answers the candidate gave explicitly, matched to the option text of the form's own question. Deterministic: when no
 # option clearly carries the saved answer, the question keeps the explicit decline (or stays blank). Veteran status,
 # Indigenous identity, pronouns, religion, age and the like have no saved fact and are never inferred.
 SELF_ID_REASON = "from your self-identification answers"
@@ -214,6 +216,7 @@ class SalaryResearcher:
             currency=comp.currency,
             candidate_floor=comp.floor_base,
             candidate_target=comp.target_base,
+            candidate_profession=self.profile.profession(),
         )
         try:
             res = self.ai.run(
@@ -285,7 +288,7 @@ def salary_answer(f: FormField, profile: Profile, band: BandEvidence | None, fit
 
     Order: (1) a published annual base band in the profile currency -> a figure inside it, raised to the floor when the
     band straddles it; a band entirely under the floor is a needs_input item saying so. (2) No usable band -> the
-    `salary_case` proposal (one bounded model estimate, floor enforced), stored as a proposed answer Joss approves or
+    `salary_case` proposal (one bounded model estimate, floor enforced), stored as a proposed answer the owner approves or
     edits. (3) No floor or no model -> needs_input, as before."""
     label = f.label or f.id
     comp = profile.compensation
@@ -301,6 +304,21 @@ def salary_answer(f: FormField, profile: Profile, band: BandEvidence | None, fit
         return Answer(f.id, label, None, [], needs_input=True, reason=f"salary rule: {d.reason}")
     amount = max(int(proposal.amount), comp.floor_base)
     return Answer(f.id, label, str(amount), [SALARY_RESEARCH_FACT], needs_input=False, reason=SALARY_RESEARCH_REASON, detail=proposal.detail())
+
+
+def _question_pattern_key(profile: Profile, label: str) -> str | None:
+    """The key of the first candidate fact whose own `question_pattern` matches this form label. A broken pattern is
+    ignored rather than failing the whole form."""
+    for fact in [*profile.facts, *profile.answers, *profile.education]:
+        pattern = (fact.question_pattern or "").strip()
+        if not pattern or not fact.value:
+            continue
+        try:
+            if re.search(pattern, label, re.I):
+                return fact.key
+        except re.error:
+            log.warning("fact %s has an invalid question_pattern; ignored", fact.key)
+    return None
 
 
 def _link_value(profile: Profile, key: str):
@@ -327,10 +345,12 @@ def map_answers(
         label = f.label or f.id
         if SENSITIVE.search(label):
             own = self_identification_answer(f, profile)
-            blank = Answer(f.id, label, None, [], needs_input=f.required, reason="sensitive disclosure: left blank unless Joss supplies a preference", sensitive=True)
+            blank = Answer(f.id, label, None, [], needs_input=f.required, reason=SENSITIVE_BLANK_REASON, sensitive=True)
             answers.append(own or blank)
             continue
         key = next((k for pat, k in FIELD_RULES if pat.search(label)), None)
+        if key is None:
+            key = _question_pattern_key(profile, label)
         if key is None:
             answers.append(Answer(f.id, label, None, [], needs_input=True, reason="no confirmed fact maps to this question"))
             continue
@@ -491,9 +511,9 @@ class ApplicationService:
             )
         fit_rank = (job.get("fit") or {}).get("rank")
         fit = "strong" if fit_rank == 1 else "stretch" if (fit_rank or 3) >= 4 else "fair"
-        # A verified PDF of at most two pages is the only file a package may upload. An unverified page count
-        # does not fall back to the DOCX, and the package stays unapprovable until a verified PDF exists.
-        block = page_limit_block_reason(artifact) if artifact else None
+        # A verified PDF within the profile's page limit is the only file a package may upload. An unverified page
+        # count does not fall back to the DOCX, and the package stays unapprovable until a verified PDF exists.
+        block = page_limit_block_reason(artifact, self.profile.preferences.resume.max_pages) if artifact else None
         resume_file = artifact.get("pdf_path") if artifact and block is None else None
         from .ats import registry as ats_registry
 
@@ -567,14 +587,14 @@ class ApplicationService:
             if new == old:
                 continue
             changed = True
-            a["detail"] = {}  # a proposal's rationale no longer describes an answer Joss typed
+            a["detail"] = {}  # a proposal's rationale no longer describes an answer the owner typed
             if not new:
                 a["value"] = None
                 a["needs_input"] = bool(a.get("required"))
                 a["fact_ids"] = ["user:input"]
-                a["reason"] = "cleared by Joss" if a.get("required") else "left blank"
+                a["reason"] = "cleared by you" if a.get("required") else "left blank"
             else:
-                a["value"], a["needs_input"], a["fact_ids"], a["reason"] = new, False, ["user:input"], ("edited by Joss" if old else "supplied by Joss")
+                a["value"], a["needs_input"], a["fact_ids"], a["reason"] = new, False, ["user:input"], ("edited by you" if old else "supplied by you")
         if not changed:
             return app  # the same answers again must not knock an approval back to "ready for review"
         kept = [u for u in pkg.get("outstanding") or [] if not str(u).startswith("answer needed:")]
@@ -602,7 +622,7 @@ class ApplicationService:
             return Outcome("retry_scheduled", "one later try is waiting")
         pkg = app["review_package"]
         if app["status"] in ("ready_for_review", "authorized"):
-            block = page_limit_block_reason(pkg.get("document"))
+            block = page_limit_block_reason(pkg.get("document"), self.profile.preferences.resume.max_pages)
             if block:
                 return Outcome("denied", block)
         prior = self.actions.prior_terminal_for_target("application_submit", job["_id"])
@@ -669,7 +689,7 @@ class ApplicationService:
                 app_id,
                 "submitted",
                 submitted_at=utcnow(),
-                application_date=to_toronto(utcnow()).date().isoformat(),
+                application_date=to_local(utcnow()).date().isoformat(),
                 evidence={
                     "basis": "receipt_observed",
                     "receipt_text": (ev.get("receipt_text") or "")[:1000],
@@ -681,7 +701,7 @@ class ApplicationService:
                     "action_id": outcome.action_id,
                 },
                 evidence_basis="receipt_screenshot_reviewed" if any(s["label"] == "receipt" for s in shots) else "employer_status_reviewed",
-                date_basis="employer receipt observed in America/Toronto",
+                date_basis=f"employer receipt observed in {local_zone().key}",
                 sync={"state": "sync_pending"},
                 next_action="tracker sync + recruiter outreach prep",
             )
@@ -776,7 +796,7 @@ class ApplicationService:
                 app_id,
                 "submitted",
                 submitted_at=utcnow(),
-                application_date=evidence.get("application_date") or to_toronto(utcnow()).date().isoformat(),
+                application_date=evidence.get("application_date") or to_local(utcnow()).date().isoformat(),
                 evidence=ev,
                 evidence_basis="explicit_user_confirmation",
                 date_basis=evidence.get("date_basis", "user confirmed after reconciliation"),
@@ -786,7 +806,7 @@ class ApplicationService:
         return self._set(app_id, "failed", reason="reconciled as not submitted", evidence=evidence)
 
     def record_manual_submission(self, app_id: str, confirmation: str, application_date: str, resume_sha256: str | None, receipt_path: str | None = None) -> dict:
-        """Joss completed a handoff; record it with explicit_user_confirmation evidence."""
+        """The owner completed a handoff; record it with explicit_user_confirmation evidence."""
         app = self.apps.find_one({"_id": app_id})
         job = self.jobs.get(app["job_id"])
         ev = {"basis": "explicit_user_confirmation", "confirmation": confirmation, "resume_sha256": resume_sha256, "receipt_path": receipt_path}
@@ -801,7 +821,7 @@ class ApplicationService:
             application_date=application_date,
             evidence=ev,
             evidence_basis="explicit_user_confirmation",
-            date_basis="user-reported date (America/Toronto)",
+            date_basis=f"user-reported date ({local_zone().key})",
             sync={"state": "sync_pending"},
         )
 

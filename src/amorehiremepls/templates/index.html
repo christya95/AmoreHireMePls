@@ -38,7 +38,7 @@
 <div class="card tinted welcome">
   {% with size='lg' %}{% include "_avatar.html" %}{% endwith %}
   <div>
-    <h1>{{ greeting }}, {{ display_name }}</h1>
+    <h1>{{ greeting }}{% if display_name %}, {{ display_name }}{% endif %}</h1>
     <p>{% if attention %}{{ attention|length }} item{{ 's' if attention|length != 1 }} need{{ '' if attention|length != 1 else 's' }} your attention.{% else %}Nothing is waiting on you right now.{% endif %}
     {{ counts.jobs.get('new', 0) }} new job{{ 's' if counts.jobs.get('new', 0) != 1 }} to look at · job search {{ schedule }}.</p>
   </div>
@@ -61,7 +61,7 @@
 
 <div class="grid-main">
   <div class="card">
-    <div class="card-h"><h3>Applications sent</h3><span class="pill accent">{{ chart.total|int }} in 12 months</span><span class="sub">Confirmed applications per month, including the ones loaded from your tracker. Toronto time.</span></div>
+    <div class="card-h"><h3>Applications sent</h3><span class="pill accent">{{ chart.total|int }} in 12 months</span><span class="sub">Confirmed applications per month, including the ones loaded from your tracker. {{ tz_label() }} time.</span></div>
     <svg class="chart" viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" aria-label="Applications sent per month">
       <defs><linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--accent)" stop-opacity="0.28"/><stop offset="100%" stop-color="var(--accent)" stop-opacity="0.02"/></linearGradient></defs>
       {% for t in chart.ticks %}<line class="grid-line" x1="{{ chart.x0 }}" x2="{{ chart.x1 }}" y1="{{ t.y }}" y2="{{ t.y }}"/><text class="axis" x="{{ chart.x0 - 8 }}" y="{{ t.y + 4 }}" text-anchor="end">{{ t.v }}</text>{% endfor %}
@@ -108,7 +108,7 @@
       <tr><td>Database</td><td><span class="pill {{ 'ok' if health.ok else 'bad' }}">{{ 'ok' if health.ok else 'down' }}</span> <small>{{ health.db.version or '' }}</small></td></tr>
       <tr><td>Background tasks</td><td><span class="pill {{ 'ok' if worker_ok else 'warn' }}">{{ 'running' if worker_ok else 'not running' }}</span></td></tr>
       <tr><td>AI model</td><td><span class="pill {{ 'ok' if health.provider_configured else 'warn' }}">{{ provider }}</span>
-        {% if provider_last %}<small>last check {{ 'ok' if provider_last.ok else 'failed' }} {{ provider_last.at|toronto }}{% if provider_last.error %} · {{ provider_last.error }}{% endif %}</small>{% endif %}
+        {% if provider_last %}<small>last check {{ 'ok' if provider_last.ok else 'failed' }} {{ provider_last.at|local }}{% if provider_last.error %} · {{ provider_last.error }}{% endif %}</small>{% endif %}
         <form method="post" action="/provider/check" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="next" value="/"><button class="ghost xs">Check now</button></form></td></tr>
       <tr><td>Base resume</td><td><span class="pill {{ 'ok' if base_resume else 'bad' }}">{{ 'chosen' if base_resume else 'not chosen' }}</span></td></tr>
       <tr><td>Job search</td><td>{{ schedule }}</td></tr>
@@ -123,14 +123,14 @@
     <div class="card-h"><h3>Recent background tasks</h3><a class="btn ghost sm" href="/runs">All tasks</a><span class="sub">Work the app does on its own. A task pauses whenever it needs you.</span></div>
     <div class="table-wrap"><table>
       <thead><tr><th>Task</th><th>Status</th><th>Waiting for</th><th class="right">Started</th></tr></thead>
-      <tbody>{% for r in runs %}<tr class="{{ 'hot' if r.status in ('waiting', 'paused') }}{{ ' hot bad' if r.status == 'failed' }}"><td><a href="/runs/{{ r._id }}"><strong>{{ r.kind|label }}</strong></a><span class="sub mono">{{ r._id }}</span></td><td>{{ status(r.status) }}</td><td>{{ (r.interrupt.type|label) if r.interrupt else '' }}</td><td class="right nowrap">{{ r.created_at|toronto }}</td></tr>
+      <tbody>{% for r in runs %}<tr class="{{ 'hot' if r.status in ('waiting', 'paused') }}{{ ' hot bad' if r.status == 'failed' }}"><td><a href="/runs/{{ r._id }}"><strong>{{ r.kind|label }}</strong></a><span class="sub mono">{{ r._id }}</span></td><td>{{ status(r.status) }}</td><td>{{ (r.interrupt.type|label) if r.interrupt else '' }}</td><td class="right nowrap">{{ r.created_at|local }}</td></tr>
       {% else %}<tr><td colspan="4"><div class="empty">No tasks yet. Open a job and press "Tailor resume" to start one.<div class="actions center mt"><a class="btn secondary sm" href="/jobs">Go to jobs</a></div></div></td></tr>{% endfor %}</tbody>
     </table></div>
   </div>
   <div class="card">
     <div class="card-h"><h3>Recent activity</h3></div>
     <div class="list timeline">
-      {% for e in activity %}<div class="list-item"><span class="t">{{ e.created_at|toronto }}</span><div class="body"><strong>{{ e.event|label }}</strong>{% if e.subject_id %}<small class="mono">{{ e.subject_id }}</small>{% endif %}</div></div>
+      {% for e in activity %}<div class="list-item"><span class="t">{{ e.created_at|local }}</span><div class="body"><strong>{{ e.event|label }}</strong>{% if e.subject_id %}<small class="mono">{{ e.subject_id }}</small>{% endif %}</div></div>
       {% else %}<div class="empty">No activity recorded yet.</div>{% endfor %}
     </div>
   </div>
@@ -145,7 +145,7 @@
       <td>{{ j.title }}<span class="sub">{{ j.location or '' }}</span></td>
       <td>{{ status(j.status) }}</td>
       <td>{% set fv = fit_score(j.fit) %}{% if fv %}<span class="pill {{ fv.tone }}" title="{{ fv.label }}">{{ fv.score }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
-      <td class="right nowrap">{{ j.updated_at|toronto }}</td></tr>
+      <td class="right nowrap">{{ j.updated_at|local }}</td></tr>
     {% else %}<tr><td colspan="5"><div class="empty"><svg class="icon"><use href="#i-jobs"/></svg>No jobs yet. Paste a job link to add the first one.<div class="actions center mt"><a class="btn sm" href="/jobs">Add a job</a></div></div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>

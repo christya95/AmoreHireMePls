@@ -23,7 +23,9 @@ class Settings(BaseSettings):
     app_password: SecretStr = SecretStr("")
     app_secret: SecretStr = SecretStr("")
     secure_cookies: bool = False
-    timezone: str = "America/Toronto"
+    # The candidate's time zone (IANA name). Drives the dashboard clock, greeting, application dates and the
+    # discovery schedule. Set it in .env; the deploy compose files carry each operator's value.
+    timezone: str = "UTC"
 
     artifact_dir: Path = Path("./runtime/artifacts")
     private_dir: Path = Path("./runtime/private")
@@ -34,7 +36,7 @@ class Settings(BaseSettings):
     # Character budget for the extra documents' text sent as evidence (files in name order, cut at the limit).
     candidate_supplemental_max_chars: int = Field(default=12_000, ge=0, le=60_000)
 
-    # Default provider is OpenAI (Joss, 2026-11-04). AMORE_MODEL may be "gpt-..." (uses AMORE_MODEL_PROVIDER)
+    # Default provider is OpenAI. AMORE_MODEL may be "gpt-..." (uses AMORE_MODEL_PROVIDER)
     # or fully qualified "anthropic:claude-..." to select another provider. Empty = no provider configured.
     model: str = ""
     model_provider: str = "openai"
@@ -46,7 +48,12 @@ class Settings(BaseSettings):
     budget_max_seconds: int = 1800
     worker_concurrency: int = Field(default=1, ge=1, le=4)
 
-    tracker_clone_dir: Path = Path("./runtime/private/job-application-records")
+    # Optional private GitHub application ledger. Off by default: confirmed applications are then recorded in the
+    # database only and the tracker queue marks them "not applicable". On: a local clone of AMORE_TRACKER_REMOTE_URL
+    # (its `records.py` script and `data/applications.json`) receives one scoped commit per confirmed application.
+    tracker_enabled: bool = False
+    tracker_remote_url: str = ""
+    tracker_clone_dir: Path = Path("./runtime/private/tracker")
     tracker_remote: str = "origin"
     tracker_branch: str = "main"
     tracker_push_enabled: bool = False
@@ -58,9 +65,10 @@ class Settings(BaseSettings):
     # their own (Greenhouse: its CDN and the reCAPTCHA hosts); list more here only if a board breaks without them.
     browser_resource_hosts: str = ""
 
-    # Automatic CAPTCHA step. Off by default: a human check pauses the application for Joss. On: simple text/image-grid
-    # challenges on the user's own approved submission are sent to the configured model, at most N attempts, all
-    # recorded. Joss accepted the platform-terms risk on 2026-11-05. Overridable from Settings (control `captcha_autosolve`).
+    # Automatic CAPTCHA step. Off by default: a human check pauses the application for the owner. On: simple
+    # text/image-grid challenges on the owner's own approved submission are sent to the configured model, at most N
+    # attempts, all recorded. Turning it on is the operator's explicit acceptance of the platform-terms risk (the
+    # original operator accepted it on 2026-11-05). Overridable from Settings (control `captcha_autosolve`).
     captcha_autosolve: bool = False
     captcha_max_attempts: int = Field(default=3, ge=1, le=5)
     # How long the worker keeps the browser open after a human check so Continue can resume the same page.

@@ -21,7 +21,7 @@
   <div class="card-h"><h3>All approvals</h3><span class="pill">{{ scopes|length }}</span></div>
   <div class="table-wrap"><table>
     <thead><tr><th>For</th><th>Covers</th><th>Status</th><th>Which job or filters</th><th>Used</th><th>Ends</th><th></th></tr></thead>
-    <tbody>{% for s in scopes %}<tr><td><strong>{{ s.kind|label }}</strong><span class="sub mono">{{ s._id }}</span></td><td><span class="pill {{ 'accent' if s.mode == 'batch' }}">{{ s.mode|label }}</span></td><td>{{ status(s.status) }}</td><td><small class="wrap">{{ s.binding.target_id or s.binding.job_filters }}</small></td><td>{{ s.used_count }} of {{ s.max_count }}</td><td class="nowrap">{{ s.expires_at|toronto }}</td>
+    <tbody>{% for s in scopes %}<tr><td><strong>{{ s.kind|label }}</strong><span class="sub mono">{{ s._id }}</span></td><td><span class="pill {{ 'accent' if s.mode == 'batch' }}">{{ s.mode|label }}</span></td><td>{{ status(s.status) }}</td><td><small class="wrap">{{ s.binding.target_id or s.binding.job_filters }}</small></td><td>{{ s.used_count }} of {{ s.max_count }}</td><td class="nowrap">{{ s.expires_at|local }}</td>
       <td>{% if s.status == 'active' %}<form method="post" action="/authorizations/{{ s._id }}/revoke"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary xs">Withdraw</button></form>{% endif %}</td></tr>
     {% else %}<tr><td colspan="7"><div class="empty"><svg class="icon"><use href="#i-auth"/></svg>No approvals yet. You give the first one on an application that is "Waiting for your approval".<div class="actions center mt"><a class="btn sm" href="/applications?status_filter=ready_for_review">Open applications waiting for approval</a></div></div></td></tr>{% endfor %}</tbody>
   </table></div>

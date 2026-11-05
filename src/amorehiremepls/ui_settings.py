@@ -16,7 +16,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from .db import Store
-from .util import sha256_bytes, to_toronto, utcnow
+from .util import sha256_bytes, to_local, utcnow
 
 UI_SETTINGS_KEY = "ui_settings"
 HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -215,8 +215,9 @@ def remove_avatar_files(private_dir: Path) -> None:
 # -- greeting, initials ---------------------------------------------------------------------------------
 
 
-def resolve_display_name(ui: UISettings, profile: Any, fallback: str = "Joss") -> str:
-    """Saved dashboard name, else the profile's preferred/first name, else the fallback given by the caller."""
+def resolve_display_name(ui: UISettings, profile: Any, fallback: str = "") -> str:
+    """Saved dashboard name, else the profile's preferred/first name, else the caller's fallback (empty by default:
+    the greeting then renders without a name rather than with somebody else's)."""
     if ui.display_name:
         return ui.display_name
     for key in ("preferred_name", "legal_first_name"):
@@ -239,7 +240,7 @@ def initials(name: str) -> str:
 
 
 def greeting(now: datetime | None = None) -> str:
-    hour = to_toronto(now or utcnow()).hour
+    hour = to_local(now or utcnow()).hour
     if 5 <= hour < 12:
         return "Good morning"
     if 12 <= hour < 17:
@@ -784,8 +785,8 @@ def donut(items: list[tuple[str, int | float, str]]) -> dict[str, Any]:
 
 
 def month_buckets(count: int = 12, now: datetime | None = None) -> list[tuple[str, str]]:
-    """Last `count` months in America/Toronto as (yyyy-mm key, short label), oldest first."""
-    t = to_toronto(now or utcnow())
+    """Last `count` months in the configured time zone as (yyyy-mm key, short label), oldest first."""
+    t = to_local(now or utcnow())
     y, m = t.year, t.month
     out: list[tuple[str, str]] = []
     for _ in range(count):

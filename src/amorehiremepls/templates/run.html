@@ -37,7 +37,7 @@
 </div>
 
 <div class="card"><div class="card-h"><h3>What the task did</h3><span class="pill">{{ run.events|length }}</span></div>
-  <div class="list timeline">{% for e in run.events %}<div class="list-item"><span class="t">{{ e.at|toronto }}</span><div class="body"><strong>{{ e.message }}</strong>{% for k, v in e.items() if k not in ('at', 'message') %}<small class="mono wrap">{{ k }}: {{ v }}</small>{% endfor %}</div></div>
+  <div class="list timeline">{% for e in run.events %}<div class="list-item"><span class="t">{{ e.at|local }}</span><div class="body"><strong>{{ e.message }}</strong>{% for k, v in e.items() if k not in ('at', 'message') %}<small class="mono wrap">{{ k }}: {{ v }}</small>{% endfor %}</div></div>
   {% else %}<div class="empty">Nothing yet.</div>{% endfor %}</div></div>
 </div>
 {% endblock %}

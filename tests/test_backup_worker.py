@@ -1,4 +1,5 @@
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 from pymongo import MongoClient
@@ -7,9 +8,10 @@ from amorehiremepls.backup import backup, restore
 from amorehiremepls.config import Settings
 from amorehiremepls.db import Store
 from amorehiremepls.runtime import Runtime
-from amorehiremepls.util import TORONTO
 from amorehiremepls.worker import Worker, worker_healthy
 from tests.conftest import TEST_MONGO_URI
+
+TORONTO = ZoneInfo("America/Toronto")  # the fictional candidate's zone; the app reads AMORE_TIMEZONE (set in conftest)
 
 pytestmark = pytest.mark.mongo
 

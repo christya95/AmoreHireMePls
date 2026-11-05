@@ -4,9 +4,10 @@ Identity: a recipient has aliases (normalized LinkedIn profile URL, lowercase em
 never establish identity. First contact requires a reconciled history: prior conversations, pending
 actions, imported records and excluded identities are all checked; unknown history blocks sending.
 
-Drafts follow joss-linkedin-outreach and the saved Connect-note rules; the validator is code, not a
-prompt. Sending happens only through a configured supported channel (SMTP) under its own scope;
-LinkedIn messages/Connect notes are manual handoffs with the exact text.
+Drafts follow the profile's saved outreach rules ([outreach] in candidate/profile.toml: character limit, dash rule,
+the kind of roles to ask about, the candidate's one line pitch); the validator is code, not a prompt. Sending happens
+only through a configured supported channel (SMTP) under its own scope; LinkedIn messages/Connect notes are manual
+handoffs with the exact text.
 """
 
 from __future__ import annotations
@@ -33,7 +34,20 @@ DASH_RE = re.compile(r"[-\u2010-\u2015\u2212]")
 LAYOFF_RE = re.compile(r"(laid off|lay-?off|let go|downsiz|redundan|terminated|job loss)", re.I)
 PLACEHOLDER_RE = re.compile(r"[\[{<][^\]}>]{1,40}[\]}>]|TODO|XXX|lorem", re.I)
 # internal notes must never leak into a message: salary figures, filter/exclusion vocabulary, research notes
-INTERNAL_RE = re.compile(r"(salary floor|\b(CAD|USD|C\$|\$)\s?\d{2,3}(,?\d{3})?\b|exclu(de|sion)|FAANG|filter|research note|citation|\bexclusion\b)", re.I)
+INTERNAL_RE = re.compile(
+    r"(salary floor|\b[A-Z]{3}\s?\d{2,3}(,?\d{3})?\b|\b(C\$|\$|€|£)\s?\d{2,3}(,?\d{3})?\b|exclu(de|sion)|excluded employer|filter|research note|citation)",
+    re.I,
+)
+
+
+def _ask_phrase_pattern(role_phrase: str) -> re.Pattern[str] | None:
+    """Every meaningful word of the configured role phrase ("permanent backend roles") must appear in the note, in
+    any order; "back end" and "backend" count as the same word."""
+    filler = ("the", "and", "for", "any", "other", "roles", "role", "jobs", "positions")
+    words = [w for w in re.sub(r"[^a-z0-9 ]", " ", (role_phrase or "").lower()).split() if len(w) > 2 and w not in filler]
+    if not words:
+        return None
+    return re.compile("".join(rf"(?=.*{re.escape(w)})" for w in words), re.I | re.S)
 
 
 def normalize_alias(value: str) -> str | None:
@@ -77,8 +91,13 @@ def validate_connect_note(text: str, applied_role: str | None, rules: dict[str, 
                 problems.append("does not mention the role already applied to")
         elif re.search(r"\bapplied\b|my application", text, re.I):
             problems.append("claims an application that was not confirmed")
-    if rules.get("ask_other_permanent_backend_roles", True) and not (re.search(r"permanent", text, re.I) and re.search(r"backend|back end", text, re.I) and "?" in text):
-        problems.append("must ask whether other permanent backend roles may fit")
+    ask = rules.get("ask_other_roles", rules.get("ask_other_permanent_backend_roles", True))
+    if ask:
+        phrase = (rules.get("role_phrase") or "").strip() or "other roles"
+        pattern = _ask_phrase_pattern(phrase)
+        squashed = re.sub(r"\bback end\b", "backend", text, flags=re.I)
+        if "?" not in text or (pattern and not pattern.search(squashed)):
+            problems.append(f"must ask whether {phrase} may fit")
     return ValidationResult(not problems, problems, len(text))
 
 
@@ -101,16 +120,18 @@ def validate_message(text: str, applied_role: str | None, rules: dict[str, Any])
     return ValidationResult(not problems, problems, len(text))
 
 
-def template_connect_note(first_name: str, employer: str, applied_role: str | None) -> str:
+def template_connect_note(first_name: str, employer: str, applied_role: str | None, *, one_liner: str = "", role_phrase: str = "", sign_off_name: str = "") -> str:
+    """Deterministic Connect note from the profile's outreach rules. ``one_liner`` is the candidate's own sentence about
+    what they do ("I build backend services in Java and Python"); ``role_phrase`` names the roles to ask about
+    ("permanent backend roles"); ``sign_off_name`` is the candidate's first name."""
+    pitch = (one_liner or "").strip().rstrip(".")
+    roles = (role_phrase or "").strip() or "other roles"
+    thanks = f" Thanks, {sign_off_name.strip()}" if sign_off_name.strip() else " Thanks"
     if applied_role:
-        return (
-            f"Hi {first_name}, I recently applied for the {applied_role} role at {employer}. I build backend services in Java and Python. "
-            f"Do you know of other permanent backend roles at {employer} that may fit? Thanks, Joss"
-        )
-    return (
-        f"Hi {first_name}, I build backend services in Java and Python and noticed you recruit for {employer}. "
-        f"Would you be open to a quick note about permanent backend roles that may fit? Thanks, Joss"
-    )
+        about = f" {pitch}." if pitch else ""
+        return f"Hi {first_name}, I recently applied for the {applied_role} role at {employer}.{about} Do you know of other {roles} at {employer} that may fit?{thanks}"
+    lead = f"{pitch} and noticed" if pitch else "I noticed"
+    return f"Hi {first_name}, {lead} you recruit for {employer}. Would you be open to a quick note about {roles} that may fit?{thanks}"
 
 
 class RecipientStore:
@@ -253,7 +274,7 @@ class OutreachService:
         points: list[str] = []
         exp = compute_experience(self.profile.employment)
         if exp.full_time_years_completed >= 1:
-            fam = (self.profile.preferences.role_families[:1] or ["software"])[0]
+            fam = (self.profile.preferences.role_families[:1] or [self.profile.profession()])[0]
             points.append(f"{exp.full_time_years_completed} completed years of full time {fam} work")
         for e in self.profile.employment:
             if e.kind == "full_time":
@@ -284,6 +305,9 @@ class OutreachService:
                         channel="connect_note" if kind == "connection_request" else "message",
                         candidate_points=self._candidate_points(),
                         rules=rules,
+                        candidate_first_name=self.profile.first_name(),
+                        candidate_profession=self.profile.profession(),
+                        candidate_pitch=str(rules.get("one_liner") or ""),
                     ),
                     fact_version=self.profile.version,
                     untrusted_fields=("recipient_remit",),
@@ -298,7 +322,14 @@ class OutreachService:
                 log.warning("model draft rejected: %s", v.problems)
                 text, method = None, "template_after_rejection"
         if text is None:
-            text = template_connect_note(first, employer, applied_role) if kind == "connection_request" else template_connect_note(first, employer, applied_role)
+            text = template_connect_note(
+                first,
+                employer,
+                applied_role,
+                one_liner=str(rules.get("one_liner") or ""),
+                role_phrase=str(rules.get("role_phrase") or ""),
+                sign_off_name=self.profile.first_name(),
+            )
             v = validator(text, applied_role, rules)
         history = self.recipients.history_check(rec)
         doc = {
@@ -335,7 +366,8 @@ class OutreachService:
             action = self.actions.prepare("email_send", rec["_id"], f"email:{message_id}", {"message_id": message_id}, msg["material_hash"], host=self.smtp.get("host"))
 
             def adapter(_doc: dict) -> dict:
-                return self._smtp_send(email_alias.split(":", 1)[1], msg.get("subject") or "Hello from Joss", msg["text"])
+                first_name = self.profile.first_name()
+                return self._smtp_send(email_alias.split(":", 1)[1], msg.get("subject") or (f"Hello from {first_name}" if first_name else "Hello"), msg["text"])
 
             out = self.actions.execute(action["_id"], worker, adapter)
             new_status = {"succeeded": "sent", "needs_verification": "needs_verification", "failed": "failed"}.get(out.status, msg["status"])

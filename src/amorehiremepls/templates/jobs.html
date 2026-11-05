@@ -12,7 +12,7 @@
         <div class="field"><label>Employer</label><input name="employer" placeholder="employer"></div>
         <div class="field"><label>Title</label><input name="title" placeholder="title"></div>
         <div class="field"><label>Job ID</label><input name="requisition_id" placeholder="R12345"></div>
-        <div class="field"><label>Location</label><input name="location" placeholder="Toronto, Ontario"></div>
+        <div class="field"><label>Location</label><input name="location" placeholder="City, Region"></div>
       </div>
       <div class="field mt"><label>Text of the job ad</label><textarea name="posting_text" rows="5" placeholder="paste the text of the job ad"></textarea></div>
       <div class="form-actions"><button><svg class="icon"><use href="#i-plus"/></svg>Add and check fit</button></div>
@@ -53,7 +53,7 @@
       <td>{% set fv = fit_score(j.fit) %}{% if fv %}<span class="pill {{ fv.tone }}" title="{{ fv.label }}">{{ fv.score }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
       <td><small>{% if j.qualification %}{{ j.qualification.reasons|join('; ') }}{% endif %}</small></td>
       <td>{% if apps.get(j._id) %}<a class="btn {{ 'sm' if apps[j._id].status in ['ready_for_review', 'needs_input', 'handoff', 'needs_verification'] else 'secondary sm' }}" href="/applications/{{ apps[j._id]._id }}">{{ apps[j._id].status|verb }}</a><span class="sub">{{ apps[j._id].status|label }}</span>{% else %}<a class="btn secondary sm" href="/jobs/{{ j._id }}">Open</a>{% endif %}</td>
-      <td class="right nowrap">{{ j.updated_at|toronto }}</td></tr>
+      <td class="right nowrap">{{ j.updated_at|local }}</td></tr>
     {% else %}<tr><td colspan="6"><div class="empty"><svg class="icon"><use href="#i-jobs"/></svg>{% if request.query_params.get('status_filter') %}No jobs are "{{ request.query_params.get('status_filter')|label }}" right now.<div class="actions center mt"><a class="btn secondary sm" href="/jobs">Show all</a></div>{% else %}No jobs yet. Paste a job link in "Add a job" above, or add a job board to watch.{% endif %}</div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>

@@ -1,4 +1,4 @@
-"""Import of the private GitHub tracker (christya95/job-application-records) from a local clone.
+"""Import of the private GitHub application ledger (AMORE_TRACKER_REMOTE_URL) from a local clone.
 
 The tracker stays the durable ledger. Import reads `data/applications.json` at a specific commit,
 previews counts/duplicates/conflicts/missing artifacts, and upserts applications + jobs into MongoDB

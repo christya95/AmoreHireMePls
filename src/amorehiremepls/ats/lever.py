@@ -20,6 +20,7 @@ import httpx
 
 from ..browser import Plan, Step
 from .base import QuestionSet
+from .rules import YEARS_RULE
 
 if TYPE_CHECKING:
     from ..applications import Answer, FormField
@@ -35,7 +36,6 @@ UUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]
 _RANGE = re.compile(r"(\d+)\s*(?:-|–|to)\s*(\d+)")
 _LESS = re.compile(r"(?:less than|under|fewer than|<)\s*(\d+)")
 _MORE = re.compile(r"(\d+)\s*\+|(?:more than|over|at least|>)\s*(\d+)")
-YEARS_RULE = re.compile(r"years? of (full[- ]time |professional |software |relevant |work )?experience", re.I)
 SENSITIVE_HINT = re.compile(r"(gender|race|ethnic|veteran|disab|sexual orientation|pronoun)", re.I)
 
 # Controls Lever puts on every application. Custom questions are added beside them.

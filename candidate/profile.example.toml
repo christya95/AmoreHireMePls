@@ -1,0 +1,171 @@
+# candidate/profile.example.toml
+#
+# Copy this file to candidate/profile.toml, replace every value with your own, then load it:
+#   from the dashboard:  Profile  ->  "Load profile file"
+#   or from a terminal:  uv run amore profile import --from candidate/profile.toml
+#
+# profile.toml is ignored by git. It never leaves this computer except as the facts the app types into forms you
+# approve and the evidence it shows the AI model when it checks a fit or tailors your resume.
+#
+# Everything below describes a FICTIONAL enterprise sales account executive in the UK, so you can see what each
+# section is for. Delete what does not apply to you. A section that is missing leaves the saved value alone; a
+# section that is present replaces it.
+
+# Skills as you would name them in a form or a note (the base resume's skills section is read as well).
+# This line must stay above the first [section] header.
+skills = ["Enterprise sales", "MEDDIC", "Salesforce", "Pipeline forecasting", "Contract negotiation", "Renewals"]
+
+[candidate]
+first_name = "Jo"                 # goes into forms as your legal first name
+preferred_name = "Jo"             # used in greetings and to sign recruiter notes
+last_name = "Sample"
+profession = "enterprise account executive"   # one short phrase; told to the AI so it judges fit in your field
+headline = "Enterprise AE selling data platforms to finance teams"
+
+# Facts forms ask for. Leave a value out (or empty) when you do not know it: the app then asks you instead of guessing.
+[facts]
+email = "jo@example.co.uk"
+phone = "020 0000 0000"
+phone_country_code = "+44"
+address_line1 = "1 Example Street"
+city = "London"
+province = "Greater London"        # state / province / region, whatever your forms call it
+postal_code = "EC1A 1AA"
+country = "United Kingdom"
+linkedin_url = "https://www.linkedin.com/in/josample/"
+website_url = ""                   # portfolio, personal site; blank = unknown
+
+# Eligibility answers in your own words. "work_authorization" also becomes the yes/no the app picks on forms.
+[eligibility]
+work_authorization = "Right to work in the UK without sponsorship"
+requires_sponsorship = "No"
+employment_preference = "Permanent"
+notice_period = "4 weeks"
+availability = "4 weeks from offer"
+
+# Your jobs, oldest or newest first. Dates are YYYY-MM; end = "present" for a current job.
+# kind: full_time | internship | contract | unknown. Years of experience on forms are calculated from these dates.
+[[employment]]
+employer = "Ledgerly"
+title = "Senior Account Executive"
+kind = "full_time"
+start = "2022-03"
+end = "present"
+
+[[employment]]
+employer = "Northwind Analytics"
+title = "Account Executive"
+kind = "full_time"
+start = "2019-06"
+end = "2022-02"
+
+[[employment]]
+employer = "Northwind Analytics"
+title = "Sales Development Representative Intern"
+kind = "internship"
+start = "2019-01"
+end = "2019-05"
+
+# Education as forms ask for it: the credential name and the school name exactly as you want them typed.
+[[education]]
+key = "degree_level"
+value = "BA Business Studies"
+
+[[education]]
+key = "school"
+value = "Example University"
+
+# Recurring questions you have a fixed answer to. "match" is a regular expression tested against the question text
+# on a form (case does not matter). The app types the value only when the question matches.
+[[answers]]
+key = "sales_methodology"
+match = "sales methodology|qualification framework"
+value = "MEDDIC, applied on every opportunity above 50k"
+
+[[answers]]
+key = "quota_attainment"
+match = "quota attainment|percent of quota"
+value = "112 percent in 2024, 131 percent in 2025"
+
+# Optional self identification answers you choose to give. Anything not listed here is left blank on forms, always.
+# Keys: gender, disability_status, sexual_orientation, visible_minority, ethnicity.
+# [[answers]]
+# key = "gender"
+# value = "Prefer not to say"
+
+[preferences]
+employment_types = ["permanent"]
+# Words that appear in titles you want. A title with none of them is held for your review, not dropped.
+role_families = ["account executive", "account manager", "sales executive", "business development", "enterprise sales"]
+# Words that mean "not for me" when they appear in a title.
+excluded_role_families = ["sdr", "bdr", "inside sales", "retail", "call centre", "vp", "director"]
+# Title phrases to keep even though an excluded word appears in them.
+excluded_role_family_exceptions = ["strategic account director"]
+# Places you will work from. Blank list = anywhere. Remote jobs are accepted when they name one of the remote terms.
+locations = ["London", "Manchester", "Reading", "United Kingdom", "UK"]
+remote_eligible_terms = ["uk", "united kingdom", "uk based", "uk residents"]
+region_label = "the UK"                          # how the app names your area in review notes
+remote_rule = "Remote roles must be open to UK residents."   # shown on the Profile page as a reminder to you
+work_arrangements = ["remote", "hybrid", "onsite"]           # a posting that states another kind is held for review
+small_startup_rule = "needs_review"               # needs_review | ignore
+startup_signals_extra = ["first sales hire", "founding ae"]  # phrases in your field that mean a very small company
+
+[compensation]
+currency = "GBP"
+floor_base = 70000          # the lowest annual base you will apply for; a published band under it is held for you
+target_base = 85000         # what you aim for inside a published band
+band_rule = "midpoint"      # midpoint | upper_half | minimum   (what to state when the posting shows a range)
+unknown_rule = "needs_input"  # needs_input | leave_blank   (when a form asks and no range is published)
+
+[exclusions]
+# Employers never to apply to or contact. Aliases catch the other names they go by.
+employers = [
+  { name = "Initech", aliases = ["Initech Group", "Initech UK"], reason = "current employer's parent" },
+  { name = "Globex Corporation", aliases = ["Globex"], reason = "personal" },
+]
+# People never to contact. A LinkedIn link or employer makes the entry exact; a bare name puts namesakes on hold.
+recipients = [
+  { label = "Pat Example", profile_url = "https://www.linkedin.com/in/pat-example/", reason = "personal" },
+]
+
+[outreach]
+role_phrase = "permanent enterprise sales roles"   # what your Connect notes ask about
+one_liner = "I sell data platforms to mid market finance teams"   # your own sentence about what you do, first person
+connect_note_max_chars = 300
+no_dashes = true
+no_layoff_mention = true
+mention_applied_role = true
+ask_other_roles = true
+draft_by_default = true     # notes are drafted for you to send; nothing is sent without your explicit go ahead
+
+[resume]
+max_pages = 2                      # a tailored PDF over this limit is never uploaded
+max_bullets_per_role = 4
+# Words that mean a training role in your field (used to separate full time years from internships).
+training_role_terms = ["intern", "internship", "placement", "graduate scheme", "trainee"]
+# Words the AI may use in a rewritten bullet even if your resume text lacks them (your city, your title).
+allowed_terms = ["London", "Account Executive"]
+# Your resume's own headings when they differ from the usual ones. Known section names:
+# summary, skills, experience, projects, education, certifications. Unknown headings are kept word for word.
+[resume.section_aliases]
+skills = ["Toolbox", "Sales Stack"]
+projects = ["Deals of Note"]
+
+[fit]
+# Skill words for your field. When a job's "gaps" list names only skills your evidence already proves, that line is
+# removed. Lines about seniority, leadership, credentials and durations are never removed.
+skill_terms = ["salesforce", "hubspot", "outreach", "gong", "meddic", "meddpicc", "spin", "challenger", "forecasting", "pipeline", "quota", "arr", "upsell", "renewals"]
+# A category word on the left is answered by any member on the right appearing in your evidence.
+[fit.term_aliases]
+CRM = ["CRM", "Salesforce", "HubSpot"]
+"sales methodology" = ["MEDDIC", "MEDDPICC", "SPIN", "Challenger"]
+
+[style]
+no_dashes = true   # the AI must not use hyphens or dashes in a rewritten summary
+
+[discovery]
+# Job boards to watch (public APIs, read only). type: greenhouse | lever | ashby; key: the company's board slug.
+sources = [
+  { type = "greenhouse", key = "examplecorp", employer = "Example Corp" },
+  { type = "lever", key = "northwind", employer = "Northwind Analytics" },
+]

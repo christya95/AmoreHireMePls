@@ -142,7 +142,15 @@ class Runtime:
 
     def tailor(self, run_id: str | None = None) -> Tailor:
         docs = self.candidate_docs()
-        return Tailor(self.store, self.settings.artifact_dir, self.ai(run_id), supplemental_text=docs.supplemental_text, supplemental_sha256=docs.supplemental_sha256)
+        return Tailor(
+            self.store,
+            self.settings.artifact_dir,
+            self.ai(run_id),
+            supplemental_text=docs.supplemental_text,
+            supplemental_sha256=docs.supplemental_sha256,
+            preferences=self.profile.preferences,
+            profession=self.profile.profession(),
+        )
 
     def notifier(self):
         from .notify import Notifier
@@ -255,7 +263,7 @@ class RealServices:
 
     def execute(self, application_id: str, worker: str) -> dict:
         svc = self.rt.applications()
-        solver = self.rt.captcha_solver()  # None unless Joss switched the automatic captcha step on
+        solver = self.rt.captcha_solver()  # None unless the owner switched the automatic captcha step on
         app = self.rt.store.c("applications").find_one({"_id": application_id}) or {}
         hold = None
         if self.rt.settings.human_check_hold_minutes > 0 and app.get("job_id"):

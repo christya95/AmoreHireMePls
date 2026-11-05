@@ -5,7 +5,7 @@
   <nav class="tabs" aria-label="Help sections"><a href="#workflow">The steps</a><a href="#statuses">Statuses</a><a href="#concepts">Words</a><a href="#safety">Safety</a><a href="#hosts">Setup</a><a href="#files">Where files live</a></nav></div>
 
 <div class="card" id="workflow">
-  <div class="card-h"><h3>The eight steps for every job</h3><span class="sub">Every job page shows these steps with the current one highlighted and one button for what comes next. The grey chip is the name developers use for the step.</span></div>
+  <div class="card-h"><h3>The eight steps for every job</h3><span class="sub">Every job page shows these steps with the current one highlighted and one button for what comes next. The grey chip is the name the app uses for the step internally.</span></div>
   <ol class="steps-list compact">
     {% for name, tip, tech in steps %}<li><span class="tick">{{ loop.index }}</span><div class="body"><strong>{{ name }} <code class="raw">{{ tech }}</code></strong><small>{{ tip }}</small></div></li>{% endfor %}
   </ol>

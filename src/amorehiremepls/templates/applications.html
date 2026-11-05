@@ -13,7 +13,7 @@
       <td>{{ status(a.status) }}{% if a.reason %}<span class="sub">{{ a.reason }}</span>{% endif %}</td>
       <td>{% if pkg.document %}<small class="wrap">{{ pkg.document.filename }}</small>{% else %}<span class="muted">—</span>{% endif %}</td>
       <td><a class="btn {{ 'sm' if a.status in ['ready_for_review', 'needs_input', 'handoff', 'needs_verification'] else 'secondary sm' }}" href="/applications/{{ a._id }}">{{ a.status|verb }}</a></td>
-      <td class="right nowrap">{{ a.updated_at|toronto }}</td></tr>
+      <td class="right nowrap">{{ a.updated_at|local }}</td></tr>
     {% else %}<tr><td colspan="5"><div class="empty"><svg class="icon"><use href="#i-applications"/></svg>{% if status_filter %}No applications are "{{ status_filter|label }}" right now.{% else %}Nothing prepared yet. Open a job and press "Tailor resume". The app prepares the application and waits here for you.{% endif %}<div class="actions center mt"><a class="btn sm" href="/jobs">Go to jobs</a>{% if status_filter %}<a class="btn secondary sm" href="/applications">Show all</a>{% endif %}</div><small class="block mt">Applications from before this app are under <a href="/history">Past applications</a>.</small></div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>

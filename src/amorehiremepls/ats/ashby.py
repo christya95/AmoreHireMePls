@@ -20,6 +20,7 @@ import httpx
 from ..browser import Plan, Step
 from .base import QuestionSet
 from .lever import _decline_option, _pick_bucket, parse_form_questions
+from .rules import YEARS_RULE
 
 if TYPE_CHECKING:
     from ..applications import Answer, FormField
@@ -31,7 +32,6 @@ BOARD_HOSTS = {"jobs.ashbyhq.com"}
 GRAPHQL_URL = "https://jobs.ashbyhq.com/api/non-user-graphql"
 UUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 RECEIPT_PATTERNS = [r"application submitted", r"thank you for applying", r"your application has been received"]
-YEARS_RULE = re.compile(r"years? of (full[- ]time |professional |software |relevant |work )?experience", re.I)
 QUERY = """query ApiJobPosting($organizationHostedJobsPageName: String!, $jobPostingId: String!) {
   jobPosting(organizationHostedJobsPageName: $organizationHostedJobsPageName, jobPostingId: $jobPostingId) {
     id

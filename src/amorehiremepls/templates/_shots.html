@@ -9,7 +9,7 @@
       <strong>{{ s.title }}</strong> <code class="raw">{{ s.label }}</code>
       {% if s.meaning %}<small>{{ s.meaning }}</small>{% endif %}
       {% if show_job and s.job %}<small>{{ s.job.employer }} · {{ s.job.title }}{% if s.application_id %} · <a href="/applications/{{ s.application_id }}">open the application</a>{% endif %}</small>{% endif %}
-      <small class="meta">{% if s.captured_at %}{{ s.captured_at|toronto }} Toronto{% else %}time unknown{% endif %}{% if s.url %} · <a href="{{ s.url }}" target="_blank" rel="noopener" class="wrap">{{ s.url|truncate(60, True) }}</a>{% endif %}{% if s.sha256 %} · <code>{{ s.sha256[:12] }}…</code>{% endif %}</small>
+      <small class="meta">{% if s.captured_at %}{{ s.captured_at|local }} {{ tz_label() }}{% else %}time unknown{% endif %}{% if s.url %} · <a href="{{ s.url }}" target="_blank" rel="noopener" class="wrap">{{ s.url|truncate(60, True) }}</a>{% endif %}{% if s.sha256 %} · <code>{{ s.sha256[:12] }}…</code>{% endif %}</small>
     </figcaption>
   </figure>
 {% endfor %}

@@ -107,6 +107,7 @@ def test_greeting_initials_and_display_name_resolution():
     assert resolve_display_name(UISettings(), P(display_name="S. Smith")) == "S."
     assert resolve_display_name(UISettings(), P(), fallback="Fallback") == "Fallback"
     assert resolve_display_name(UISettings(), None, fallback="F") == "F"
+    assert resolve_display_name(UISettings(), P()) == "" and resolve_display_name(UISettings(), None) == ""  # nobody else's name by default
 
 
 def test_chart_and_donut_geometry_are_well_formed():
@@ -226,6 +227,9 @@ def test_theme_accent_and_name_persist_and_render(client):
 def test_avatar_upload_validation_storage_and_removal(client, tmp_path):
     csrf = _login(client)
     rt = client.app.state.rt
+    # with no name anywhere the avatar is the brand mark; give the dashboard a name so initials styles can show
+    assert "style-mark" in client.get("/").text
+    assert client.post("/settings/identity", data={"csrf": csrf, "display_name": "Pat Example"}).status_code == 303
     # wrong declared type, disguised bytes, oversize and non-image uploads are refused and nothing is written
     for name, content, ctype in (
         ("a.txt", b"hello " * 10, "text/plain"),

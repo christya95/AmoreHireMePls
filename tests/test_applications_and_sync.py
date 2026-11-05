@@ -9,11 +9,12 @@ from amorehiremepls.applications import ApplicationService, FormField, map_answe
 from amorehiremepls.authorization import AuthorizationStore, ScopeBinding
 from amorehiremepls.browser import Plan, Step
 from amorehiremepls.jobs import JobStore
-from amorehiremepls.profile import BandEvidence, BaseResume, build_profile_from_skills
+from amorehiremepls.profile import BandEvidence, BaseResume
 from amorehiremepls.sync import SyncCoordinator, SyncOutbox, build_record, git
 from amorehiremepls.tailoring import Tailor
 from amorehiremepls.util import sha256_file
 from tests.fixtures.make_resume import make_base_resume
+from tests.fixtures.profile_fixture import build_test_profile
 from tests.fixtures.tracker_seed import build_bare_remote, build_tracker_clone
 from tests.test_profile import FAKE_APPLY, FAKE_FACTS, FAKE_SALARY
 
@@ -35,7 +36,7 @@ FIELDS = [
 
 
 def _profile(tmp_path, with_base=True):
-    p = build_profile_from_skills(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY)
+    p = build_test_profile(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY)
     p.version = 3
     if with_base:
         base = make_base_resume(tmp_path / "base.docx")
@@ -87,8 +88,8 @@ def test_supply_inputs_replaces_an_existing_answer_and_keeps_unchanged_ones(stor
     assert "Yes, I am authorized" in answers["wa"]["options"] and answers["why"]["required"]
     app = svc.supply_inputs(app["_id"], {"why": "I enjoy building reliable backend services.", "fn": "Jordan"})
     answers = {a["field_id"]: a for a in app["review_package"]["answers"]}
-    assert answers["fn"]["value"] == "Jordan" and answers["fn"]["fact_ids"] == ["user:input"] and answers["fn"]["reason"] == "edited by Joss"
-    assert answers["why"]["reason"] == "supplied by Joss" and app["material_hash"] != before
+    assert answers["fn"]["value"] == "Jordan" and answers["fn"]["fact_ids"] == ["user:input"] and answers["fn"]["reason"] == "edited by you"
+    assert answers["why"]["reason"] == "supplied by you" and app["material_hash"] != before
     store.c("applications").update_one({"_id": app["_id"]}, {"$set": {"status": "authorized"}})
     same = svc.supply_inputs(app["_id"], {"why": "I enjoy building reliable backend services.", "fn": "Jordan"})
     assert same["status"] == "authorized"

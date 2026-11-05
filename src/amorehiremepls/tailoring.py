@@ -1,5 +1,5 @@
 """Resume tailoring: parse the approved base DOCX, produce a grounded per-requisition DOCX (+ PDF when a
-renderer exists), tighten until the PDF is at most two pages, and record artifacts with hashes.
+renderer exists), tighten until the PDF is within the profile's page limit, and record artifacts with hashes.
 
 Grounding: every tailored bullet cites a base bullet id; skills must exist in the base; new text may
 not introduce technology tokens absent from the base or from the candidate's own extra notes (the
@@ -40,14 +40,112 @@ from .util import new_id, normalize_text, sha256_file, slugify, utcnow
 
 log = logging.getLogger(__name__)
 
-HEADINGS = {
-    "summary": ("summary", "professional summary", "profile"),
-    "skills": ("technical skills", "skills", "core skills", "technologies"),
-    "experience": ("professional experience", "experience", "work experience", "employment"),
-    "projects": ("projects", "selected projects", "personal projects"),
-    "education": ("education",),
-    "certifications": ("certifications", "certificates", "awards", "certifications & awards"),
+# Section headings the parser understands, across professions. A candidate adds their own wording under
+# [resume].section_aliases ("skills" = ["toolbox"]). Any other short heading starts an "other" section that is kept
+# word for word and never tailored (publications, languages, volunteer work, licences in a different wording).
+HEADINGS: dict[str, tuple[str, ...]] = {
+    "summary": ("summary", "professional summary", "profile", "professional profile", "career summary", "about me", "objective", "career objective"),
+    "skills": (
+        "technical skills",
+        "skills",
+        "core skills",
+        "key skills",
+        "technologies",
+        "core competencies",
+        "competencies",
+        "areas of expertise",
+        "expertise",
+        "skills & tools",
+        "skills and tools",
+        "tools",
+    ),
+    "experience": (
+        "professional experience",
+        "experience",
+        "work experience",
+        "employment",
+        "employment history",
+        "career history",
+        "work history",
+        "relevant experience",
+        "clinical experience",
+        "sales experience",
+        "teaching experience",
+        "research experience",
+    ),
+    "projects": ("projects", "selected projects", "personal projects", "key projects", "key achievements", "selected achievements", "achievements", "accomplishments"),
+    "education": ("education", "education & training", "education and training", "academic background", "qualifications"),
+    "certifications": (
+        "certifications",
+        "certificates",
+        "awards",
+        "certifications & awards",
+        "licenses",
+        "licences",
+        "licenses & certifications",
+        "licences & certifications",
+        "credentials",
+        "professional affiliations",
+        "affiliations",
+        "memberships",
+        "publications",
+        "professional development",
+    ),
 }
+# Headings of sections the app keeps word for word and never tailors. A plain paragraph with one of these names (or a
+# Heading-styled / ALL CAPS short line) after the education or certifications section opens such a section. A
+# candidate adds their own under [resume].section_aliases with the key "other".
+OTHER_HEADINGS: tuple[str, ...] = (
+    "languages",
+    "language skills",
+    "volunteer",
+    "volunteering",
+    "volunteer work",
+    "volunteer experience",
+    "community involvement",
+    "community service",
+    "interests",
+    "hobbies",
+    "hobbies & interests",
+    "interests & hobbies",
+    "references",
+    "presentations",
+    "talks",
+    "patents",
+    "additional information",
+    "additional",
+    "extracurricular activities",
+    "activities",
+    "leadership",
+    "leadership & activities",
+    "honors",
+    "honours",
+    "honors & awards",
+    "honours & awards",
+    "professional memberships",
+    "board positions",
+    "teaching",
+    "media",
+    "training",
+    "courses",
+    "continuing education",
+)
+OTHER_HEADING_RE = re.compile(r"^[A-Z][A-Za-z&/' ]{1,38}[A-Za-z]$")
+
+
+def headings_with(rules: Any | None) -> dict[str, tuple[str, ...]]:
+    """HEADINGS merged with the candidate's own aliases (``ResumeRules.section_aliases``); the ``other`` key lists
+    extra verbatim-section names."""
+    extra = getattr(rules, "section_aliases", None) or {}
+    merged = {k: tuple(dict.fromkeys(normalize_text(n) for n in v)) for k, v in HEADINGS.items()}
+    merged["other"] = tuple(dict.fromkeys(normalize_text(n) for n in OTHER_HEADINGS))
+    for key, names in extra.items():
+        if key in merged:
+            merged[key] = tuple(dict.fromkeys([*merged[key], *(normalize_text(n) for n in names if n.strip())]))
+    return merged
+
+
+HEADINGS = headings_with(None)  # normalized once so lookups match ``normalize_text`` output ("licences & certifications")
 DATE_RE = re.compile(
     r"((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{4}|\d{4})\s*[-–—to]+\s*((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{4}|\d{4}|present|current)",
     re.I,
@@ -88,11 +186,14 @@ class BaseResume:
     certifications: list[str]
     all_text: str
     source_path: Path | None = None
+    # Sections the parser does not know (heading -> its lines), kept word for word and never offered for tailoring.
+    other: list[tuple[str, list[str]]] = field(default_factory=list)
 
     def bullet_ids(self) -> set[str]:
         return {b.id for e in self.experience + self.projects for b in e.bullets}
 
     def as_sections(self) -> dict[str, Any]:
+        """What the model may rewrite. ``other`` sections are deliberately absent."""
         return {
             "summary": self.summary,
             "skills": self.skills,
@@ -107,12 +208,12 @@ class BaseResume:
         }
 
 
-def _heading_key(text: str) -> str | None:
+def _heading_key(text: str, headings: dict[str, tuple[str, ...]] | None = None) -> str | None:
     t = normalize_text(text)
     if len(t) > 40:
         return None
-    for key, names in HEADINGS.items():
-        if t in names:
+    for key, names in (headings or HEADINGS).items():
+        if key != "other" and t in names:
             return key
     return None
 
@@ -175,7 +276,26 @@ def _is_contact_line(p: Paragraph, text: str) -> bool:
     return style.startswith(("title", "heading 1")) or bool(CONTACT_RE.search(text)) or p._p.find(qn("w:hyperlink")) is not None
 
 
-def _parse_document(doc) -> tuple[BaseResume, _Layout]:
+def _is_other_heading(p: Paragraph, text: str, section: str, other_names: tuple[str, ...]) -> bool:
+    """A heading of a verbatim section, once the structured sections are behind us: a Heading-styled paragraph, a
+    short ALL CAPS line, or a known extra-section name (``OTHER_HEADINGS`` plus the candidate's own). A title case
+    line that is none of these is content, not a heading, so a certificate name never opens a section."""
+    if section == "contact" or len(text) > 40 or DATE_RE.search(text) or CONTACT_RE.search(text) or text[:1] in "•-–·▪●":
+        return False
+    style = (p.style.name or "").lower()
+    if style.startswith("heading"):
+        return True
+    if normalize_text(text) in other_names:
+        return True
+    bold = bool(p.runs) and all(r.bold for r in p.runs if r.text.strip())
+    return bold and bool(OTHER_HEADING_RE.match(text)) and text.isupper() and len(text.split()) <= 4
+
+
+def _parse_document(doc, rules: Any | None = None) -> tuple[BaseResume, _Layout]:
+    from .profile import DEFAULT_TRAINING_ROLE_TERMS, training_role_pattern
+
+    headings = headings_with(rules)
+    training = training_role_pattern(getattr(rules, "training_role_terms", None) or DEFAULT_TRAINING_ROLE_TERMS)
     layout = _Layout()
     section = "contact"
     contact: list[str] = []
@@ -185,6 +305,7 @@ def _parse_document(doc) -> tuple[BaseResume, _Layout]:
     projects: list[Experience] = []
     education: list[str] = []
     certs: list[str] = []
+    other: list[tuple[str, list[str]]] = []
     current: Experience | None = None
     bucket: list[Experience] = exp
     all_text: list[str] = []
@@ -194,14 +315,23 @@ def _parse_document(doc) -> tuple[BaseResume, _Layout]:
         if not text:
             continue
         all_text.append(text)
-        key = _heading_key(text)
+        key = _heading_key(text, headings)
         if key:
             section = key
             current = None
             bucket = projects if key == "projects" else exp
             continue
         is_bullet = (p.style.name or "").lower().startswith("list") or text[:1] in "•-–·▪●" or (p.paragraph_format.left_indent or 0) > 0
-        if section == "contact" or (section == "summary" and not summary and _is_contact_line(p, text)):
+        other_names = headings["other"]
+        if section == "other" or (section in ("education", "certifications") and _is_other_heading(p, text, section, other_names)):
+            # An unknown heading after the structured sections opens a verbatim section; its lines follow it.
+            if _is_other_heading(p, text, section, other_names):
+                other.append((text, []))
+                section = "other"
+                current = None
+                continue
+            other[-1][1].append(text)
+        elif section == "contact" or (section == "summary" and not summary and _is_contact_line(p, text)):
             # Name and contact strip. Some layouts (two-column first section with a column break) place the
             # "Summary" label before the name in document order; those lines are still the header, not the summary.
             contact.append(text)
@@ -235,7 +365,7 @@ def _parse_document(doc) -> tuple[BaseResume, _Layout]:
                     employer=employer.strip(),
                     title=title.strip(),
                     dates=dates.group(0) if dates else "",
-                    is_internship="intern" in text.lower() or "co-op" in text.lower(),
+                    is_internship=training.search(text) is not None,
                 )
                 bucket.append(current)
             else:
@@ -250,11 +380,12 @@ def _parse_document(doc) -> tuple[BaseResume, _Layout]:
             education.append(text)
         elif section == "certifications":
             certs.append(text)
-    return BaseResume(contact, " ".join(summary), skills, exp, projects, education, certs, "\n".join(all_text)), layout
+    return BaseResume(contact, " ".join(summary), skills, exp, projects, education, certs, "\n".join(all_text), other=other), layout
 
 
-def parse_base_resume(path: Path) -> BaseResume:
-    base, _ = _parse_document(Document(str(path)))
+def parse_base_resume(path: Path, rules: Any | None = None) -> BaseResume:
+    """Read the approved base resume. ``rules`` is the profile's ``ResumeRules`` (section aliases, training role words)."""
+    base, _ = _parse_document(Document(str(path)), rules)
     base.source_path = Path(path)
     return base
 
@@ -262,12 +393,25 @@ def parse_base_resume(path: Path) -> BaseResume:
 # -- grounding -------------------------------------------------------------------------
 
 
+# A capitalised or product-looking token in rewritten text must already appear in the evidence. The allow-list holds
+# only sentence-start grammar words and common verbs; a candidate's own domain words (a city, a product, a title) go
+# under [resume].allowed_terms when they are not in the base resume text.
 TECH_TOKEN_RE = re.compile(r"\b([A-Z][A-Za-z0-9+#.]{1,}|[a-z]+(?:\.js|\.NET)|SQL|AWS|GCP|CI/CD)\b")
 COMMON_WORDS = {
     "I",
     "The",
     "A",
     "An",
+    "And",
+    "As",
+    "At",
+    "By",
+    "For",
+    "In",
+    "Of",
+    "On",
+    "To",
+    "With",
     "Built",
     "Led",
     "Designed",
@@ -275,6 +419,8 @@ COMMON_WORDS = {
     "Delivered",
     "Improved",
     "Reduced",
+    "Increased",
+    "Grew",
     "Implemented",
     "Worked",
     "Collaborated",
@@ -282,21 +428,13 @@ COMMON_WORDS = {
     "Created",
     "Maintained",
     "Supported",
+    "Managed",
+    "Coordinated",
+    "Launched",
     "Migrated",
     "Automated",
     "Wrote",
-    "Backend",
-    "Summary",
-    "Senior",
-    "Software",
-    "Developer",
-    "Engineer",
     "Team",
-    "Toronto",
-    "Canada",
-    "Ontario",
-    "Java",
-    "Python",
 }
 
 
@@ -307,13 +445,17 @@ class GroundingReport:
     checked_bullets: int
 
 
-def check_grounding(tailored: dict, base: BaseResume, supplemental_text: str = "") -> GroundingReport:
+def check_grounding(tailored: dict, base: BaseResume, supplemental_text: str = "", allowed_terms: Any = (), no_dashes: bool = True) -> GroundingReport:
     """Every bullet cites a base bullet; terms, years and skills must appear in the base or in the candidate's own
-    supplemental notes (``supplemental_text``, from the candidate folder). The notes never ground a bullet id."""
+    supplemental notes (``supplemental_text``, from the candidate folder). The notes never ground a bullet id.
+    ``allowed_terms`` ([resume].allowed_terms) are extra words that never count as unsupported claims; ``no_dashes``
+    ([style].no_dashes) applies the no-hyphen rule to a rewritten summary."""
     violations: list[str] = []
     base_low = base.all_text.lower()
     if supplemental_text:
         base_low = base_low + "\n" + supplemental_text.lower()
+    allowed = COMMON_WORDS | {str(t).strip() for t in (allowed_terms or ()) if str(t).strip()}
+    allowed_low = {t.lower() for t in allowed}
     ids = base.bullet_ids() | {e.id for e in base.experience + base.projects}
     checked = 0
     for exp in tailored.get("experience", []):
@@ -324,9 +466,9 @@ def check_grounding(tailored: dict, base: BaseResume, supplemental_text: str = "
             if b.get("source_id") not in ids:
                 violations.append(f"bullet without base source: {b.get('text', '')[:60]}")
             for tok in TECH_TOKEN_RE.findall(b.get("text", "")):
-                if tok in COMMON_WORDS or tok.lower() in base_low or tok.rstrip("s").lower() in base_low:
+                if tok in allowed or tok.lower() in allowed_low or tok.lower() in base_low or tok.rstrip("s").lower() in base_low:
                     continue
-                violations.append(f"technology/term not in evidence: '{tok}'")
+                violations.append(f"term not in evidence: '{tok}'")
             for m in re.findall(r"\b(\d+)\+?\s+years?", b.get("text", ""), re.I):
                 if f"{m} years" not in base_low and f"{m}+ years" not in base_low:
                     violations.append(f"years claim not in evidence: {m} years")
@@ -335,8 +477,8 @@ def check_grounding(tailored: dict, base: BaseResume, supplemental_text: str = "
         if s.lower() not in base_skills_low and s.lower() not in base_low:
             violations.append(f"skill not in evidence: {s}")
     summary = tailored.get("summary", "")
-    # The approved base summary is Joss's own wording and passes as-is; the no-dash style rule applies to rewritten text.
-    if summary.strip() != (base.summary or "").strip() and re.search(r"[-–—]", summary):
+    # The approved base summary is the candidate's own wording and passes as-is; the no-dash style rule applies to rewritten text.
+    if no_dashes and summary.strip() != (base.summary or "").strip() and re.search(r"[-–—]", summary):
         violations.append("summary contains a hyphen or dash")
     return GroundingReport(not violations, violations, checked)
 
@@ -355,11 +497,28 @@ def deterministic_tailor(base: BaseResume, posting_text: str, max_bullets_per_ro
     return {"summary": base.summary, "skills": skills, "experience": out_exp, "dropped_bullet_ids": [], "unsupported_requirements_note": ""}
 
 
-# -- two-page budget -----------------------------------------------------------------------
+# -- page budget ---------------------------------------------------------------------------
 
+# Default page limit when a profile has no [resume].max_pages. Every rendering/tightening step takes ``max_pages``.
 PAGE_LIMIT = 2
 _TRIM_CAPS = (4, 2, 1)
-PAGE_LIMIT_BLOCK = "resume PDF is not verified at two pages or fewer"
+_PAGE_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
+
+
+def page_word(max_pages: int) -> str:
+    return _PAGE_WORDS.get(int(max_pages), str(max_pages))
+
+
+def page_budget_text(max_pages: int) -> str:
+    """The budget string handed to the model and shown in copy: '2 pages', '1 page'."""
+    return f"{int(max_pages)} page" + ("" if int(max_pages) == 1 else "s")
+
+
+def page_limit_block(max_pages: int = PAGE_LIMIT) -> str:
+    return f"resume PDF is not verified at {page_word(max_pages)} page{'' if int(max_pages) == 1 else 's'} or fewer"
+
+
+PAGE_LIMIT_BLOCK = page_limit_block(PAGE_LIMIT)
 
 
 def _posting_terms(posting_text: str) -> set[str]:
@@ -435,14 +594,14 @@ def tighten_once(tailored: dict, base: BaseResume, posting_text: str) -> dict | 
     return out
 
 
-def page_limit_block_reason(record: dict | None) -> str | None:
-    """Plain reason a package must not be approved or submitted. None when a verified PDF of at most two pages is present."""
+def page_limit_block_reason(record: dict | None, max_pages: int = PAGE_LIMIT) -> str | None:
+    """Plain reason a package must not be approved or submitted. None when a verified PDF within the page limit is present."""
     if record and record.get("page_limit_verified"):
         pdf = record.get("pdf_path") or record.get("path")
         if pdf and str(pdf).lower().endswith(".pdf"):
             return None
     note = ((record or {}).get("render_note") or "").strip()
-    return note or PAGE_LIMIT_BLOCK
+    return note or page_limit_block(max_pages)
 
 
 # -- DOCX build: base document as template -------------------------------------------------
@@ -696,7 +855,7 @@ def _build_fresh(base: BaseResume, tailored: dict, out_path: Path, font: str, bo
         heading("Summary")
         para(tailored["summary"], after=4)
     if tailored.get("skills"):
-        heading("Technical Skills")
+        heading("Skills")
         para(", ".join(tailored["skills"]), after=4)
     by_id = {e.id: e for e in base.experience + base.projects}
     exp_items = [t for t in tailored.get("experience", []) if t["experience_id"].startswith("exp_")]
@@ -728,6 +887,10 @@ def _build_fresh(base: BaseResume, tailored: dict, out_path: Path, font: str, bo
     if base.certifications:
         heading("Certifications")
         for line in base.certifications:
+            para(line, after=1)
+    for label, lines in base.other:  # unknown sections: the candidate's wording, untouched
+        heading(label)
+        for line in lines:
             para(line, after=1)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(out_path))
@@ -800,7 +963,7 @@ def _failure_reason(exc: BaseException, stderr_tail: int = 300) -> str:
     return f"{head}; stderr: {stderr}" if stderr else f"{head}; no stderr"
 
 
-def render_pdf(docx_path: Path, timeout: int = 120, exe: str | None = None) -> dict[str, Any]:
+def render_pdf(docx_path: Path, timeout: int = 120, exe: str | None = None, max_pages: int = PAGE_LIMIT) -> dict[str, Any]:
     exe = exe or find_soffice()
     if not exe:
         return {"pdf_path": None, "pages": None, "verified": False, "reason": "no LibreOffice renderer available"}
@@ -839,19 +1002,19 @@ def render_pdf(docx_path: Path, timeout: int = 120, exe: str | None = None) -> d
     return {
         "pdf_path": str(pdf),
         "pages": pages,
-        "verified": pages <= 2 and selectable,
+        "verified": pages <= max_pages and selectable,
         "selectable_text": selectable,
-        "reason": "" if pages <= 2 else f"{pages} pages exceeds two",
+        "reason": "" if pages <= max_pages else f"{pages} pages exceeds {page_word(max_pages)}",
     }
 
 
-def _pages_over(pdf: dict) -> bool:
+def _pages_over(pdf: dict, max_pages: int = PAGE_LIMIT) -> bool:
     pages = pdf.get("pages")
-    return isinstance(pages, int) and pages > PAGE_LIMIT
+    return isinstance(pages, int) and pages > max_pages
 
 
-def _mark_over(pdf: dict) -> dict:
-    return {**pdf, "verified": False, "reason": f"{pdf.get('pages')} pages exceeds two after tightening"}
+def _mark_over(pdf: dict, max_pages: int = PAGE_LIMIT) -> dict:
+    return {**pdf, "verified": False, "reason": f"{pdf.get('pages')} pages exceeds {page_word(max_pages)} after tightening"}
 
 
 def _write_and_render(base: BaseResume, tailored: dict, docx_path: Path, render: Callable[[Path], dict], title: str, author: str) -> dict:
@@ -869,16 +1032,17 @@ def fit_to_page_limit(
     title: str = "",
     author: str = "",
     max_steps: int = 6,
+    max_pages: int = PAGE_LIMIT,
 ) -> tuple[dict, dict, bool]:
     """Write and render, then drop the lowest-relevance extra bullets, cap bullets per role, and shorten the summary
-    until the PDF is at most two pages or nothing grounded is left to remove. The header block is never rewritten.
+    until the PDF is within ``max_pages`` or nothing grounded is left to remove. The header block is never rewritten.
     Returns ``(tailored, pdf, trimmed)``. A caller that is still over may try one model re-tailor."""
     current = tailored
     pdf = _write_and_render(base, current, docx_path, render, title, author)
     trimmed = False
     seen: set[tuple] = set()
     for _ in range(max_steps):
-        if not _pages_over(pdf):
+        if not _pages_over(pdf, max_pages):
             break
         sig = _tailor_signature(current)
         if sig in seen:
@@ -896,9 +1060,16 @@ def fit_to_page_limit(
 
 # -- service ------------------------------------------------------------------------------------
 
-_PAGE_BUDGET_RETRY = (
-    "2 pages. The previous draft rendered over two pages. Shorten it: summary at most two sentences, at most two bullets per role, drop the lowest relevance bullets."
-)
+
+def page_budget_retry(max_pages: int) -> str:
+    """The tighter budget string for the one model re-tailor after the PDF rendered over the limit."""
+    return (
+        f"{page_budget_text(max_pages)}. The previous draft rendered over {page_word(max_pages)} page{'' if int(max_pages) == 1 else 's'}. "
+        "Shorten it: summary at most two sentences, at most two bullets per role, drop the lowest relevance bullets."
+    )
+
+
+_PAGE_BUDGET_RETRY = page_budget_retry(PAGE_LIMIT)
 
 
 class Tailor:
@@ -910,33 +1081,44 @@ class Tailor:
         render: Callable[[Path], dict] | None = None,
         supplemental_text: str = "",
         supplemental_sha256: str = "",
+        preferences: Any | None = None,
+        profession: str = "",
     ) -> None:
         self.store = store
         self.artifact_dir = artifact_dir
         self.ai = ai
-        self.render = render or render_pdf
+        self.profession = profession or ""
         # Extra career notes from the candidate folder: evidence for both model calls and for grounding; the base stays the template.
         self.supplemental_text = supplemental_text or ""
         self.supplemental_sha256 = supplemental_sha256 or ""
+        # The profile's resume/style/fit rules: page limit, bullet cap, allowed terms, dash rule, role families, profession.
+        self.preferences = preferences
+        resume_rules = getattr(preferences, "resume", None)
+        self.max_pages = int(getattr(resume_rules, "max_pages", PAGE_LIMIT) or PAGE_LIMIT)
+        self.max_bullets = int(getattr(resume_rules, "max_bullets_per_role", 4) or 4)
+        self.allowed_terms = list(getattr(resume_rules, "allowed_terms", None) or [])
+        self.no_dashes = bool(getattr(getattr(preferences, "style", None), "no_dashes", True))
+        self.resume_rules = resume_rules
+        self.render = render or (lambda path: render_pdf(path, max_pages=self.max_pages))
 
     def _tailor_input(self, base: BaseResume, posting_text: str, job: dict, page_budget: str | None = None) -> TailorInput:
-        kwargs: dict[str, Any] = {}
-        if page_budget:
-            kwargs["page_budget"] = page_budget
         return TailorInput(
             posting_summary=(posting_text or "")[:8000],
             base_resume_sections=base.as_sections(),
             allowed_fact_ids=sorted(base.bullet_ids()),
             target_role_terms=[job.get("title", "")],
             supplemental_evidence=self.supplemental_text,
-            **kwargs,
+            page_budget=page_budget or page_budget_text(self.max_pages),
+            max_bullets_per_role=self.max_bullets,
+            role_families=list(getattr(self.preferences, "role_families", None) or []),
+            candidate_profession=self.profession,
         )
 
     def _grounding(self, tailored: dict, base: BaseResume) -> GroundingReport:
-        return check_grounding(tailored, base, self.supplemental_text)
+        return check_grounding(tailored, base, self.supplemental_text, allowed_terms=self.allowed_terms, no_dashes=self.no_dashes)
 
     def tailor_for_job(self, job: dict, base_path: Path, base_sha256: str, fact_version: int, display_name: str = "Resume") -> dict:
-        base = parse_base_resume(base_path)
+        base = parse_base_resume(base_path, rules=self.resume_rules)
         snapshot = job.get("latest_snapshot") or {}
         posting_text = snapshot.get("text", "")
         tailored: dict
@@ -952,13 +1134,13 @@ class Tailor:
                 )
                 tailored, method = res.output, "model"
             except ProviderUnavailable:
-                tailored = deterministic_tailor(base, posting_text)
+                tailored = deterministic_tailor(base, posting_text, max_bullets_per_role=max(self.max_bullets, 1) + 1)
         else:
-            tailored = deterministic_tailor(base, posting_text)
+            tailored = deterministic_tailor(base, posting_text, max_bullets_per_role=max(self.max_bullets, 1) + 1)
         report = self._grounding(tailored, base)
         if not report.ok and method == "model":
             log.warning("model tailoring rejected (%d violations); falling back to deterministic", len(report.violations))
-            tailored = deterministic_tailor(base, posting_text)
+            tailored = deterministic_tailor(base, posting_text, max_bullets_per_role=max(self.max_bullets, 1) + 1)
             method = "deterministic_after_rejection"
             report = self._grounding(tailored, base)
         req = job.get("requisition_id") or job.get("linkedin_job_id") or job["_id"][-6:]
@@ -1010,9 +1192,9 @@ class Tailor:
         title: str,
         author: str,
     ) -> tuple[dict, dict, str]:
-        """Deterministic trim first. If the PDF is still over two pages, one model re-tailor with an explicit budget."""
-        current, pdf, trimmed = fit_to_page_limit(base, tailored, posting_text, docx_path, render=self.render, title=title, author=author)
-        if not _pages_over(pdf):
+        """Deterministic trim first. If the PDF is still over the page limit, one model re-tailor with an explicit budget."""
+        current, pdf, trimmed = fit_to_page_limit(base, tailored, posting_text, docx_path, render=self.render, title=title, author=author, max_pages=self.max_pages)
+        if not _pages_over(pdf, self.max_pages):
             return current, pdf, f"{method}_trimmed" if trimmed else method
         revised = self._page_budget_retaylor(base, job, fact_version, snapshot, posting_text)
         if revised is not None:
@@ -1021,8 +1203,8 @@ class Tailor:
             method = "model_page_budget"
         elif trimmed:
             method = f"{method}_trimmed"
-        if _pages_over(pdf):
-            pdf = _mark_over(pdf)
+        if _pages_over(pdf, self.max_pages):
+            pdf = _mark_over(pdf, self.max_pages)
         return current, pdf, method
 
     def _page_budget_retaylor(self, base: BaseResume, job: dict, fact_version: int, snapshot: dict, posting_text: str) -> dict | None:
@@ -1032,7 +1214,7 @@ class Tailor:
         try:
             res = self.ai.run(
                 "tailor_resume",
-                self._tailor_input(base, posting_text, job, page_budget=_PAGE_BUDGET_RETRY),
+                self._tailor_input(base, posting_text, job, page_budget=page_budget_retry(self.max_pages)),
                 fact_version=fact_version,
                 posting_hash=snapshot.get("posting_hash"),
                 untrusted_fields=("posting_summary", "supplemental_evidence"),

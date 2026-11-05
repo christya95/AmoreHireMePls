@@ -1,0 +1,2 @@
+# SHA-256 of lowercase words that must never appear as literals under src/ (checked by tests/test_customization.py).
+5d08c17929884fb7c199d17ed77fce23847382ad1ea0486f68aa9b7ffeabb63c

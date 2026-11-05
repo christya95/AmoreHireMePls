@@ -12,7 +12,7 @@ check. Nothing here runs for logins, discovery or outreach.
 Approach credit: the picture-plus-instruction prompting pattern follows aydinnyunus/ai-captcha-bypass
 (https://github.com/aydinnyunus/ai-captcha-bypass). Its code is not vendored or imported: it is a Selenium CLI
 under a non-commercial, research-only licence, so this module is an independent implementation.
-Joss accepted the platform-terms risk of this feature on 2026-11-05 (see AGENTS.md).
+Turning the feature on is the operator's explicit acceptance of the platform-terms risk (see AGENTS.md).
 """
 
 from __future__ import annotations

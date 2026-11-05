@@ -21,10 +21,11 @@ from amorehiremepls.applications import (
 from amorehiremepls.ats.greenhouse import GreenhouseAdapter, questions_to_fields
 from amorehiremepls.discovery import compact_facts, fetch_posting_text, qualify, work_arrangement, workday_json_url
 from amorehiremepls.orchestration import _compact_package
-from amorehiremepls.profile import BandEvidence, Compensation, Fact, Provenance, build_profile_from_skills
+from amorehiremepls.profile import BandEvidence, Compensation, Fact, Provenance
 from amorehiremepls.skills import catalog
 from amorehiremepls.web import saved_form_inputs
 from tests.fixtures.greenhouse_site import board_schema
+from tests.fixtures.profile_fixture import build_test_profile
 from tests.test_profile import FAKE_APPLY, FAKE_FACTS, FAKE_SALARY
 
 PROV = Provenance(source="user:chat", confirmed_on="2026-11-05")
@@ -35,7 +36,7 @@ def _sensitive(key: str, value: str) -> Fact:
 
 
 def _profile(**self_id: str):
-    p = build_profile_from_skills(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY)
+    p = build_test_profile(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY)
     p.facts += [_sensitive(k, v) for k, v in self_id.items()]
     return p
 
@@ -135,8 +136,8 @@ def _salary_field(required=True):
 
 def test_posted_range_decides_in_code_and_never_goes_under_the_floor():
     p = _profile()
-    p.compensation = Compensation(currency="CAD", floor_base=95000, target_base=110000, provenance=PROV)
-    inside = BandEvidence(min_base=100000, max_base=130000, currency="CAD", title_matches=True, location_matches=True)
+    p.compensation = Compensation(currency="CAD", floor_base=96000, target_base=110000, provenance=PROV)
+    inside = BandEvidence(min_base=102000, max_base=128000, currency="CAD", title_matches=True, location_matches=True)
     calls = []
 
     def never():
@@ -145,9 +146,9 @@ def test_posted_range_decides_in_code_and_never_goes_under_the_floor():
 
     a = map_answers([_salary_field()], p, {}, None, inside, salary_case=never)[0]
     assert a.value == "115000" and a.fact_ids == ["compensation_rule"] and not calls
-    straddle = BandEvidence(min_base=80000, max_base=100000, currency="CAD", title_matches=True, location_matches=True)
+    straddle = BandEvidence(min_base=80000, max_base=102000, currency="CAD", title_matches=True, location_matches=True)
     a = map_answers([_salary_field()], p, {}, None, straddle, salary_case=never)[0]
-    assert a.value == "95000" and "raised to your minimum" in a.reason and not calls
+    assert a.value == "96000" and "raised to your minimum" in a.reason and not calls
     below = BandEvidence(min_base=70000, max_base=90000, currency="CAD", title_matches=True, location_matches=True)
     a = map_answers([_salary_field()], p, {}, None, below, salary_case=never)[0]
     assert a.value is None and a.needs_input and a.reason == "posted range is below your minimum" and not calls
@@ -155,8 +156,8 @@ def test_posted_range_decides_in_code_and_never_goes_under_the_floor():
 
 def test_without_a_range_one_researched_proposal_is_stored_as_an_editable_answer():
     p = _profile()
-    p.compensation = Compensation(currency="CAD", floor_base=95000, target_base=110000, provenance=PROV)
-    proposal = SalaryProposal(105000, "Typical for this title in the city.", confidence="medium", source_kinds=["salary surveys"], range_low=95000, range_high=120000)
+    p.compensation = Compensation(currency="CAD", floor_base=96000, target_base=110000, provenance=PROV)
+    proposal = SalaryProposal(105000, "Typical for this title in the city.", confidence="medium", source_kinds=["salary surveys"], range_low=96000, range_high=120000)
     calls = []
 
     def once():
@@ -170,7 +171,7 @@ def test_without_a_range_one_researched_proposal_is_stored_as_an_editable_answer
     assert answers["sal2"].value == "105000" and len(calls) == 2  # map_answers calls the hook per field; the service memoises it
     # a proposal under the floor is raised; no proposal keeps the old needs_input outcome; no salary field never calls the hook
     low = map_answers([_salary_field()], p, {}, None, None, salary_case=lambda: SalaryProposal(amount=80000, rationale="r"))[0]
-    assert low.value == "95000"
+    assert low.value == "96000"
     none = map_answers([_salary_field()], p, {}, None, None, salary_case=lambda: None)[0]
     assert none.value is None and none.needs_input and none.reason.startswith("salary rule")
     calls.clear()
@@ -181,7 +182,7 @@ def test_without_a_range_one_researched_proposal_is_stored_as_an_editable_answer
 def test_salary_researcher_runs_the_skill_once_through_the_runner_and_enforces_the_floor():
     p = _profile()
     p.version = 7
-    p.compensation = Compensation(currency="CAD", floor_base=95000, target_base=100000, provenance=PROV)
+    p.compensation = Compensation(currency="CAD", floor_base=96000, target_base=101000, provenance=PROV)
     seen: list[str] = []
 
     def reply(user: str) -> dict:
@@ -193,9 +194,9 @@ def test_salary_researcher_runs_the_skill_once_through_the_runner_and_enforces_t
     snapshot = {"text": "You bring 5+ years of experience building APIs.", "posting_hash": "ph"}
     job = {"title": "Senior Backend Developer II", "location": "Toronto, Ontario", "latest_snapshot": snapshot}
     prop = SalaryResearcher(runner, p).propose(job)
-    assert prop is not None and prop.amount == 100000  # estimate fell under the floor: the floor-respecting target is used
+    assert prop is not None and prop.amount == 101000  # estimate fell under the floor: the floor-respecting target is used
     assert prop.confidence == "low" and prop.source_kinds == ["public salary surveys"] and prop.range_high == 105000
-    assert "candidate_floor: 95000" in seen[0] and "<untrusted" in seen[0] and "5+ years of experience" in seen[0]
+    assert "candidate_floor: 96000" in seen[0] and "<untrusted" in seen[0] and "5+ years of experience" in seen[0]
     assert "Alex" not in seen[0] and "alex@example.com" not in seen[0]  # nothing but title, location, hints and the pay rules
     from amorehiremepls.ai import NoProvider
 

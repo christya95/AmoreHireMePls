@@ -1,6 +1,6 @@
 """Worker process: runs queued/resumed workflows, drives the sync coordinator, runs scheduled discovery.
 
-Scheduling uses America/Toronto wall-clock slots claimed atomically in MongoDB so two workers (or a
+Scheduling uses wall-clock slots in the configured time zone (AMORE_TIMEZONE) claimed atomically in MongoDB so two workers (or a
 restart) never start the same slot twice. Browser work is sequential per authenticated site.
 """
 
@@ -16,7 +16,7 @@ from typing import Any
 from .discovery import SOURCES, SourceError
 from .runtime import Runtime
 from .ui_settings import UISettingsStore
-from .util import TORONTO, toronto_now, utcnow
+from .util import local_now, local_zone, utcnow
 
 log = logging.getLogger(__name__)
 
@@ -191,7 +191,7 @@ class Worker:
         sched = self.rt.settings.discovery_schedule.strip()
         if not sched:
             return []
-        now = now or toronto_now()
+        now = now or local_now()
         slots = []
         for hhmm in [s.strip() for s in sched.split(",") if s.strip()]:
             try:
@@ -255,4 +255,4 @@ def next_slot_description(rt: Runtime) -> str:
     sched = rt.settings.discovery_schedule.strip()
     if not sched:
         return "disabled"
-    return f"daily at {sched} {TORONTO.key}"
+    return f"daily at {sched} {local_zone().key}"

@@ -22,6 +22,8 @@ from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 from .authorization import ScopeBinding, StopConditions
 from .browser import normalize_screenshots
+from .candidate_profile import CONTROL_KEY as TOML_CONTROL_KEY
+from .candidate_profile import PROFILE_TOML_NAME, ProfileTomlError, apply_profile_toml, load_profile_toml, toml_status
 from .discovery import SOURCES
 from .logos import EMPLOYER_DOMAINS, REQUEST_TIMEOUT
 from .profile import ExcludedEmployer, Provenance, RecipientExclusion
@@ -60,7 +62,7 @@ from .ui_settings import (
     store_avatar,
     tint_css_from_cookie,
 )
-from .util import sha256_file, to_toronto, utcnow
+from .util import sha256_file, to_local, utcnow, zone_label
 from .worker import next_slot_description, worker_healthy
 
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -68,8 +70,8 @@ DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingm
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
-def _toronto(dt: Any, fmt: str) -> str:
-    """Toronto wall time for a datetime or an ISO-8601 string (screenshot evidence stores strings); blank when unparseable."""
+def _local(dt: Any, fmt: str) -> str:
+    """Wall time in the configured zone for a datetime or an ISO-8601 string (screenshot evidence stores strings); blank when unparseable."""
     if not dt:
         return ""
     if isinstance(dt, str):
@@ -77,11 +79,15 @@ def _toronto(dt: Any, fmt: str) -> str:
             dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
         except ValueError:
             return dt
-    return to_toronto(dt).strftime(fmt)
+    return to_local(dt).strftime(fmt)
 
 
-TEMPLATES.env.filters["toronto"] = lambda dt: _toronto(dt, "%Y-%m-%d %H:%M")
-TEMPLATES.env.filters["toronto_day"] = lambda dt: _toronto(dt, "%b %d")
+TEMPLATES.env.filters["local"] = lambda dt: _local(dt, "%Y-%m-%d %H:%M")
+TEMPLATES.env.filters["local_day"] = lambda dt: _local(dt, "%b %d")
+# Older templates and tests used the original operator's zone as the filter name; the aliases keep them working.
+TEMPLATES.env.filters["toronto"] = TEMPLATES.env.filters["local"]
+TEMPLATES.env.filters["toronto_day"] = TEMPLATES.env.filters["local_day"]
+TEMPLATES.env.globals["tz_label"] = zone_label
 TEMPLATES.env.filters["json"] = lambda v: json.dumps(v, indent=1, default=str)
 TEMPLATES.env.filters["tone"] = status_tone
 TEMPLATES.env.filters["human"] = humanize
@@ -187,6 +193,9 @@ FLASHES = {
     "candidate_too_big": ("That file is too large. The limit is 5 MB.", "bad"),
     "candidate_bad_name": ("That file name was not accepted. Give the file a short plain name and try again.", "bad"),
     "candidate_not_writable": ("The app cannot write to the candidate folder on this computer. Check the folder permissions.", "bad"),
+    "toml_loaded": ("Your profile file was loaded. The counts are on the profile file card.", "ok"),
+    "toml_invalid": ("The profile file could not be read. Nothing was changed; the reason is on the profile file card.", "bad"),
+    "preferences_saved": ("Your rules were saved.", "ok"),
 }
 HOSTS_ENV_EXAMPLE = "AMORE_BROWSER_ALLOWED_HOSTS=boards.greenhouse.io,jobs.lever.co"
 
@@ -418,7 +427,7 @@ def create_app(rt: Runtime) -> FastAPI:
                 q.append(f"'{x.label}' is on your do not contact list but has no LinkedIn link or employer yet. Add one so the app can tell them apart from namesakes.")
         if not rt.settings.provider_configured:
             q.append("No AI model is connected (AMORE_MODEL and its key). Only the rules based steps work until it is.")
-        if not (rt.settings.tracker_clone_dir / ".git").exists():
+        if rt.settings.tracker_enabled and not (rt.settings.tracker_clone_dir / ".git").exists():
             q.append("Your GitHub tracker is not downloaded on this computer yet. Run `amore tracker clone` here before turning on saving to GitHub.")
         return q
 
@@ -465,10 +474,10 @@ def create_app(rt: Runtime) -> FastAPI:
         if len(expected) < 12 or not hmac.compare_digest(expected, password):
             rt.store.audit("login_failed", None, ip=request.client.host if request.client else None)
             return render_login(request, "Invalid password", status_code=401)
-        token = serializer.dumps({"user": "joss", "csrf": secrets.token_urlsafe(24), "at": utcnow().isoformat()})
+        token = serializer.dumps({"user": "owner", "csrf": secrets.token_urlsafe(24), "at": utcnow().isoformat()})
         resp = RedirectResponse("/", status_code=303)
         resp.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict", secure=rt.settings.secure_cookies, max_age=SESSION_MAX_AGE)
-        rt.store.audit("login", "joss")
+        rt.store.audit("login", "owner")
         return resp
 
     @app.post("/logout")
@@ -490,7 +499,7 @@ def create_app(rt: Runtime) -> FastAPI:
             "needs_verification": s.c("actions").count_documents({"status": "needs_verification"}),
         }
         runs = list(s.c("runs").find().sort("created_at", -1).limit(8))
-        month_start = to_toronto(utcnow()).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        month_start = to_local(utcnow()).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         usage_pipeline = [
             {
                 "$group": {
@@ -547,10 +556,24 @@ def create_app(rt: Runtime) -> FastAPI:
         def item(key: str, label: str, done: bool, href: str, action: str, hint: str = "", code: str = "", method: str = "get") -> dict:
             return {"key": key, "label": label, "done": bool(done), "href": href, "action": action, "hint": hint, "code": code, "method": method}
 
+        toml = toml_status(st.candidate_dir, s)
+        imported_any = st.tracker_enabled and s.c("applications").count_documents({"provenance.origin": "tracker_import"}) > 0
+        profile_hint = ("Missing: " + ", ".join(missing)) if missing else ""
+        if toml.state in ("new", "changed"):
+            profile_hint = "candidate/profile.toml is ready to load. " + profile_hint
+        elif toml.state == "missing" and not p.facts:
+            profile_hint = "Copy candidate/profile.example.toml to candidate/profile.toml, fill it in, then load it from the Profile page."
         items = [
-            item("profile", "Confirm your profile facts", bool(p.facts) and not missing, "/profile", "Open profile", ("Missing: " + ", ".join(missing)) if missing else ""),
-            item("base_resume", "Choose your base resume", p.base_resume is not None, "/profile", "Choose the DOCX", "Paste where your approved base resume is on this computer."),
-            item("history", "Load your past applications", s.c("applications").count_documents({"provenance.origin": "tracker_import"}) > 0, "/history", "Load past applications"),
+            item("profile", "Confirm your profile facts", bool(p.facts) and not missing, "/profile", "Open profile", profile_hint),
+            item(
+                "base_resume",
+                "Choose your base resume",
+                p.base_resume is not None,
+                "/profile",
+                "Choose the DOCX",
+                "Drop your approved base resume (DOCX) in the candidate folder, or paste where it is on this computer.",
+            ),
+            *([item("history", "Load your past applications", imported_any, "/history", "Load past applications")] if st.tracker_enabled else []),
             item(
                 "provider",
                 "Connect the AI model",
@@ -667,7 +690,7 @@ def create_app(rt: Runtime) -> FastAPI:
         keys = {k: 0 for k, _ in buckets}
         for a in rt.store.c("applications").find({"status": "submitted"}, {"application_date": 1, "record.application_date": 1, "updated_at": 1}):
             day = a.get("application_date") or (a.get("record") or {}).get("application_date")
-            key = str(day)[:7] if day else to_toronto(a.get("updated_at")).strftime("%Y-%m") if a.get("updated_at") else None
+            key = str(day)[:7] if day else to_local(a.get("updated_at")).strftime("%Y-%m") if a.get("updated_at") else None
             if key in keys:
                 keys[key] += 1
         return line_chart([(label, keys[k]) for k, label in buckets])
@@ -803,6 +826,7 @@ def create_app(rt: Runtime) -> FastAPI:
         cand_state = None
         if cand.base_resume is not None:
             cand_state = "new" if p.base_resume is None else ("same" if p.base_resume.sha256 == cand.base_resume_sha256 else "differs")
+        toml = toml_status(rt.settings.candidate_dir, rt.store)
         return render(
             request,
             "profile.html",
@@ -813,45 +837,101 @@ def create_app(rt: Runtime) -> FastAPI:
             cand=cand,
             cand_state=cand_state,
             cand_path=str(cand.base_resume.resolve()) if cand.base_resume else "",
+            toml=toml,
+            toml_report=rt.store.get_control("candidate_profile_toml_last_report") or None,
+            zone=zone_label(),
         )
+
+    @app.post("/profile/load-toml")
+    def profile_load_toml(request: Request, session: dict = Depends(require_session), csrf: str = Form(...)):
+        """Apply candidate/profile.toml to the saved profile. Explicit click only; the file is never reloaded on its own."""
+        require_csrf(request, session, csrf)
+        path = rt.settings.candidate_dir / PROFILE_TOML_NAME
+        try:
+            data = load_profile_toml(path)
+            p = rt.reload_profile()
+            report = apply_profile_toml(p, data, confirmed_on=utcnow().date().isoformat(), store=rt.store)
+        except ProfileTomlError as exc:
+            rt.store.set_control("candidate_profile_toml_last_report", {"ok": False, "error": str(exc), "at": utcnow().isoformat()})
+            return RedirectResponse("/profile?err=toml_invalid", status_code=303)
+        rt.profiles.save(p, actor="user")
+        rt.reload_profile()
+        rt.store.set_control(TOML_CONTROL_KEY, {"sha256": sha256_file(path), "loaded_at": utcnow().isoformat()})
+        rt.store.set_control("candidate_profile_toml_last_report", {"ok": True, "at": utcnow().isoformat(), **report.as_dict()})
+        rt.store.audit("candidate_profile_toml_loaded", None, sha256=sha256_file(path), **report.as_dict())
+        return RedirectResponse("/profile?ok=toml_loaded", status_code=303)
 
     @app.post("/profile/preferences")
     def profile_prefs(
         request: Request,
         session: dict = Depends(require_session),
         csrf: str = Form(...),
+        profession: str = Form(""),
         role_families: str = Form(""),
         excluded_role_families: str = Form(""),
+        excluded_role_family_exceptions: str = Form(""),
         locations: str = Form(""),
+        remote_eligible_terms: str = Form(""),
+        region_label: str = Form(""),
         employment_types: str = Form("permanent"),
+        currency: str = Form(""),
         floor_base: int = Form(0),
         target_base: str = Form(""),
         band_rule: str = Form("midpoint"),
         unknown_rule: str = Form("needs_input"),
         small_startup_rule: str = Form("needs_review"),
+        startup_signals_extra: str = Form(""),
         excluded_employers: str = Form(""),
+        outreach_role_phrase: str = Form(""),
+        outreach_one_liner: str = Form(""),
+        outreach_max_chars: int = Form(300),
+        outreach_ask_other_roles: str = Form(""),
+        outreach_no_dashes: str = Form(""),
+        outreach_no_layoff_mention: str = Form(""),
+        resume_max_pages: int = Form(2),
+        resume_max_bullets: int = Form(4),
+        resume_allowed_terms: str = Form(""),
+        style_no_dashes: str = Form(""),
     ):
         require_csrf(request, session, csrf)
         p = rt.reload_profile()
         split = lambda s: [x.strip() for x in s.split(",") if x.strip()]  # noqa: E731
+        p.candidate.profession = profession.strip()
         p.preferences.role_families = [x.lower() for x in split(role_families)]
         p.preferences.excluded_role_families = [x.lower() for x in split(excluded_role_families)]
+        p.preferences.excluded_role_family_exceptions = [x.lower() for x in split(excluded_role_family_exceptions)]
         p.preferences.locations = split(locations)
+        p.preferences.remote_eligible_terms = [x.lower() for x in split(remote_eligible_terms)]
+        p.preferences.region_label = region_label.strip()
         p.preferences.employment_types = split(employment_types)
         p.preferences.small_startup_rule = small_startup_rule  # type: ignore[assignment]
+        p.preferences.startup_signals_extra = [x.lower() for x in split(startup_signals_extra)]
+        p.compensation.currency = currency.strip().upper()[:3]
         p.compensation.floor_base = floor_base
         p.compensation.target_base = int(target_base) if target_base.strip() else None
         p.compensation.band_rule = band_rule  # type: ignore[assignment]
         p.compensation.unknown_rule = unknown_rule  # type: ignore[assignment]
         p.compensation.provenance = Provenance(source="user:dashboard", confirmed_on=utcnow().date().isoformat())
-        if excluded_employers.strip():
-            p.preferences.excluded_employers = [
-                ExcludedEmployer(name=line.split("|")[0].strip(), aliases=split(line.split("|")[1]) if "|" in line else [], reason="dashboard")
-                for line in excluded_employers.splitlines()
-                if line.strip()
-            ]
+        p.preferences.excluded_employers = [
+            ExcludedEmployer(name=line.split("|")[0].strip(), aliases=split(line.split("|")[1]) if "|" in line else [], reason="dashboard")
+            for line in excluded_employers.splitlines()
+            if line.strip()
+        ]
+        p.preferences.outreach_rules = {
+            **p.preferences.outreach_rules,
+            "role_phrase": outreach_role_phrase.strip(),
+            "one_liner": outreach_one_liner.strip(),
+            "connect_note_max_chars": max(60, min(int(outreach_max_chars), 2000)),
+            "ask_other_roles": bool(outreach_ask_other_roles),
+            "no_dashes": bool(outreach_no_dashes),
+            "no_layoff_mention": bool(outreach_no_layoff_mention),
+        }
+        p.preferences.resume.max_pages = max(1, min(int(resume_max_pages), 6))
+        p.preferences.resume.max_bullets_per_role = max(1, min(int(resume_max_bullets), 12))
+        p.preferences.resume.allowed_terms = split(resume_allowed_terms)
+        p.preferences.style.no_dashes = bool(style_no_dashes)
         rt.profiles.save(p, actor="user")
-        return RedirectResponse("/profile", status_code=303)
+        return RedirectResponse("/profile?ok=preferences_saved", status_code=303)
 
     @app.post("/profile/facts")
     def profile_fact(request: Request, session: dict = Depends(require_session), csrf: str = Form(...), key: str = Form(...), value: str = Form(""), category: str = Form("other")):

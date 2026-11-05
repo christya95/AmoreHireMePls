@@ -23,20 +23,23 @@ Kind = Literal["full_time", "internship", "contract", "unknown"]
 
 
 class Provenance(BaseModel):
-    source: str  # e.g. "skill:joss-application-facts", "user:dashboard", "tracker:import"
+    source: str  # e.g. "candidate:profile.toml", "user:dashboard", "tracker:import"
     confirmed_on: str | None = None  # YYYY-MM-DD
     note: str = ""
 
 
 class Fact(BaseModel):
     id: str = Field(default_factory=lambda: new_id("fact"))
-    category: str  # identity | contact | address | eligibility | education | answer | ai_workflow | other
+    category: str  # identity | contact | address | eligibility | education | answer | other
     key: str
     value: str | None = None  # None = unknown
-    # personal | sensitive. Sensitive facts are the self-identification answers Joss gave explicitly (gender,
+    # personal | sensitive. Sensitive facts are the self-identification answers the candidate gave explicitly (gender,
     # disability, orientation, visible minority). They only ever fill a matching option on a form's own
     # self-identification question, are shown in the review package, and never reach a model, a log or the audit trail.
     sensitivity: str = "personal"
+    # Optional regular expression matched against a form question's label. When set, this fact answers any question
+    # whose label matches, in addition to the built-in question rules (e.g. a saved answer about "AI tools").
+    question_pattern: str | None = None
     provenance: Provenance
 
 
@@ -82,7 +85,7 @@ class RecipientExclusion(BaseModel):
 
 
 class Compensation(BaseModel):
-    currency: str = "CAD"
+    currency: str = ""  # ISO code such as CAD, USD, EUR; empty = not set (every posted band then needs a look)
     floor_base: int = 0  # minimum annual base to apply; 0 = unknown
     target_base: int | None = None  # personal preference, never a form default
     band_rule: Literal["midpoint", "upper_half", "minimum"] = "midpoint"
@@ -90,20 +93,91 @@ class Compensation(BaseModel):
     provenance: Provenance
 
 
+# Rules that make the outreach validator and the template note the candidate's own. Every key has a neutral default;
+# `role_phrase` and `one_liner` are empty until the candidate sets them (candidate/profile.toml `[outreach]`).
+DEFAULT_OUTREACH_RULES: dict[str, Any] = {
+    "connect_note_max_chars": 300,
+    "no_dashes": True,
+    "no_layoff_mention": True,
+    "mention_applied_role": True,
+    "ask_other_roles": True,
+    "role_phrase": "",  # e.g. "permanent backend roles" or "clinical roles"; what the note asks about
+    "one_liner": "",  # one sentence about the candidate's work, used by the template note
+    "message_words": [45, 75],
+    "draft_by_default": True,
+}
+
+# Words that mark a training role on a resume or a posting. Generic by default; extend per candidate.
+DEFAULT_TRAINING_ROLE_TERMS = ["intern", "internship", "co-op", "coop", "trainee", "apprentice"]
+
+
+class ResumeRules(BaseModel):
+    """How the candidate's resume is read and tailored. Profession neutral defaults; set per candidate."""
+
+    max_pages: int = Field(default=2, ge=1, le=6)
+    training_role_terms: list[str] = Field(default_factory=lambda: list(DEFAULT_TRAINING_ROLE_TERMS))
+    # Extra section headings: {"skills": ["clinical skills"], "experience": ["clinical experience"], ...}
+    section_aliases: dict[str, list[str]] = Field(default_factory=dict)
+    # Capitalised terms a rewritten bullet may use even when the base resume does not spell them (job words, places).
+    allowed_terms: list[str] = Field(default_factory=list)
+    max_bullets_per_role: int = Field(default=4, ge=1, le=12)
+
+
+class TermAlias(BaseModel):
+    """A category word on a gap line ("databases") is answered by any of its members in the evidence ("PostgreSQL")."""
+
+    words: list[str]
+    evidence: list[str]
+
+
+class FitRules(BaseModel):
+    """What counts as a skill word when the app removes gaps the evidence already answers. Empty = never remove."""
+
+    skill_terms: list[str] = Field(default_factory=list)
+    term_aliases: list[TermAlias] = Field(default_factory=list)
+    hold_back_terms: list[str] = Field(default_factory=list)  # names (an employer, a domain) whose gap lines always stay
+
+
+class StyleRules(BaseModel):
+    no_dashes: bool = True  # rewritten resume text and notes avoid hyphens and dashes
+
+
+class CandidateInfo(BaseModel):
+    profession: str = ""  # e.g. "sales account executive", "clinical psychologist", "backend software developer"
+    headline: str = ""  # one line the candidate would put under their name
+
+
 class Preferences(BaseModel):
     employment_types: list[str] = Field(default_factory=lambda: ["permanent"])
     role_families: list[str] = Field(default_factory=list)  # allowed title families (lowercase keywords)
     excluded_role_families: list[str] = Field(default_factory=list)
-    locations: list[str] = Field(default_factory=list)  # e.g. "Toronto", "GTA", "Ontario", "Canada remote"
-    remote_rule: str = "remote must be open to Ontario residents"
-    # Accepted work arrangements. All three by default (Joss, 2026-11-05): a posting's arrangement is only a review
-    # reason when it is a known kind that is missing from this list.
+    # Title phrases that stay allowed even when an excluded family word appears in the same title.
+    excluded_role_family_exceptions: list[str] = Field(default_factory=list)
+    locations: list[str] = Field(default_factory=list)  # place words that make a posting's location acceptable
+    remote_eligible_terms: list[str] = Field(default_factory=list)  # posting words that make a remote role acceptable
+    region_label: str = ""  # how the acceptable region is named in review reasons, e.g. "the UK" or "Greater Vancouver"
+    remote_rule: str = ""  # free text shown on the profile page, e.g. "remote must be open to residents of my province"
+    # Accepted work arrangements. A posting's arrangement is only a review reason when it is a known kind that is
+    # missing from this list.
     work_arrangements: list[str] = Field(default_factory=lambda: ["remote", "hybrid", "onsite"])
     excluded_employers: list[ExcludedEmployer] = Field(default_factory=list)
     recipient_exclusions: list[RecipientExclusion] = Field(default_factory=list)
     small_startup_rule: Literal["needs_review", "ignore"] = "needs_review"
+    startup_signals_extra: list[str] = Field(default_factory=list)  # profession specific phrases, e.g. "founding engineer"
     work_authorization: str | None = None
-    outreach_rules: dict[str, Any] = Field(default_factory=dict)
+    outreach_rules: dict[str, Any] = Field(default_factory=lambda: dict(DEFAULT_OUTREACH_RULES))
+    resume: ResumeRules = Field(default_factory=ResumeRules)
+    fit: FitRules = Field(default_factory=FitRules)
+    style: StyleRules = Field(default_factory=StyleRules)
+
+    def outreach_rule(self, key: str, default: Any = None) -> Any:
+        """A rule with the neutral default when the saved rules predate it (legacy key names included)."""
+        rules = self.outreach_rules or {}
+        if key == "ask_other_roles" and "ask_other_roles" not in rules:
+            legacy = next((v for k, v in rules.items() if k.startswith("ask_other_")), None)
+            if legacy is not None:
+                return legacy
+        return rules.get(key, DEFAULT_OUTREACH_RULES.get(key, default))
 
 
 class BaseResume(BaseModel):
@@ -124,6 +198,7 @@ class Profile(BaseModel):
     answers: list[Fact] = Field(default_factory=list)
     compensation: Compensation = Field(default_factory=lambda: Compensation(provenance=Provenance(source="default")))
     preferences: Preferences = Field(default_factory=Preferences)
+    candidate: CandidateInfo = Field(default_factory=CandidateInfo)
     base_resume: BaseResume | None = None
     unknowns: list[str] = Field(default_factory=list)
 
@@ -138,6 +213,18 @@ class Profile(BaseModel):
     def fact_value(self, key: str) -> str | None:
         f = self.fact(key)
         return None if f is None else f.value
+
+    def first_name(self) -> str:
+        """Preferred name, else legal first name, else the first word of the display name; empty when unknown."""
+        for key in ("preferred_name", "legal_first_name", "display_name"):
+            v = self.fact_value(key)
+            if v:
+                return v.split()[0]
+        return ""
+
+    def profession(self) -> str:
+        """The candidate's own description of their profession, or a neutral word."""
+        return (self.candidate.profession or "").strip() or "professional"
 
     def is_excluded_employer(self, employer: str) -> ExcludedEmployer | None:
         n = normalize_employer(employer)
@@ -296,23 +383,25 @@ class ProfileStore:
         try:
             from .tailoring import parse_base_resume
 
-            parsed = parse_base_resume(target)
+            parsed = parse_base_resume(target, rules=profile.preferences.resume)
             entries = [{"employer": e.employer, "title": e.title, "dates": e.dates, "header": e.header} for e in parsed.experience]
-            profile.employment = merge_employment(profile.employment, employment_from_base_resume(entries, approved_on, sha))
+            profile.employment = merge_employment(
+                profile.employment, employment_from_base_resume(entries, approved_on, sha, training_terms=profile.preferences.resume.training_role_terms)
+            )
             profile.unknowns = refresh_unknowns(profile)
         except Exception as exc:  # pragma: no cover - depends on the real document layout
             profile.unknowns.append(f"base resume experience not parsed ({type(exc).__name__}); employment unchanged")
         return self.save(profile, actor="user")
 
 
-# -- import from private skill files ----------------------------------------------------
+# -- legacy import from private skill files (candidate/profile.toml is the current path) ----------------------
 
 _BULLET = re.compile(r"^-\s*(.+?):\s*(.+?)\s*$")
 
 
 def parse_facts_skill(text: str, confirmed_on: str | None = None) -> list[Fact]:
-    """Parse the private `joss-application-facts` SKILL.md bullets into facts with provenance."""
-    prov = Provenance(source="skill:joss-application-facts", confirmed_on=confirmed_on)
+    """Parse a private application-facts SKILL.md (bullets of `Label: value`) into facts with provenance."""
+    prov = Provenance(source="skill:application-facts", confirmed_on=confirmed_on)
     mapping = {
         "legal first name": ("identity", "legal_first_name"),
         "legal last name": ("identity", "legal_last_name"),
@@ -347,81 +436,26 @@ def parse_facts_skill(text: str, confirmed_on: str | None = None) -> list[Fact]:
 
 
 def parse_salary_skill(text: str, confirmed_on: str | None = None) -> Compensation:
-    prov = Provenance(source="skill:joss-desired-salary", confirmed_on=confirmed_on)
-    floor = re.search(r"floor remains CAD\s*([\d,]+)", text)
-    target = re.search(r"target CAD\s*([\d,]+)", text)
+    """Parse a private desired-salary note: `floor remains <CUR> <amount>` and `target <CUR> <amount>`."""
+    prov = Provenance(source="skill:desired-salary", confirmed_on=confirmed_on)
+    floor = re.search(r"floor remains ([A-Z]{3})\s*([\d,]+)", text)
+    target = re.search(r"target ([A-Z]{3})\s*([\d,]+)", text)
+    currency = (floor or target).group(1) if (floor or target) else ""
     return Compensation(
-        currency="CAD",
-        floor_base=int(floor.group(1).replace(",", "")) if floor else 0,
-        target_base=int(target.group(1).replace(",", "")) if target else None,
+        currency=currency,
+        floor_base=int(floor.group(2).replace(",", "")) if floor else 0,
+        target_base=int(target.group(2).replace(",", "")) if target else None,
         band_rule="midpoint",
         unknown_rule="needs_input",
         provenance=prov,
     )
 
 
-def default_preferences(confirmed_on: str = "2026-10-15") -> Preferences:
-    """Saved preferences reconciled from apply-joss-jobs / joss-linkedin-outreach and the user's rules."""
-    faang = [
-        ExcludedEmployer(name=n, aliases=a, reason="FAANG exclusion")
-        for n, a in (("Meta", ["Facebook", "Meta Platforms"]), ("Apple", []), ("Amazon", ["AWS", "Amazon Web Services"]), ("Netflix", []), ("Google", ["Alphabet"]))
-    ]
-    rbc = ExcludedEmployer(name="RBC", aliases=["Royal Bank of Canada", "RBC Capital Markets"], reason="saved rule: excluded for outreach and applications")
-    return Preferences(
-        employment_types=["permanent"],
-        role_families=[
-            "backend",
-            "back end",
-            "back-end",
-            "software developer",
-            "software engineer",
-            "java developer",
-            "python developer",
-            "api developer",
-            "platform engineer",
-            "ai engineer",
-            "senior ai engineer",
-        ],
-        excluded_role_families=[
-            "frontend",
-            "front end",
-            "mobile",
-            "ios",
-            "android",
-            "data scientist",
-            "research scientist",
-            "machine learning scientist",
-            "qa",
-            "test engineer",
-            "sre",
-            "devops",
-            "site reliability",
-            "manager",
-            "director",
-            "staff",
-            "principal",
-            "architect",
-            "intern",
-            "co-op",
-        ],
-        locations=["Toronto", "GTA", "Mississauga", "Milton", "Oakville", "Markham", "Vaughan", "Ontario", "Canada"],
-        remote_rule="remote must be explicitly open to Ontario residents",
-        excluded_employers=[rbc, *faang],
-        # No named recipient exclusions by default (Joss, 2026-11-04): prior-contact checks are handled by the
-        # first-contact gate, which fails closed until contact history is imported or confirmed per recipient.
-        recipient_exclusions=[],
-        small_startup_rule="needs_review",
-        work_authorization="Authorized to work in Canada without sponsorship now or in the future",
-        outreach_rules={
-            "connect_note_max_chars": 300,
-            "no_dashes": True,
-            "no_layoff_mention": True,
-            "mention_applied_role": True,
-            "ask_other_permanent_backend_roles": True,
-            "message_words": [45, 75],
-            "draft_by_default": True,
-        },
-    )
+def default_preferences(confirmed_on: str | None = None) -> Preferences:
+    """Neutral starting preferences: permanent roles, every work arrangement, no role families, no locations, no
+    excluded employers, no recipient exclusions. Everything personal comes from candidate/profile.toml or the
+    dashboard; nothing about a particular person, profession, city or employer is defaulted in code."""
+    return Preferences()
 
 
 _MONTHS = {m: i for i, m in enumerate(["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"], 1)}
@@ -442,9 +476,9 @@ def _to_ym(text: str) -> str | None:
 
 
 def parse_apply_skill(text: str, confirmed_on: str | None = None) -> tuple[list[Employment], list[Fact]]:
-    """Generic extraction from the private apply skill: employment dates, work authorization, degree,
-    school and the confirmed AI-workflow answer. Patterns match sentence shapes, never specific values."""
-    prov = Provenance(source="skill:apply-joss-jobs", confirmed_on=confirmed_on)
+    """Generic extraction from a private apply skill: employment dates, work authorization, degree,
+    school and a confirmed answer about AI tools. Patterns match sentence shapes, never specific values."""
+    prov = Provenance(source="skill:apply-jobs", confirmed_on=confirmed_on)
     employment: list[Employment] = []
     answers: list[Fact] = []
     employment_re = (
@@ -463,9 +497,7 @@ def parse_apply_skill(text: str, confirmed_on: str | None = None) -> tuple[list[
                     start=start,
                     end=end,
                     end_known=True,
-                    provenance=Provenance(
-                        source="skill:apply-joss-jobs", confirmed_on=confirmed_on, note="month/year dates from the skill; title/internships come from the base resume"
-                    ),
+                    provenance=Provenance(source="skill:apply-jobs", confirmed_on=confirmed_on, note="dates from the skill; titles and internships come from the base resume"),
                 )
             )
     m = re.search(r"^[-*]?\s*(Authorized to work in [^.\n]+?(?:now or in the future)?)\.?$", text, re.M | re.I)
@@ -480,7 +512,8 @@ def parse_apply_skill(text: str, confirmed_on: str | None = None) -> tuple[list[
         answers.append(Fact(category="education", key="school", value=m.group(1).strip(), provenance=prov))
     m = re.search(r"asked about AI workflow, use the confirmed answer:\s*([^\n]+?)\.(?:\s|$)", text)
     if m:
-        answers.append(Fact(category="answer", key="ai_workflow", value=m.group(1).strip(), provenance=prov))
+        # Legacy skill wording for one recurring question; the pattern it answers travels with the fact.
+        answers.append(Fact(category="answer", key="ai_workflow", value=m.group(1).strip(), provenance=prov, question_pattern=r"ai (tools|workflow)|copilot"))
     if re.search(r"^\s*[-*]\s*Permanent\b", text, re.M | re.I):
         answers.append(Fact(category="answer", key="employment_preference", value="Permanent", provenance=prov))
     return employment, answers
@@ -504,10 +537,17 @@ def apply_private_overrides(profile: Profile, data: dict, confirmed_on: str | No
     return profile
 
 
-def employment_from_base_resume(resume_text_entries: list[dict], confirmed_on: str | None, base_sha256: str) -> list[Employment]:
+def training_role_pattern(terms: list[str] | None = None) -> re.Pattern[str]:
+    """Regex for the words that mark a training role (internship, co-op, ...), from the resume rules or the defaults."""
+    words = [t.strip() for t in (terms or DEFAULT_TRAINING_ROLE_TERMS) if t.strip()]
+    return re.compile("|".join(rf"(?<![a-z]){re.escape(w)}" for w in words), re.I)
+
+
+def employment_from_base_resume(resume_text_entries: list[dict], confirmed_on: str | None, base_sha256: str, training_terms: list[str] | None = None) -> list[Employment]:
     """Build employment rows from the approved base resume's experience headers (employer/title/dates).
-    Internships are detected from the title text. Unparseable dates stay unknown instead of being guessed."""
+    Training roles are detected from the title text with the candidate's terms. Unparseable dates stay unknown."""
     prov = Provenance(source=f"base_resume:{base_sha256[:12]}", confirmed_on=confirmed_on)
+    training = training_role_pattern(training_terms)
     out: list[Employment] = []
     for e in resume_text_entries:
         dates = e.get("dates", "")
@@ -516,7 +556,7 @@ def employment_from_base_resume(resume_text_entries: list[dict], confirmed_on: s
         end_raw = parts[1].strip().lower() if len(parts) > 1 else ""
         present = end_raw in ("present", "current", "now")
         end = None if present or not end_raw else _to_ym(end_raw)
-        kind = "internship" if re.search(r"intern|co-?op", (e.get("title") or "") + " " + (e.get("header") or ""), re.I) else "full_time"
+        kind = "internship" if training.search((e.get("title") or "") + " " + (e.get("header") or "")) else "full_time"
         if not start:
             continue
         out.append(
@@ -569,16 +609,22 @@ def merge_employment(primary: list[Employment], secondary: list[Employment]) -> 
 
 
 def build_profile_from_skills(
-    facts_text: str | None, salary_text: str | None, confirmed_on: str = "2026-10-15", apply_text: str | None = None, overrides: dict | None = None
+    facts_text: str | None,
+    salary_text: str | None,
+    confirmed_on: str | None = None,
+    apply_text: str | None = None,
+    overrides: dict | None = None,
+    preferences: Preferences | None = None,
 ) -> Profile:
-    """Private sources -> Profile. Nothing personal is defaulted in code: employment, education and answers
-    come from the apply skill text, the private overrides JSON, or the approved base resume."""
+    """Legacy private sources -> Profile. Nothing personal is defaulted in code: employment, education and answers
+    come from the apply skill text, the private overrides JSON, or the approved base resume; preferences are the
+    neutral defaults unless given (candidate/profile.toml is the current way to set them)."""
     profile = Profile()
     if facts_text:
         profile.facts = parse_facts_skill(facts_text, confirmed_on)
     if salary_text:
         profile.compensation = parse_salary_skill(salary_text, confirmed_on)
-    profile.preferences = default_preferences(confirmed_on)
+    profile.preferences = preferences or default_preferences(confirmed_on)
     if apply_text:
         employment, answers = parse_apply_skill(apply_text, confirmed_on)
         profile.employment = employment

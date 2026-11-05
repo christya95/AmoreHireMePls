@@ -48,6 +48,24 @@ def test_tracked_source_contains_no_known_private_tokens():
     assert not hits, f"private tokens present in tracked files: {hits}"
 
 
+def test_src_contains_no_owner_name():
+    """The code must not know who runs it: the original owner's first name (hashed in tests/fixtures/src_only_token_hashes.txt,
+    so this file never spells it) may appear in docs and history but never as a literal under src/."""
+    hashes = {ln.strip() for ln in (REPO / "tests" / "fixtures" / "src_only_token_hashes.txt").read_text().splitlines() if ln.strip() and not ln.startswith("#")}
+    assert hashes, "hash list missing"
+    tracked = subprocess.run(["git", "ls-files", "src"], cwd=REPO, capture_output=True, text=True, check=True).stdout.split()
+    assert tracked
+    hits = []
+    for rel in tracked:
+        p = REPO / rel
+        if p.suffix.lower() not in {".py", ".md", ".html", ".js", ".css", ".txt", ".json", ".toml"}:
+            continue
+        for word in set(re.findall(r"[a-z0-9]+", p.read_text(encoding="utf-8", errors="ignore").lower())):
+            if _h(word) in hashes:
+                hits.append((rel, word[:1] + "***"))
+    assert not hits, f"owner name present in src/: {hits}"
+
+
 # -- H2: expired execution lease never re-runs the adapter ----------------------------------------------------
 @pytest.mark.mongo
 def test_expired_executing_lease_becomes_needs_verification_not_rerun(store):

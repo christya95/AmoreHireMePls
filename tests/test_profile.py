@@ -47,7 +47,7 @@ def test_parse_facts_with_provenance():
     assert facts["preferred_name"].value == "Al"
     assert facts["postal_code"].value == "L0L 0L0"
     assert facts["phone"].value == "555 000 0000"
-    assert facts["email"].provenance.source == "skill:joss-application-facts"
+    assert facts["email"].provenance.source == "skill:application-facts"
     assert facts["email"].provenance.confirmed_on == "2026-10-15"
 
 
@@ -67,9 +67,11 @@ def test_experience_separates_internships_and_full_time():
 
 
 def test_salary_rule_requires_matching_base_band():
-    comp = Compensation(floor_base=110000, target_base=120000, provenance=Provenance(source="t"))
+    comp = Compensation(currency="CAD", floor_base=110000, target_base=120000, provenance=Provenance(source="t"))
     assert desired_salary(comp, None).outcome == "needs_input"
     band = BandEvidence(min_base=115000, max_base=125000, currency="CAD", title_matches=True, location_matches=True)
+    no_currency = Compensation(floor_base=110000, provenance=Provenance(source="t"))
+    assert desired_salary(no_currency, band).outcome == "needs_input"  # no currency saved: ask
     d = desired_salary(comp, band, "fair")
     assert d.outcome == "answer" and d.amount == 120000
     assert desired_salary(comp, band, "stretch").amount == 115000
@@ -83,15 +85,23 @@ def test_salary_rule_requires_matching_base_band():
     assert desired_salary(comp, usd).outcome == "needs_input"
 
 
-def test_exclusions_are_rules_not_first_names():
+def test_default_preferences_are_neutral_and_exclusions_come_from_the_candidate():
+    from tests.fixtures.profile_fixture import build_test_profile
+
     prefs = default_preferences()
     assert prefs.recipient_exclusions == []  # no named recipient exclusions by default; first-contact gate handles history
-    profile = build_profile_from_skills(FAKE_FACTS, FAKE_SALARY)
+    assert prefs.excluded_employers == [] and prefs.locations == [] and prefs.role_families == [] and prefs.excluded_role_families == []
+    assert prefs.outreach_rules["role_phrase"] == "" and prefs.outreach_rules["one_liner"] == ""
+    bare = build_profile_from_skills(FAKE_FACTS, FAKE_SALARY)
+    assert bare.is_excluded_employer("Royal Bank of Canada") is None  # nothing is excluded until the candidate says so
+    assert bare.compensation.currency == "CAD" and bare.compensation.floor_base == 123000  # from the salary text, not a default
+    profile = build_test_profile(FAKE_FACTS, FAKE_SALARY)
     assert profile.is_excluded_employer("Royal Bank of Canada") is not None
     assert profile.is_excluded_employer("Amazon Web Services") is not None
     assert profile.is_excluded_employer("Shopify") is None
-    assert profile.compensation.floor_base == 123000
     assert "base_resume" in profile.missing_essentials()
+    assert profile.first_name() == "Al" and profile.profession() == "backend software developer"
+    assert bare.profession() == "professional" and build_profile_from_skills(None, None).first_name() == ""
 
 
 def test_apply_skill_parsing_is_generic_and_private_defaults_are_gone():
@@ -114,7 +124,8 @@ def test_apply_skill_parsing_is_generic_and_private_defaults_are_gone():
     assert empty.employment == [] and empty.answers == [] and empty.education == []
     assert any("employment history" in u for u in empty.unknowns)
     full = build_profile_from_skills(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY)
-    assert full.employment[0].provenance.source == "skill:apply-joss-jobs"
+    assert full.employment[0].provenance.source == "skill:apply-jobs"
+    assert {a.key: a for a in full.answers}["ai_workflow"].question_pattern  # the legacy answer still knows which question it answers
     apply_private_overrides(full, {"employment": [{"employer": "Initech", "title": "Intern", "kind": "internship", "start": "2020-05", "end": "2020-08"}], "skills": ["Java"]})
     assert any(e.kind == "internship" for e in full.employment) and full.skills[0].name == "Java"
     # the module source must not carry employment rows, degrees or schools as literals

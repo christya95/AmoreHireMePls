@@ -17,7 +17,7 @@
   <div class="card-h"><h3>Recent calls</h3></div>
   <div class="table-wrap"><table>
     <thead><tr><th>When</th><th>Task</th><th>Step</th><th>Model</th><th>Words in / out / reused</th><th class="right">Cost</th><th class="right">Took</th></tr></thead>
-    <tbody>{% for r in rows %}<tr><td class="nowrap">{{ r.created_at|toronto }}</td><td><small class="mono">{{ r.run_id or '' }}</small></td><td>{{ r.skill }}</td><td>{{ r.model }}</td><td>{{ r.input_tokens }} / {{ r.output_tokens }} / {{ r.cached_tokens or 0 }}</td><td class="right">{{ '%.5f'|format(r.cost_usd) if r.cost_known and r.cost_usd is not none else 'unknown' }}</td><td class="right">{{ r.latency_ms }} ms</td></tr>
+    <tbody>{% for r in rows %}<tr><td class="nowrap">{{ r.created_at|local }}</td><td><small class="mono">{{ r.run_id or '' }}</small></td><td>{{ r.skill }}</td><td>{{ r.model }}</td><td>{{ r.input_tokens }} / {{ r.output_tokens }} / {{ r.cached_tokens or 0 }}</td><td class="right">{{ '%.5f'|format(r.cost_usd) if r.cost_known and r.cost_usd is not none else 'unknown' }}</td><td class="right">{{ r.latency_ms }} ms</td></tr>
     {% else %}<tr><td colspan="7"><div class="empty">No calls yet.</div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>

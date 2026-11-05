@@ -28,7 +28,7 @@
 <div class="main">
   <header class="topbar">
     <span class="title">{{ title }}</span>
-    <span class="crumb">{{ now|toronto }} Toronto</span>
+    <span class="crumb">{{ now|local }} {{ tz_label() }}</span>
     <div class="topbar-actions">
       <form class="theme-form" method="post" action="/settings/theme"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="next" value="{{ request.url.path }}"><input type="hidden" name="theme" value="{{ 'light' if ui.theme == 'dark' else 'dark' }}">
         <button type="submit" class="icon-btn theme-toggle" title="Switch light / dark" aria-label="Switch light or dark theme"><svg class="i-sun"><use href="#i-sun"/></svg><svg class="i-moon"><use href="#i-moon"/></svg></button></form>

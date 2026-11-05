@@ -43,6 +43,7 @@ import httpx
 
 from ..browser import Plan, Step
 from .base import QuestionSet
+from .rules import PERSONAL_BLANK_REASON, YEARS_RULE
 
 if TYPE_CHECKING:
     from ..applications import Answer, FormField
@@ -82,7 +83,6 @@ LINK_RULES: list[tuple[re.Pattern, tuple[str, ...]]] = [
     (re.compile(r"github", re.I), ("github_url",)),
     (re.compile(r"website|portfolio|personal site", re.I), ("website_url", "portfolio_url", "github_url")),
 ]
-YEARS_RULE = re.compile(r"years? of (full[- ]time |professional |software |relevant |work )?experience", re.I)
 FULL_TIME_RULE = re.compile(r"full[- ]time|excluding intern", re.I)
 _RANGE = re.compile(r"(\d+)\s*(?:-|–|to)\s*(\d+)")
 _LESS = re.compile(r"(?:less than|under|fewer than|<)\s*(\d+)")
@@ -239,7 +239,7 @@ class GreenhouseAdapter:
                         Answer(f.id, label, opt, [], needs_input=False, reason="personal question: the form requires an answer, so the decline option is chosen", sensitive=True)
                     )
                 else:
-                    out.append(Answer(f.id, label, None, [], needs_input=f.required, reason="personal question: left blank unless Joss supplies a preference", sensitive=True))
+                    out.append(Answer(f.id, label, None, [], needs_input=f.required, reason=PERSONAL_BLANK_REASON, sensitive=True))
                 continue
             if name == "resume":
                 out.append(Answer(f.id, label, resume_path, ["artifact"], needs_input=resume_path is None, reason="" if resume_path else "no tailored resume yet"))
