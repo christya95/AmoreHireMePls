@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import pytest
@@ -13,12 +14,14 @@ from amorehiremepls.tailoring import (
     check_grounding,
     deterministic_tailor,
     find_soffice,
+    fit_to_page_limit,
+    page_limit_block_reason,
     parse_base_resume,
     render_pdf,
     verify_docx_structure,
 )
 from amorehiremepls.util import sha256_file
-from tests.fixtures.make_resume import FIXTURE_CONTACT, FIXTURE_NAME, make_base_resume, make_column_header_resume
+from tests.fixtures.make_resume import FIXTURE_CONTACT, FIXTURE_NAME, make_base_resume, make_column_header_resume, make_long_resume
 
 
 def test_parse_base_resume_sections(tmp_path):
@@ -37,9 +40,9 @@ def test_parse_column_header_layout_keeps_name_and_contact_out_of_summary(tmp_pa
     base = parse_base_resume(make_column_header_resume(tmp_path / "base.docx"))
     assert base.contact_lines == [FIXTURE_NAME, FIXTURE_CONTACT]
     assert base.summary.startswith("Backend developer") and FIXTURE_NAME not in base.summary and "alex@example.com" not in base.summary
-    # category labels are not skills; items behind "Label:<tab>" are
-    assert "Languages" not in base.skills and "Languages:" not in base.skills
-    assert {"Java", "Python", "SQL", "Spring Boot", "Kafka", "Git"} <= set(base.skills)
+    # category labels are not skills; items behind "Label:<tab>" are, including the second group sharing a paragraph
+    assert not any(s.rstrip(":") in ("Languages", "Frameworks", "Cloud", "Tools") for s in base.skills)
+    assert {"Java", "Python", "SQL", "Spring Boot", "Kafka", "AWS", "Azure", "Git"} <= set(base.skills)
     assert sum(len(e.bullets) for e in base.experience) == 5 and base.projects[0].bullets
 
 
@@ -113,21 +116,162 @@ def test_template_build_preserves_two_column_header_layout(tmp_path):
     assert contact_p._p.find(qn("w:hyperlink")) is not None
     texts = _texts(out)
     assert texts[:4] == ["SUMMARY", FIXTURE_NAME, FIXTURE_CONTACT, MODEL_LIKE["summary"]]
-    # skills keep their "Label:<tab>items" groups and bold labels; a group left empty disappears, extras join the last surviving group
-    assert texts[5:8] == ["Languages:\tJava", "Frameworks:\tSpring Boot, Kafka, GitHub Actions", "PROFESSIONAL EXPERIENCE"]
+    # skills keep "Label:<tab>items" lines with bold labels; emptied groups (Cloud, Tools) disappear with their lines,
+    # a grounded extra without a base group gets its own "Other" line rather than another group's line
+    assert texts[5:9] == ["Languages:\tJava", "Frameworks:\tSpring Boot, Kafka", "Other:\tGitHub Actions", "PROFESSIONAL EXPERIENCE"]
     skills_p = next(p for p in doc.paragraphs if p.text.startswith("Frameworks:"))
-    assert [r.bold for r in skills_p.runs][:2] == [True, True] and skills_p.runs[-1].bold is None
+    assert [r.bold for r in skills_p.runs] == [True, True, None]
     # role header lines untouched, bullets rewritten in place with the list style, leftovers removed
-    assert texts[8:12] == [
+    assert texts[9:13] == [
         "Software Developer\tMay 2021 – March 2025",
         "Big Bank, Toronto, Ontario",
         "Tuned PostgreSQL queries and cut batch processing time by 40%.",
         "Built REST APIs in Java and Spring Boot serving 2 million daily requests.",
     ]
-    assert texts[12] == "Software Developer Intern\tMay 2022 – August 2022" and len(doc.paragraphs) == len(base_doc.paragraphs) - 3
+    assert texts[13] == "Software Developer Intern\tMay 2022 – August 2022" and len(doc.paragraphs) == len(base_doc.paragraphs) - 2
+    assert doc.core_properties.title == base_doc.core_properties.title  # nothing invented when no name is given
     # the page-2 section now flows instead of forcing a page break; the two-column first section is unchanged
     assert [s.start_type for s in doc.sections][1:] == [WD_SECTION.CONTINUOUS, WD_SECTION.CONTINUOUS]
     assert verify_docx_structure(out)["has_summary"]
+
+
+COLUMN_MODEL_LIKE = {**MODEL_LIKE, "experience": [{"experience_id": "exp_2", "bullets": MODEL_LIKE["experience"][0]["bullets"]}]}  # column fixture: bullets sit under exp_2
+MOVED_SKILLS = ["Java", "Spring Boot", "REST APIs", "Kafka", "Azure", "PostgreSQL", "Docker", "Git", "GitHub Actions"]  # drops Python, SQL, AWS; adds GitHub Actions
+LABEL_RE = re.compile(r"\b[A-Z][A-Za-z/ ]{1,20}:")
+
+
+def _skill_lines(doc: Document) -> list:
+    out = []
+    collecting = False
+    for p in doc.paragraphs:
+        t = p.text.strip()
+        if t == "SKILLS":
+            collecting = True
+            continue
+        if collecting and p.style.name.startswith("Heading"):
+            break
+        if collecting and t:
+            out.append(p)
+    return out
+
+
+def test_skills_groups_keep_one_line_each_when_items_move_between_groups(tmp_path):
+    from docx.oxml.ns import qn
+
+    base_path = make_column_header_resume(tmp_path / "base.docx")
+    base = parse_base_resume(base_path)
+    out = build_docx(base, {**MODEL_LIKE, "skills": MOVED_SKILLS}, tmp_path / "out.docx")
+    doc = Document(str(out))
+    lines = _skill_lines(doc)
+    # the paragraph that held two groups is split; every group keeps its own line in base order, extras get an "Other" line
+    assert [p.text for p in lines] == [
+        "Languages:\tJava",
+        "Frameworks:\tSpring Boot, REST APIs, Kafka",
+        "Cloud:\tAzure",
+        "Tools:\tPostgreSQL, Docker, Git",
+        "Other:\tGitHub Actions",
+    ]
+    for p in lines:
+        labels = LABEL_RE.findall(p.text)
+        assert len(labels) == 1 and p.text.startswith(labels[0]), p.text  # a label never appears mid-line
+        assert [r.bold for r in p.runs] == [True, True, None] and p.runs[1].text == "\t"
+        ppr = p._p.pPr
+        assert ppr.find(qn("w:tabs")) is not None  # the label tab stop travels with each line
+        ind = ppr.find(qn("w:ind"))
+        assert ind is None or ind.get(qn("w:end")) in (None, "0")  # no tuned right indent left to re-wrap the line
+    assert [p.style.name for p in lines] == ["Normal", "Body Text", "Body Text", "Normal", "Normal"]
+
+
+def test_skills_rewrite_prefers_existing_other_group_and_unlabeled_single_list(tmp_path):
+    base = parse_base_resume(make_base_resume(tmp_path / "base.docx"))
+    out = build_docx(base, {**MODEL_LIKE, "skills": ["Kafka", "GitHub Actions"]}, tmp_path / "out.docx")
+    assert [p.text for p in _skill_lines_plain(out)] == ["Kafka, GitHub Actions"]  # single unlabeled list: extras join it
+
+    doc = Document()
+    doc.add_paragraph(FIXTURE_NAME)
+    doc.add_paragraph(FIXTURE_CONTACT)
+    doc.add_paragraph("Skills")
+    doc.add_paragraph("Languages: Java, Python")
+    doc.add_paragraph("Other: Git, Agile")
+    doc.add_paragraph("Experience")
+    doc.add_paragraph("Developer at Example Co | 2020 – 2021")
+    doc.add_paragraph("Built Java services with GitHub Actions pipelines.", style="List Bullet")
+    other_path = tmp_path / "other.docx"
+    doc.save(str(other_path))
+    base = parse_base_resume(other_path)
+    out = build_docx(base, {"summary": "", "skills": ["Java", "Agile", "GitHub Actions"], "experience": []}, tmp_path / "out2.docx")
+    assert _texts(out)[3:5] == ["Languages:\tJava", "Other:\tAgile, GitHub Actions"]  # extras go to the existing Other line only
+
+
+def _skill_lines_plain(docx_path: Path) -> list:
+    doc = Document(str(docx_path))
+    texts = [p for p in doc.paragraphs if p.text.strip()]
+    start = next(i for i, p in enumerate(texts) if p.text.strip() == "Technical Skills") + 1
+    end = next(i for i, p in enumerate(texts) if p.text.strip() == "Professional Experience")
+    return texts[start:end]
+
+
+def test_output_is_ats_friendly_and_reads_in_order(tmp_path):
+    from docx.oxml.ns import qn
+
+    base_path = make_column_header_resume(tmp_path / "base.docx")
+    base = parse_base_resume(base_path)
+    out = build_docx(base, {**COLUMN_MODEL_LIKE, "skills": MOVED_SKILLS}, tmp_path / "out.docx", title="Alex Example Resume", author="Alex Example")
+    doc, base_doc = Document(str(out)), Document(str(base_path))
+    body = doc.element.body
+    # nothing the base does not have: no tables, text boxes, pictures or extra drawings; no empty paragraphs added
+    assert len(doc.tables) == 0 and not body.findall(".//" + qn("w:txbxContent")) and not body.findall(".//" + qn("w:pict"))
+    assert len(body.findall(".//" + qn("w:drawing"))) == len(base_doc.element.body.findall(".//" + qn("w:drawing")))
+    assert sum(1 for p in doc.paragraphs if not p.text.strip()) <= sum(1 for p in base_doc.paragraphs if not p.text.strip())
+    # bullets are real list paragraphs (numbering), not glyph characters
+    bullets = [p for p in doc.paragraphs if p.style.name == "List Bullet"]
+    assert bullets and all(p._p.pPr.find(qn("w:numPr")) is not None or p.style.paragraph_format is not None for p in bullets)
+    assert not any(p.text.lstrip()[:1] in "•-–·▪●" for p in bullets)
+    # one consistent rPr per rewritten run: no per-word character spacing artifacts
+    assert not any(r._r.find(qn("w:rPr")) is not None and r._r.find(qn("w:rPr")).find(qn("w:spacing")) is not None for p in bullets for r in p.runs)
+    # document properties: plain name and title, no internal ids
+    assert doc.core_properties.title == "Alex Example Resume" and doc.core_properties.author == "Alex Example"
+    assert not re.search(r"\b(job|art|run)_[0-9a-f]{6,}", f"{doc.core_properties.title} {doc.core_properties.author} {doc.core_properties.last_modified_by}")
+    # reading order from the document text
+    texts = _texts(out)
+    order = [
+        FIXTURE_NAME,
+        FIXTURE_CONTACT,
+        MODEL_LIKE["summary"],
+        "SKILLS",
+        "Languages:\tJava",
+        "Frameworks:\tSpring Boot, REST APIs, Kafka",
+        "Cloud:\tAzure",
+        "Tools:\tPostgreSQL, Docker, Git",
+        "Other:\tGitHub Actions",
+        "PROFESSIONAL EXPERIENCE",
+        "Software Developer\tMay 2021 – March 2025",
+        "Tuned PostgreSQL queries and cut batch processing time by 40%.",
+        "Software Developer Intern\tMay 2022 – August 2022",
+        "PROJECTS",
+        "EDUCATION",
+        "CERTIFICATIONS",
+    ]
+    positions = [texts.index(t) for t in order]
+    assert positions == sorted(positions) and texts.index("SUMMARY") < texts.index(FIXTURE_NAME)  # label-first column order is the base's own
+
+
+@pytest.mark.skipif(not find_soffice(), reason="LibreOffice not installed")
+def test_rendered_pdf_keeps_each_skill_label_at_line_start(tmp_path):
+    from pypdf import PdfReader
+
+    base = parse_base_resume(make_column_header_resume(tmp_path / "base.docx"))
+    out = build_docx(base, {**MODEL_LIKE, "skills": MOVED_SKILLS}, tmp_path / "artifacts" / "out.docx")
+    res = render_pdf(out)
+    assert res["reason"] == "" and res["selectable_text"]
+    text = "\n".join(page.extract_text(extraction_mode="layout") or "" for page in PdfReader(res["pdf_path"]).pages)
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    for label in ("Languages:", "Frameworks:", "Cloud:", "Tools:", "Other:"):
+        starts = [ln for ln in lines if ln.startswith(label)]
+        assert len(starts) == 1, (label, [ln for ln in lines if label in ln])
+        assert len(LABEL_RE.findall(starts[0])) == 1, starts[0]  # no second label later on the same rendered line
+    idx = {label: next(i for i, ln in enumerate(lines) if ln.startswith(label)) for label in ("Languages:", "Frameworks:", "Cloud:", "Tools:", "Other:")}
+    assert list(idx.values()) == sorted(idx.values())
 
 
 def test_template_build_refuses_when_base_file_changed_and_falls_back_when_missing(tmp_path):
@@ -279,3 +423,114 @@ def test_tailor_service_falls_back_when_model_output_is_ungrounded_and_records_h
     assert store.c("artifacts").count_documents({"owner_id": "job_1"}) == 1
     # base untouched
     assert sha256_file(base_path) == art["base_sha256"]
+
+
+def test_tailor_skill_states_the_two_page_budget():
+    spec = catalog.get("tailor_resume")
+    assert spec.version == "2026-11-05.1"
+    assert "two pages" in spec.system_prompt.lower() and "two page budget" in spec.system_prompt.lower()
+
+
+def _render_fixed(pages: int):
+    def render(docx_path: Path) -> dict:
+        pdf = docx_path.with_suffix(".pdf")
+        pdf.write_bytes(b"%PDF-1.4\n%fixture\n")
+        return {
+            "pdf_path": str(pdf),
+            "pages": pages,
+            "verified": pages <= 2,
+            "selectable_text": True,
+            "reason": "" if pages <= 2 else f"{pages} pages exceeds two",
+        }
+
+    return render
+
+
+def _echo_base(base):
+    def respond(_user: str) -> dict:
+        return {
+            "summary": base.summary,
+            "skills": list(base.skills),
+            "experience": [{"experience_id": e.id, "bullets": [{"source_id": b.id, "text": b.text} for b in e.bullets]} for e in base.experience + base.projects],
+            "dropped_bullet_ids": [],
+            "unsupported_requirements_note": "",
+        }
+
+    return respond
+
+
+@pytest.mark.skipif(not find_soffice(), reason="LibreOffice not installed")
+def test_trim_loop_brings_three_page_fixture_to_two(tmp_path):
+    base_path = make_long_resume(tmp_path / "base.docx")
+    base = parse_base_resume(base_path)
+    posting = "Java Spring Boot PostgreSQL"
+    full = deterministic_tailor(base, posting, max_bullets_per_role=50)
+    before_path = tmp_path / "before.docx"
+    build_docx(base, full, before_path)
+    before = render_pdf(before_path)
+    assert before["pages"] >= 3, before
+    out = tmp_path / "out.docx"
+    fitted, pdf, trimmed = fit_to_page_limit(base, full, posting, out)
+    assert trimmed and pdf["reason"] == "" and pdf["verified"] and pdf["pages"] <= 2
+    assert sum(len(e["bullets"]) for e in fitted["experience"]) < sum(len(e["bullets"]) for e in full["experience"])
+    assert _paragraph_xml(out)[:2] == _paragraph_xml(base_path)[:2]
+    assert check_grounding(fitted, base).ok
+
+
+@pytest.mark.mongo
+def test_over_two_pages_is_not_approvable_or_submittable(store, tmp_path):
+    from amorehiremepls.actions import ActionStore
+    from amorehiremepls.applications import ApplicationService
+    from tests.test_applications_and_sync import FIELDS, _job, _profile
+
+    profile = _profile(tmp_path)
+    base = parse_base_resume(Path(profile.base_resume.path))
+    provider = FakeProvider({"TailorOutput": _echo_base(base)})
+    tailor = Tailor(store, tmp_path / "artifacts", AIRunner(store, provider, catalog, Pricing(None)), render=_render_fixed(3))
+    svc = ApplicationService(store, profile, tailor, ActionStore(store), {"ats.example": lambda job, pkg, answers: None})
+    app = svc.prepare(_job(store)["_id"], [f for f in FIELDS if f.id != "why"])
+    doc = app["review_package"]["document"]
+    assert app["status"] == "needs_input"
+    assert doc["path"] is None and doc["page_limit_verified"] is False
+    assert "after tightening" in (doc["render_note"] or "")
+    assert any("after tightening" in o for o in app["review_package"]["outstanding"])
+    assert page_limit_block_reason(doc)
+    assert len(provider.calls) == 2 and sum("previous draft" in c["user"] for c in provider.calls) == 1
+    assert all("two pages" in c["system"].lower() for c in provider.calls)
+    called: list = []
+    svc.apps.update_one({"_id": app["_id"]}, {"$set": {"status": "ready_for_review", "review_package.outstanding": []}})
+    out = svc.execute(app["_id"], "w1", lambda plan: called.append(plan) or {"verified": True})
+    assert out.status == "denied" and "after tightening" in out.reason and called == []
+
+
+@pytest.mark.mongo
+def test_verified_two_page_pdf_still_proceeds(store, tmp_path):
+    from amorehiremepls.actions import ActionStore
+    from amorehiremepls.applications import ApplicationService
+    from amorehiremepls.authorization import AuthorizationStore, ScopeBinding
+    from amorehiremepls.browser import Plan
+    from tests.test_applications_and_sync import FIELDS, _job, _profile
+
+    profile = _profile(tmp_path)
+    tailor = Tailor(store, tmp_path / "artifacts", render=_render_fixed(2))
+    ran: list = []
+
+    def builder(job, pkg, answers):
+        assert str(pkg["document"]["path"]).endswith(".pdf")
+        return Plan(start_url=pkg["apply_url"], steps=[], receipt_text="received")
+
+    svc = ApplicationService(store, profile, tailor, ActionStore(store), {"ats.example": builder})
+    job = _job(store)
+    app = svc.prepare(job["_id"], [f for f in FIELDS if f.id != "why"])
+    assert app["status"] == "ready_for_review", app["review_package"]["outstanding"]
+    doc = app["review_package"]["document"]
+    assert doc["page_limit_verified"] and doc["pages"] == 2 and str(doc["path"]).endswith(".pdf")
+    assert page_limit_block_reason(doc) is None
+    AuthorizationStore(store).grant("application_submit", ScopeBinding(target_id=job["_id"], material_hash=app["material_hash"]))
+
+    def fake_browser(plan: Plan) -> dict:
+        ran.append(plan.start_url)
+        return {"verified": True, "receipt_text": "Application received for requisition R42.", "final_url": plan.start_url + "/done", "screenshots": [], "final_clicked": True}
+
+    assert svc.execute(app["_id"], "w1", fake_browser).status == "succeeded"
+    assert ran and store.c("applications").find_one({"_id": app["_id"]})["status"] == "submitted"

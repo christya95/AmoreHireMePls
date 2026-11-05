@@ -1,5 +1,5 @@
 """Resume tailoring: parse the approved base DOCX, produce a grounded per-requisition DOCX (+ PDF when a
-renderer exists), verify the page limit, and record artifacts with hashes.
+renderer exists), tighten until the PDF is at most two pages, and record artifacts with hashes.
 
 Grounding: every tailored bullet cites a base bullet id; skills must exist in the base; new text may
 not introduce technology tokens absent from the base. Violations are rejected, not silently kept.
@@ -19,6 +19,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -349,6 +350,96 @@ def deterministic_tailor(base: BaseResume, posting_text: str, max_bullets_per_ro
     return {"summary": base.summary, "skills": skills, "experience": out_exp, "dropped_bullet_ids": [], "unsupported_requirements_note": ""}
 
 
+# -- two-page budget -----------------------------------------------------------------------
+
+PAGE_LIMIT = 2
+_TRIM_CAPS = (4, 2, 1)
+PAGE_LIMIT_BLOCK = "resume PDF is not verified at two pages or fewer"
+
+
+def _posting_terms(posting_text: str) -> set[str]:
+    return {t for t in normalize_text(posting_text).split() if len(t) > 2}
+
+
+def _relevance(text: str, terms: set[str]) -> int:
+    return len(set(normalize_text(text).split()) & terms)
+
+
+def _tailor_signature(tailored: dict) -> tuple:
+    return (
+        tailored.get("summary") or "",
+        tuple((e.get("experience_id"), tuple((b.get("source_id"), b.get("text")) for b in e.get("bullets") or [])) for e in tailored.get("experience") or []),
+    )
+
+
+def _cap_bullets(tailored: dict, cap: int, terms: set[str]) -> dict:
+    """Drop the lowest-relevance bullets until each role has at most ``cap``, keeping the original order of the rest."""
+    out = deepcopy(tailored)
+    dropped: list[str] = []
+    for exp in out.get("experience") or []:
+        bullets = list(exp.get("bullets") or [])
+        if len(bullets) <= cap:
+            continue
+        ranked = sorted(range(len(bullets)), key=lambda i: (_relevance(bullets[i].get("text", ""), terms), -i), reverse=True)
+        keep = set(ranked[:cap])
+        exp["bullets"] = [b for i, b in enumerate(bullets) if i in keep]
+        dropped.extend(b.get("source_id") for i, b in enumerate(bullets) if i not in keep and b.get("source_id"))
+    if dropped:
+        out["dropped_bullet_ids"] = list(dict.fromkeys([*(out.get("dropped_bullet_ids") or []), *dropped]))
+    return out
+
+
+def _shorten_summary(summary: str, base: BaseResume) -> str | None:
+    """A shorter prefix of ``summary`` that still passes grounding. None when nothing shorter is allowed."""
+    text = " ".join((summary or "").split())
+    if not text:
+        return None
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+    candidates: list[str] = []
+    if len(sentences) > 2:
+        candidates.append(" ".join(sentences[:2]))
+    if len(sentences) > 1:
+        candidates.append(sentences[0])
+    words = text.split()
+    for n in (24, 12):
+        if len(words) > n:
+            candidates.append(" ".join(words[:n]).rstrip(",;:") + ".")
+    seen: set[str] = set()
+    for cand in candidates:
+        cand = " ".join(cand.split())
+        if not cand or cand == text or cand in seen:
+            continue
+        seen.add(cand)
+        if check_grounding({"summary": cand, "skills": [], "experience": []}, base).ok:
+            return cand
+    return None
+
+
+def tighten_once(tailored: dict, base: BaseResume, posting_text: str) -> dict | None:
+    """One deterministic reduction: cap bullets (lowest relevance first), then shorten the summary."""
+    terms = _posting_terms(posting_text)
+    widest = max((len(e.get("bullets") or []) for e in tailored.get("experience") or []), default=0)
+    for cap in _TRIM_CAPS:
+        if widest > cap:
+            return _cap_bullets(tailored, cap, terms)
+    shortened = _shorten_summary(tailored.get("summary") or "", base)
+    if not shortened:
+        return None
+    out = deepcopy(tailored)
+    out["summary"] = shortened
+    return out
+
+
+def page_limit_block_reason(record: dict | None) -> str | None:
+    """Plain reason a package must not be approved or submitted. None when a verified PDF of at most two pages is present."""
+    if record and record.get("page_limit_verified"):
+        pdf = record.get("pdf_path") or record.get("path")
+        if pdf and str(pdf).lower().endswith(".pdf"):
+            return None
+    note = ((record or {}).get("render_note") or "").strip()
+    return note or PAGE_LIMIT_BLOCK
+
+
 # -- DOCX build: base document as template -------------------------------------------------
 
 
@@ -363,7 +454,20 @@ def _set_paragraph_text(p: Paragraph, text: str) -> None:
             continue
         if child.tag in {qn(t) for t in TEXT_CHILD_TAGS}:
             p._p.remove(child)
+    rpr = keep._r.find(qn("w:rPr"))
+    if rpr is not None:
+        keep._r.replace(rpr, _clean_rpr(rpr))
     keep.text = text
+
+
+def _clone_paragraph_after(src: Paragraph, anchor: Paragraph) -> Paragraph:
+    """Copy of ``src`` inserted after ``anchor``; a section break in the source is not duplicated."""
+    el = deepcopy(src._p)
+    if el.pPr is not None:
+        for sect in el.pPr.findall(qn("w:sectPr")):
+            el.pPr.remove(sect)
+    anchor._p.addnext(el)
+    return Paragraph(el, src._parent)
 
 
 def _remove_paragraph(p: Paragraph) -> None:
@@ -389,69 +493,144 @@ def _skill_matches(item: str, wanted_norm: list[str], consumed: set[int]) -> boo
     return False
 
 
+@dataclass
+class _SkillLine:
+    """One output line of the skills block: ``Label:<tab>items`` built from a base group."""
+
+    paragraph: Paragraph  # base paragraph the group came from (formatting source)
+    label: str  # label text without trailing whitespace, "" when the base line has no label
+    label_rpr: Any  # rPr element of the base label run (None when unlabeled)
+    item_rpr: Any  # rPr element of the first base item run
+    sep: str
+    items: list[str]
+
+
+def _clean_rpr(rpr: Any) -> Any:
+    """Copy of a run's properties without per-word character spacing/scale tweaks (PDF conversion artifacts)."""
+    if rpr is None:
+        return None
+    out = deepcopy(rpr)
+    for tag in ("w:spacing", "w:w", "w:kern", "w:position"):
+        for el in out.findall(qn(tag)):
+            out.remove(el)
+    return out
+
+
+def _add_run(p: Paragraph, text: str, rpr: Any) -> None:
+    run = p.add_run()
+    if rpr is not None:
+        run._r.insert(0, deepcopy(rpr))
+    run.text = text
+
+
+def _write_skill_line(p: Paragraph, line: _SkillLine) -> None:
+    """Fill ``p`` with ``Label:<tab>items`` (or just the items), one group per paragraph, no right-indent wrap."""
+    for child in list(p._p):
+        if child.tag != qn("w:pPr") and child.tag in {qn(t) for t in TEXT_CHILD_TAGS}:
+            p._p.remove(child)
+    ind = p._p.pPr.find(qn("w:ind")) if p._p.pPr is not None else None
+    if ind is not None:
+        for attr in ("w:end", "w:right"):
+            if ind.get(qn(attr)) not in (None, "0"):
+                ind.set(qn(attr), "0")
+    spacing = p._p.pPr.find(qn("w:spacing")) if p._p.pPr is not None else None
+    if spacing is not None:  # uniform single line spacing across the block (conversions tune it per wrapped paragraph)
+        for attr in ("w:line", "w:lineRule"):
+            if spacing.get(qn(attr)) is not None:
+                del spacing.attrib[qn(attr)]
+    if line.label:
+        _add_run(p, line.label, line.label_rpr)
+        _add_run(p, "\t", line.label_rpr)
+    _add_run(p, line.sep.join(line.items), line.item_rpr)
+
+
 def _rewrite_skills(paras: list[Paragraph], skills: list[str]) -> None:
-    """Keep the base skills layout (category labels, separators, run formatting); drop items the tailoring left out
-    and append tailored skills that have no base item to the last group."""
+    """Rebuild the skills block one group per line. A base paragraph that holds several ``Label:<tab>items``
+    groups (PDF conversions wrap them with a tuned right indent) is split into one paragraph per group, so a
+    label can never land mid-line when items change. Items the tailoring left out are dropped (an emptied group
+    disappears with its line); tailored skills without a base item go to the "Other"-style group, to the only
+    group when the base has a single unlabeled list, or to a new "Other" line formatted like the last one."""
     wanted_norm = [normalize_text(s) for s in skills]
     consumed: set[int] = set()
-    last: tuple[Any, str, str] | None = None  # (run, separator, trailing whitespace)
+    lines: list[_SkillLine] = []
     for p in paras:
-        groups = _skill_groups(p)
-        for g in groups:
+        for g in _skill_groups(p):
             if not g.item_runs:
                 continue
             raw = g.items_text
             sep = " | " if "|" in raw else "; " if ";" in raw else " • " if "•" in raw else ", "
-            lead, trail = raw[: len(raw) - len(raw.lstrip())], raw[len(raw.rstrip()) :]
-            label = SKILL_LABEL_RE.match(raw.strip())
-            prefix = label.group(0) if label and not g.label_runs else ""
-            kept = [it for it in _split_skill_items(raw) if _skill_matches(it, wanted_norm, consumed)]
-            if not kept:
-                for r in g.label_runs + g.item_runs:
-                    p._p.remove(r._r)
-                continue
-            for r in g.item_runs[1:]:
-                p._p.remove(r._r)
-            g.item_runs[0].text = lead + prefix + sep.join(kept) + trail
-            last = (g.item_runs[0], sep, trail)
-        if not p.text.strip():
-            _remove_paragraph(p)
+            label_rpr = g.label_runs[0]._r.find(qn("w:rPr")) if g.label_runs else None
+            label = "".join(r.text for r in g.label_runs).strip()
+            if not g.label_runs:
+                m = SKILL_LABEL_RE.match(raw.strip())
+                label = m.group(0).strip() if m else ""
+                label_rpr = g.item_runs[0]._r.find(qn("w:rPr"))
+            items = [it for it in _split_skill_items(raw) if _skill_matches(it, wanted_norm, consumed)]
+            lines.append(_SkillLine(p, label, _clean_rpr(label_rpr), _clean_rpr(g.item_runs[0]._r.find(qn("w:rPr"))), sep, items))
     extra = [s for i, s in enumerate(skills) if i not in consumed]
-    if extra and last is not None:
-        run, sep, trail = last
-        run.text = run.text.rstrip() + sep + sep.join(extra) + trail
+    if extra and lines:
+        target = next((ln for ln in lines if re.match(r"^(other|others|additional|misc|miscellaneous)\b", ln.label, re.I)), None)
+        if target is None and len(lines) == 1 and not lines[0].label:
+            target = lines[0]
+        if target is None:
+            last = lines[-1]
+            target = _SkillLine(last.paragraph, "Other:" if last.label else "", last.label_rpr, last.item_rpr, last.sep, [])
+            lines.append(target)
+        target.items.extend(extra)
+    # emit: the first surviving line of each base paragraph reuses it; further lines are new paragraphs with the
+    # same paragraph properties, inserted in order; base paragraphs with nothing left are removed
+    used: set[int] = set()
+    anchor: Paragraph | None = None
+    for line in lines:
+        if not line.items:
+            continue
+        if id(line.paragraph._p) not in used:
+            used.add(id(line.paragraph._p))
+            target = line.paragraph
+        else:
+            target = _clone_paragraph_after(line.paragraph, anchor or line.paragraph)
+        _write_skill_line(target, line)
+        anchor = target
+    for p in paras:
+        if id(p._p) not in used:
+            _remove_paragraph(p)
 
 
 def _rewrite_bullets(paras: list[Paragraph], texts: list[str]) -> None:
     """Rewrite one role's bullet paragraphs in place: first paragraph is the formatting template, extra bullets are
     clones of it, leftover base bullets are removed."""
-    template = deepcopy(paras[0]._p)
     glyph = BULLET_GLYPH_RE.match(paras[0].text)
     prefix = glyph.group(0) if glyph else ""
-    anchor = paras[0]._p
+    anchor = paras[0]
     for i, text in enumerate(texts):
-        if i < len(paras):
-            p = paras[i]
-        else:
-            el = deepcopy(template)
-            anchor.addnext(el)
-            p = Paragraph(el, paras[0]._parent)
+        p = paras[i] if i < len(paras) else _clone_paragraph_after(paras[0], anchor)
         _set_paragraph_text(p, prefix + text)
-        anchor = p._p
+        anchor = p
     for p in paras[len(texts) :]:
         _remove_paragraph(p)
 
 
-def build_docx(base: BaseResume, tailored: dict, out_path: Path, font: str = "Calibri", body_pt: float = 11) -> Path:
+def _set_document_properties(doc, title: str, author: str) -> None:
+    """Plain document properties for ATS parsers and reviewers: the person's name and a readable title, no ids."""
+    props = doc.core_properties
+    if author:
+        props.author = author
+        props.last_modified_by = author
+    if title:
+        props.title = title
+    props.modified = utcnow()
+
+
+def build_docx(base: BaseResume, tailored: dict, out_path: Path, font: str = "Calibri", body_pt: float = 11, title: str = "", author: str = "") -> Path:
     """Write the tailored resume. The base DOCX is the template whenever it is available: everything outside the
     summary, skills and bullets stays byte-for-byte as approved (name/contact block included)."""
     if base.source_path and Path(base.source_path).exists():
-        return _build_from_template(base, tailored, out_path)
+        return _build_from_template(base, tailored, out_path, title, author)
     log.warning("base resume file unavailable; generating a fresh document instead of using it as the template")
-    return _build_fresh(base, tailored, out_path, font, body_pt)
+    return _build_fresh(base, tailored, out_path, font, body_pt, title, author)
 
 
-def _build_from_template(base: BaseResume, tailored: dict, out_path: Path) -> Path:
+def _build_from_template(base: BaseResume, tailored: dict, out_path: Path, title: str = "", author: str = "") -> Path:
     doc = Document(str(base.source_path))
     parsed, layout = _parse_document(doc)
     if parsed.all_text != base.all_text or parsed.bullet_ids() != base.bullet_ids():
@@ -469,13 +648,15 @@ def _build_from_template(base: BaseResume, tailored: dict, out_path: Path) -> Pa
     for section in list(doc.sections)[1:]:
         if section.start_type == WD_SECTION.NEW_PAGE:
             section.start_type = WD_SECTION.CONTINUOUS
+    _set_document_properties(doc, title, author)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(out_path))
     return out_path
 
 
-def _build_fresh(base: BaseResume, tailored: dict, out_path: Path, font: str, body_pt: float) -> Path:
+def _build_fresh(base: BaseResume, tailored: dict, out_path: Path, font: str, body_pt: float, title: str = "", author: str = "") -> Path:
     doc = Document()
+    _set_document_properties(doc, title, author)
     for s in doc.sections:
         s.left_margin = s.right_margin = Inches(0.7)
         s.top_margin = s.bottom_margin = Inches(0.6)
@@ -659,14 +840,68 @@ def render_pdf(docx_path: Path, timeout: int = 120, exe: str | None = None) -> d
     }
 
 
+def _pages_over(pdf: dict) -> bool:
+    pages = pdf.get("pages")
+    return isinstance(pages, int) and pages > PAGE_LIMIT
+
+
+def _mark_over(pdf: dict) -> dict:
+    return {**pdf, "verified": False, "reason": f"{pdf.get('pages')} pages exceeds two after tightening"}
+
+
+def _write_and_render(base: BaseResume, tailored: dict, docx_path: Path, render: Callable[[Path], dict], title: str, author: str) -> dict:
+    build_docx(base, tailored, docx_path, title=title, author=author)
+    return render(docx_path)
+
+
+def fit_to_page_limit(
+    base: BaseResume,
+    tailored: dict,
+    posting_text: str,
+    docx_path: Path,
+    *,
+    render: Callable[[Path], dict] = render_pdf,
+    title: str = "",
+    author: str = "",
+    max_steps: int = 6,
+) -> tuple[dict, dict, bool]:
+    """Write and render, then drop the lowest-relevance extra bullets, cap bullets per role, and shorten the summary
+    until the PDF is at most two pages or nothing grounded is left to remove. The header block is never rewritten.
+    Returns ``(tailored, pdf, trimmed)``. A caller that is still over may try one model re-tailor."""
+    current = tailored
+    pdf = _write_and_render(base, current, docx_path, render, title, author)
+    trimmed = False
+    seen: set[tuple] = set()
+    for _ in range(max_steps):
+        if not _pages_over(pdf):
+            break
+        sig = _tailor_signature(current)
+        if sig in seen:
+            break
+        seen.add(sig)
+        nxt = tighten_once(current, base, posting_text)
+        if nxt is None or _tailor_signature(nxt) == sig:
+            break
+        current = nxt
+        trimmed = True
+        pdf = _write_and_render(base, current, docx_path, render, title, author)
+        log.info("page tighten step left %s pages", pdf.get("pages"))
+    return current, pdf, trimmed
+
+
 # -- service ------------------------------------------------------------------------------------
+
+_PAGE_BUDGET_RETRY = (
+    "2 pages. The previous draft rendered over two pages. Shorten it: summary at most two sentences, at most two bullets per role, drop the lowest relevance bullets."
+)
 
 
 class Tailor:
-    def __init__(self, store: Store, artifact_dir: Path, ai: AIRunner | None = None) -> None:
+    def __init__(self, store: Store, artifact_dir: Path, ai: AIRunner | None = None, render: Callable[[Path], dict] | None = None) -> None:
         self.store = store
         self.artifact_dir = artifact_dir
         self.ai = ai
+        self.render = render or render_pdf
 
     def tailor_for_job(self, job: dict, base_path: Path, base_sha256: str, fact_version: int, display_name: str = "Resume") -> dict:
         base = parse_base_resume(base_path)
@@ -702,9 +937,12 @@ class Tailor:
         req = job.get("requisition_id") or job.get("linkedin_job_id") or job["_id"][-6:]
         fname = f"{slugify(display_name.replace(' ', '_'))}_Resume_{slugify(job['employer'])}_{slugify(job['title'], 40)}_{slugify(str(req), 24)}.docx"
         out_dir = self.artifact_dir / "jobs" / job["_id"]
-        docx_path = build_docx(base, tailored, out_dir / fname)
+        person = "" if display_name.strip().lower() == "resume" else display_name.strip()
+        title = f"{person} Resume".strip()
+        docx_path = out_dir / fname
+        tailored, pdf, method = self._enforce_page_limit(base, tailored, posting_text, docx_path, job, fact_version, snapshot, method, title, person)
+        report = check_grounding(tailored, base)
         structure = verify_docx_structure(docx_path)
-        pdf = render_pdf(docx_path)
         docx_hash = sha256_file(docx_path)
         artifact = {
             "_id": new_id("art"),
@@ -730,3 +968,57 @@ class Tailor:
         self.store.c("artifacts").insert_one(artifact)
         self.store.audit("resume_tailored", job["_id"], sha256=docx_hash, method=method, verified_pages=pdf.get("verified", False))
         return artifact
+
+    def _enforce_page_limit(
+        self,
+        base: BaseResume,
+        tailored: dict,
+        posting_text: str,
+        docx_path: Path,
+        job: dict,
+        fact_version: int,
+        snapshot: dict,
+        method: str,
+        title: str,
+        author: str,
+    ) -> tuple[dict, dict, str]:
+        """Deterministic trim first. If the PDF is still over two pages, one model re-tailor with an explicit budget."""
+        current, pdf, trimmed = fit_to_page_limit(base, tailored, posting_text, docx_path, render=self.render, title=title, author=author)
+        if not _pages_over(pdf):
+            return current, pdf, f"{method}_trimmed" if trimmed else method
+        revised = self._page_budget_retaylor(base, job, fact_version, snapshot, posting_text)
+        if revised is not None:
+            current = revised
+            pdf = _write_and_render(base, current, docx_path, self.render, title, author)
+            method = "model_page_budget"
+        elif trimmed:
+            method = f"{method}_trimmed"
+        if _pages_over(pdf):
+            pdf = _mark_over(pdf)
+        return current, pdf, method
+
+    def _page_budget_retaylor(self, base: BaseResume, job: dict, fact_version: int, snapshot: dict, posting_text: str) -> dict | None:
+        """One bounded call. Ungrounded or unavailable output is discarded; the caller keeps the trimmed draft."""
+        if self.ai is None:
+            return None
+        try:
+            res = self.ai.run(
+                "tailor_resume",
+                TailorInput(
+                    posting_summary=(posting_text or "")[:8000],
+                    base_resume_sections=base.as_sections(),
+                    allowed_fact_ids=sorted(base.bullet_ids()),
+                    target_role_terms=[job.get("title", "")],
+                    page_budget=_PAGE_BUDGET_RETRY,
+                ),
+                fact_version=fact_version,
+                posting_hash=snapshot.get("posting_hash"),
+                untrusted_fields=("posting_summary",),
+            )
+        except (ProviderUnavailable, ValueError):
+            log.warning("page-budget re-tailor unavailable; keeping the tightened draft")
+            return None
+        if not check_grounding(res.output, base).ok:
+            log.warning("page-budget re-tailor rejected by grounding; keeping the tightened draft")
+            return None
+        return res.output

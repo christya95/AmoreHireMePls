@@ -8,6 +8,7 @@ from docx.enum.text import WD_BREAK
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.shared import Pt
 
 FIXTURE_NAME = "Alex Example"
 FIXTURE_CONTACT = "Milton, Ontario | alex@example.com | 555 000 0000 | linkedin.com/in/alexexample"
@@ -42,6 +43,38 @@ def make_base_resume(path: Path) -> Path:
     return path
 
 
+def make_long_resume(path: Path, roles: int = 6, bullets_per_role: int = 8) -> Path:
+    """Fictional resume padded so a normal render is three pages. Bullet spacing, not private content, creates the length.
+    Trimming bullets and the summary is what brings it back to two pages."""
+    doc = Document()
+    doc.add_paragraph(FIXTURE_NAME)
+    doc.add_paragraph(FIXTURE_CONTACT)
+    doc.add_paragraph("Summary")
+    doc.add_paragraph(
+        "Backend developer with three years of full time experience building Java and Spring Boot services for a large bank. "
+        "Builds REST APIs and batch jobs that move data through PostgreSQL. "
+        "Tunes queries and writes Python tools around Kafka events. "
+        "Automates deployments with Docker and GitHub Actions. "
+        "Keeps the services reliable for the teams that depend on them. "
+        "Works with SQL and Git every day."
+    )
+    doc.add_paragraph("Technical Skills")
+    doc.add_paragraph("Java, Spring Boot, Python, REST APIs, PostgreSQL, Docker, Kafka, Git")
+    doc.add_paragraph("Professional Experience")
+    bullet = "Built REST APIs in Java and Spring Boot and tuned PostgreSQL queries for the daily batch."
+    for role in range(roles):
+        doc.add_paragraph(f"Software Developer at Example Bank {role + 1} | May 2021 – March 2025")
+        for n in range(bullets_per_role):
+            p = doc.add_paragraph(f"{bullet} Detail {role + 1}-{n + 1} about reliable backend services and data pipelines.", style="List Bullet")
+            p.paragraph_format.space_before = Pt(8)
+            p.paragraph_format.space_after = Pt(12)
+    doc.add_paragraph("Education")
+    doc.add_paragraph("Honours Associates, Computer Programming, Example College")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(str(path))
+    return path
+
+
 def _hyperlink_run(paragraph, text: str, url: str) -> None:
     r_id = paragraph.part.relate_to(url, RT.HYPERLINK, is_external=True)
     link = OxmlElement("w:hyperlink")
@@ -55,14 +88,32 @@ def _hyperlink_run(paragraph, text: str, url: str) -> None:
     paragraph._p.append(link)
 
 
-def _labelled_skills(doc, label: str, items: str, style: str) -> None:
+def _labelled_skills(doc, style: str, *groups: tuple[str, str], right_indent_twips: str | None = None) -> None:
+    """One skills paragraph holding one or more "Label:<tab>items" groups as separate runs. Several groups in one
+    paragraph plus a tuned right indent mirrors PDF-converted bases where line wrapping, not paragraph breaks,
+    separates the groups."""
     p = doc.add_paragraph(style=style)
-    p.add_run(label + ":").bold = True
-    p.add_run("\t").bold = True
-    for i, item in enumerate(items.split(", ")):
-        p.add_run(item + ("," if i < len(items.split(", ")) - 1 else ""))
-        if i < len(items.split(", ")) - 1:
-            p.add_run(" ")
+    for gi, (label, items) in enumerate(groups):
+        if gi:
+            p.add_run("  ")
+        p.add_run(label + ":").bold = True
+        p.add_run("\t" if gi == 0 else " ").bold = True
+        parts = items.split(", ")
+        for i, item in enumerate(parts):
+            p.add_run(item + ("," if i < len(parts) - 1 else ""))
+            if i < len(parts) - 1:
+                p.add_run(" ")
+    tabs = OxmlElement("w:tabs")
+    tab = OxmlElement("w:tab")
+    tab.set(qn("w:val"), "left")
+    tab.set(qn("w:pos"), "1717")
+    tabs.append(tab)
+    p._p.get_or_add_pPr().append(tabs)
+    if right_indent_twips:
+        ind = OxmlElement("w:ind")
+        ind.set(qn("w:start"), "243")
+        ind.set(qn("w:end"), right_indent_twips)
+        p._p.get_or_add_pPr().append(ind)
 
 
 def make_column_header_resume(path: Path) -> Path:
@@ -72,7 +123,8 @@ def make_column_header_resume(path: Path) -> Path:
       a column break moves the Heading 1 name and the contact line (with a hyperlink) into column 2, so in
       document order the SUMMARY label comes *before* the name;
     * section 2 (continuous) is the single-column body with Heading 2 section titles, "Label:<tab>items" skills
-      paragraphs with bold labels and multi-run bullets;
+      paragraphs with bold labels (one paragraph holds two groups separated only by line wrapping from a tuned
+      right indent, as PDF conversions do) and multi-run bullets;
     * section 3 starts on a new page (education and certifications).
     """
     doc = Document()
@@ -105,9 +157,9 @@ def make_column_header_resume(path: Path) -> Path:
         summary.add_run(word)
         summary.add_run(" ")
     doc.add_paragraph("SKILLS", style="Heading 2")
-    _labelled_skills(doc, "Languages", "Java, Python, SQL", "Normal")
-    _labelled_skills(doc, "Frameworks", "Spring Boot, REST APIs, Kafka", "Body Text")
-    _labelled_skills(doc, "Tools", "PostgreSQL, Docker, Git", "Normal")
+    _labelled_skills(doc, "Normal", ("Languages", "Java, Python, SQL"))
+    _labelled_skills(doc, "Body Text", ("Frameworks", "Spring Boot, REST APIs, Kafka"), ("Cloud", "AWS, Azure"), right_indent_twips="3139")
+    _labelled_skills(doc, "Normal", ("Tools", "PostgreSQL, Docker, Git"))
     doc.add_paragraph("PROFESSIONAL EXPERIENCE", style="Heading 2")
     role = doc.add_paragraph()
     role.add_run("Software Developer").bold = True

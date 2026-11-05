@@ -101,6 +101,7 @@ class TailorInput(BaseModel):
     base_resume_sections: dict  # {summary, skills:[], experience:[{id, employer, title, dates, bullets:[{id,text}]}], projects, education}
     allowed_fact_ids: list[str]
     target_role_terms: list[str]
+    page_budget: str = Field(default="2 pages", description="Hard layout budget. The rendered resume must fit within this.")
 
 
 class TailoredBullet(BaseModel):
@@ -124,10 +125,12 @@ class TailorOutput(BaseModel):
 catalog.register(
     SkillSpec(
         name="tailor_resume",
-        version="2026-11-04.1",
-        purpose="Reorder/rephrase base resume content toward the posting using only grounded bullets.",
+        version="2026-11-05.1",
+        purpose="Reorder/rephrase base resume content toward the posting using only grounded bullets, within a two-page budget.",
         system_prompt=PERSONA + " Every bullet must cite its source_id from the base resume. Preserve metrics with their original accomplishment. "
-        "Do not add technologies absent from the base. Keep natural professional prose without hyphens or dashes in new text.",
+        "Do not add technologies absent from the base. Keep natural professional prose without hyphens or dashes in new text. "
+        "Hard budget: the resume must fit on two pages. Keep the summary to at most two sentences and at most four bullets per role. "
+        "Drop lower relevance bullets to meet that two page budget. Do not shrink fonts or margins.",
         input_model=TailorInput,
         output_model=TailorOutput,
         max_output_tokens=2500,

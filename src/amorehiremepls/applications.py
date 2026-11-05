@@ -21,7 +21,7 @@ from .browser import Plan, normalize_screenshots
 from .db import Store
 from .jobs import JobStore
 from .profile import BandEvidence, Profile, compute_experience, desired_salary
-from .tailoring import Tailor
+from .tailoring import Tailor, page_limit_block_reason
 from .util import new_id, sha256_file, to_toronto, utcnow
 
 log = logging.getLogger(__name__)
@@ -232,14 +232,23 @@ class ApplicationService:
             )
         fit_rank = (job.get("fit") or {}).get("rank")
         fit = "strong" if fit_rank == 1 else "stretch" if (fit_rank or 3) >= 4 else "fair"
-        resume_pdf = artifact.get("pdf_path") if artifact and artifact.get("page_limit_verified") else (artifact.get("path") if artifact else None)
+        # A verified PDF of at most two pages is the only file a package may upload. An unverified page count
+        # does not fall back to the DOCX, and the package stays unapprovable until a verified PDF exists.
+        block = page_limit_block_reason(artifact) if artifact else None
+        resume_file = artifact.get("pdf_path") if artifact and block is None else None
         from .ats import registry as ats_registry
 
         adapter = ats_registry.for_fields(fields)  # questions read through a site adapter's API are mapped by that adapter
-        answers = adapter.map_answers(fields, self.profile, job, resume_pdf, band, fit) if adapter else map_answers(fields, self.profile, job, resume_pdf, band, fit)
+        answers = adapter.map_answers(fields, self.profile, job, resume_file, band, fit) if adapter else map_answers(fields, self.profile, job, resume_file, band, fit)
+        if block:
+            for a in answers:
+                if a.reason == "no tailored resume yet":
+                    a.reason = block
         material_unknowns = [a.label for a in answers if a.needs_input and not a.sensitive]
         unknowns += [f"answer needed: {u}" for u in material_unknowns]
         unknowns += self.profile.missing_essentials()
+        if block:
+            unknowns.append(block)
         unknowns = sorted(set(unknowns))
         package = {
             "employer": job["employer"],
@@ -255,7 +264,7 @@ class ApplicationService:
                 "pdf_sha256": artifact.get("pdf_sha256"),
                 "pages": artifact.get("pages"),
                 "page_limit_verified": artifact.get("page_limit_verified"),
-                "path": resume_pdf,
+                "path": resume_file,
                 "render_note": artifact.get("render_note"),
             }
             if artifact
@@ -307,6 +316,10 @@ class ApplicationService:
             return Outcome("denied", f"application is {app['status']}; not executable")
         job = self.jobs.get(app["job_id"])
         pkg = app["review_package"]
+        if app["status"] in ("ready_for_review", "authorized"):
+            block = page_limit_block_reason(pkg.get("document"))
+            if block:
+                return Outcome("denied", block)
         prior = self.actions.prior_terminal_for_target("application_submit", job["_id"])
         if prior is not None and prior.get("material_hash") != app["material_hash"]:
             return Outcome(prior["status"], "an earlier submission for this job already exists; reconcile first", action_id=prior["_id"])
