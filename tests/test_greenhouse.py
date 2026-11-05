@@ -90,7 +90,10 @@ def test_build_plan_targets_both_layouts_and_ties_the_receipt_to_the_job_id():
     for s in plan.steps:
         by_type.setdefault(s.type, []).append(s)
     assert by_type["fill"][0].selector.startswith("#first_name") and by_type["fill"][0].label == "First Name"
-    assert by_type["upload"][0].selector.startswith("#resume") and plan.upload_filename == "Alex_Example_Resume.pdf"
+    upload = by_type["upload"][0]
+    assert upload.selector.startswith("input[type=file]#resume") and upload.label == "Resume/CV" and plan.upload_filename == "Alex_Example_Resume.pdf"
+    assert "[aria-labelledby=upload-label-resume] input[type=file]" in upload.selector  # the React board's Resume/CV group
+    assert "grnhse-*.s3.amazonaws.com" in plan.resource_hosts  # the board posts the chosen file to its bucket before the submit
     choose = {s.value: s for s in by_type["choose"]}
     assert choose["Ontario"].option_selectors == ["#question_1003_11"] and choose["I don't wish to answer"].selector.startswith('[id="4000"]')
     multi = by_type["choose_multi"][0]
@@ -157,7 +160,7 @@ def _browser(tmp_path, solver=None, attempts: int = 3) -> BrowserAdapter:
     return BrowserAdapter(cfg, captcha_solver=solver)
 
 
-def _prepared(store, tmp_path, board, variant: str = "new", apply_url: str | None = None, receipt_timeout_ms: int = 30000):
+def _prepared(store, tmp_path, board, variant: str = "new", apply_url: str | None = None, receipt_timeout_ms: int = 30000, upload_timeout_ms: int | None = None):
     """Job on the fixture board -> questions from the fixture API -> package with Joss's answers -> approval."""
     srv, adapter = board
     url = f"{srv.base}/acme/jobs/123456" + (f"?variant={variant}" if variant != "new" else "")
@@ -177,12 +180,15 @@ def _prepared(store, tmp_path, board, variant: str = "new", apply_url: str | Non
     app = svc.supply_inputs(app["_id"], {"question_1006": "I like reliable backend systems.", "question_1004": "Yes", "question_1007[]": "Job board|Other"})
     assert app["status"] == "ready_for_review", app["review_package"]["outstanding"]
     AuthorizationStore(store).grant("application_submit", ScopeBinding(target_id=job["_id"], material_hash=app["material_hash"]))
-    if receipt_timeout_ms != 30000:
+    if receipt_timeout_ms != 30000 or upload_timeout_ms:
         original = adapter.build_plan
 
         def shorter(job_, pkg, answers):
             plan = original(job_, pkg, answers)
             plan.steps[-1].timeout_ms = receipt_timeout_ms
+            for s in plan.steps:
+                if s.type == "upload" and upload_timeout_ms:
+                    s.timeout_ms = upload_timeout_ms
             return plan
 
         adapter.build_plan = shorter  # type: ignore[method-assign]
@@ -215,10 +221,76 @@ def test_new_layout_submits_with_receipt_and_replay_never_resubmits(store, tmp_p
     assert "Thank you for applying" in app["evidence"]["receipt_text"]
     for s in app["evidence"]["screenshots"]:
         assert Path(s["path"]).parent == tmp_path / "artifacts" / "jobs" / job["_id"] / "screenshots" and s["artifact_id"]
+    # the board removed the hidden input once the file was chosen (as the real one does): verified through the filename row
+    assert out.evidence["preflight"] == {"checked": out.evidence["preflight"]["checked"], "missing": []} and out.evidence["preflight"]["checked"] >= 15
+    assert out.evidence["uploads"] == [{"label": "Resume/CV", "filename": doc_path.name, "how": "file_input", "verified": "filename_shown"}]
     # replay / restart: the recorded outcome comes back and the board sees no second submission
     again = svc.execute(app["_id"], "w2", lambda plan: pytest.fail("adapter must not run again"))
     assert again.status == "succeeded" and len(greenhouse_site.GH_SUBMISSIONS) == before + 1
     assert JobStore(store).get(job["_id"])["status"] == "applied"
+
+
+@skip_no_browser
+@pytest.mark.browser
+@pytest.mark.mongo
+def test_attach_button_without_a_file_input_goes_through_the_file_chooser(store, tmp_path, board):
+    svc, job, app = _prepared(store, tmp_path, board, variant="chooser")
+    before = len(greenhouse_site.GH_SUBMISSIONS)
+    out = svc.execute(app["_id"], "w1", lambda plan: _browser(tmp_path).run_plan(plan, site_key="gh"))
+    assert out.status == "succeeded", out.reason
+    sub = greenhouse_site.GH_SUBMISSIONS[-1]
+    doc_path = Path(app["review_package"]["answers"][5]["value"])
+    assert len(greenhouse_site.GH_SUBMISSIONS) == before + 1 and sub["resume"]["filename"] == doc_path.name and sub["resume"]["bytes"] == doc_path.stat().st_size
+    assert out.evidence["uploads"] == [{"label": "Resume/CV", "filename": doc_path.name, "how": "attach_button", "verified": "filename_shown"}]
+    assert out.evidence["preflight"]["missing"] == []  # the Attach button under the Resume/CV heading counts as the control
+
+
+@skip_no_browser
+@pytest.mark.browser
+@pytest.mark.mongo
+def test_no_resume_control_stops_before_anything_is_typed(store, tmp_path, board):
+    svc, job, app = _prepared(store, tmp_path, board, variant="noresume")
+    before = len(greenhouse_site.GH_SUBMISSIONS)
+    out = svc.execute(app["_id"], "w1", lambda plan: _browser(tmp_path).run_plan(plan, site_key="gh"))
+    assert out.status == "failed" and out.retryable, out.reason
+    assert out.reason.startswith("resume field not found: Resume/CV") and "Nothing was filled in or sent" in out.reason
+    assert len(greenhouse_site.GH_SUBMISSIONS) == before and out.evidence["steps_done"] == 0 and not out.evidence["final_clicked"]
+    assert out.evidence["preflight"]["missing"] == [{"label": "Resume/CV", "type": "upload", "selector": out.evidence["preflight"]["missing"][0]["selector"]}]
+    app = svc.apps.find_one({"_id": app["_id"]})
+    assert app["status"] == "failed" and _labels(app) == ["failed"]
+    assert app["next_action"].startswith("Nothing was sent. The form did not have: Resume/CV.") and "Retry with the app" in app["next_action"]
+    assert svc.actions.by_key(f"submit:{job['_id']}")["status"] == "ready" and JobStore(store).get(job["_id"])["status"] == "qualified"
+
+
+@skip_no_browser
+@pytest.mark.browser
+@pytest.mark.mongo
+def test_missing_ordinary_field_is_reported_by_the_form_check_before_typing(store, tmp_path, board):
+    svc, job, app = _prepared(store, tmp_path, board, variant="missing")
+    before = len(greenhouse_site.GH_SUBMISSIONS)
+    out = svc.execute(app["_id"], "w1", lambda plan: _browser(tmp_path).run_plan(plan, site_key="gh"))
+    assert out.status == "failed" and out.retryable
+    assert out.reason == "the form is missing fields the app expected: Phone. Nothing was filled in or sent"
+    assert len(greenhouse_site.GH_SUBMISSIONS) == before and out.evidence["steps_done"] == 0
+    assert [m["label"] for m in out.evidence["preflight"]["missing"]] == ["Phone"]
+    assert svc.apps.find_one({"_id": app["_id"]})["next_action"].startswith("Nothing was sent. The form did not have: Phone.")
+
+
+@skip_no_browser
+@pytest.mark.browser
+@pytest.mark.mongo
+def test_unconfirmed_upload_stops_before_the_submit_click(store, tmp_path, board):
+    svc, job, app = _prepared(store, tmp_path, board, variant="stuck", upload_timeout_ms=1500)
+    before = len(greenhouse_site.GH_SUBMISSIONS)
+    out = svc.execute(app["_id"], "w1", lambda plan: _browser(tmp_path).run_plan(plan, site_key="gh"))
+    assert out.status == "failed" and out.retryable, out.reason
+    doc_path = Path(app["review_package"]["answers"][5]["value"])
+    assert out.reason.startswith(f"could not confirm the resume was attached: '{doc_path.name}' is not shown on the form")
+    assert len(greenhouse_site.GH_SUBMISSIONS) == before and not out.evidence["final_clicked"] and out.evidence["steps_done"] == 5  # the five fills before the upload
+    assert out.evidence["uploads"][0]["how"] == "file_input" and out.evidence["uploads"][0]["verified"] is None
+    app = svc.apps.find_one({"_id": app["_id"]})
+    assert app["status"] == "failed" and _labels(app) == ["failed"] and app["next_action"].startswith("Nothing was sent.")
+    assert svc.actions.by_key(f"submit:{job['_id']}")["status"] == "ready"
 
 
 @skip_no_browser

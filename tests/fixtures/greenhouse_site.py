@@ -2,12 +2,19 @@
 
 Routes
   GET  /gh-api/v1/boards/{org}/jobs/{id}?questions=true   Job Board API shaped JSON (questions, location, demographic)
-  GET  /{org}/jobs/{id}?variant=new|legacy|invalid|check|grid|slow
+  GET  /{org}/jobs/{id}?variant=new|legacy|invalid|check|grid|slow|chooser|noresume
         new      React board layout: form#application-form, ids = field names, combobox single selects with
-                 [role=option] menus, checkbox groups `question_N[]_<value>`, hidden file inputs, #country and
-                 #candidate-location suggestion boxes, demographic combobox under a numeric id, JS submit + redirect
+                 [role=option] menus, checkbox groups `question_N[]_<value>`, #country and #candidate-location
+                 suggestion boxes, demographic combobox under a numeric id, JS submit + redirect. File uploads mirror
+                 the real board: a "Resume/CV" group (`role=group aria-labelledby=upload-label-resume`) with Attach /
+                 Dropbox / Google Drive / Enter manually buttons and a visually hidden `input#resume[type=file]`
+                 **without a name**; choosing a file removes the input, shows a progress bar, then the filename
         legacy   form#application_form, native <select>s, radios, `job_application_answers_attributes_N_*` ids,
                  labels only (no field-name ids for custom questions), #submit_app, plain form POST
+        chooser  like `new` but there is no file input until Attach is clicked (the button creates one and opens the picker)
+        noresume like `new` but the Resume/CV group offers only "Enter manually": no file input, no Attach button
+        stuck    like `new` but the upload progress bar never gives way to the filename row
+        missing  like `new` but the Phone control is not on the page (the form check must notice before any typing)
         invalid  like `new` but the server rejects the submit with a field error (nothing recorded)
         check    like `new` but the submit first shows a text captcha widget (SVG picture, known answer)
         grid     like `new` but the submit first shows a 3x3 image grid challenge
@@ -162,6 +169,27 @@ function combobox(input, options, multi) {
   input.addEventListener('blur', () => setTimeout(() => menu.hidden = true, 150));
 }
 document.querySelectorAll('input[role=combobox]').forEach(el => combobox(el, JSON.parse(el.dataset.options), el.dataset.multi === '1'));
+// File uploads as on the real React board: the chosen file is kept in memory, the input leaves the DOM, a progress
+// bar shows, then the filename replaces the buttons. The form has no named file input; the submit appends the file.
+const chosenFiles = {};
+function fileGroup(group) {
+  const name = group.dataset.upload;
+  const wrap = group.querySelector('.file-upload__wrapper');
+  const onFile = (file) => {
+    chosenFiles[name] = file;
+    wrap.innerHTML = '<div role="progressbar" aria-valuenow="0" class="file-upload__progressbar"><span style="width:0%"></span></div>';
+    if (document.getElementById('application-form').dataset.variant === 'stuck') return;  // upload never finishes: no filename row
+    setTimeout(() => { wrap.innerHTML = ''; const row = document.createElement('div'); row.className = 'file-upload__filename'; row.textContent = file.name;
+      const rm = document.createElement('button'); rm.type = 'button'; rm.setAttribute('aria-label', 'Remove file'); rm.textContent = 'x'; wrap.append(row, rm); }, 400);
+  };
+  const input = group.querySelector('input[type=file]');
+  if (input) input.addEventListener('change', () => input.files[0] && onFile(input.files[0]));
+  const attach = group.querySelector('button[data-attach]');
+  if (attach && !input) attach.addEventListener('click', () => {
+    const i = document.createElement('input'); i.type = 'file'; i.className = 'visually-hidden'; i.addEventListener('change', () => i.files[0] && onFile(i.files[0]));
+    attach.parentElement.appendChild(i); i.click(); });
+}
+document.querySelectorAll('[data-upload]').forEach(fileGroup);
 const form = document.getElementById('application-form');
 if (form) form.addEventListener('submit', async ev => {
   ev.preventDefault();
@@ -170,7 +198,9 @@ if (form) form.addEventListener('submit', async ev => {
   if ((variant === 'check' || variant === 'grid') && !form.dataset.verified) {
     const widget = document.querySelector('[data-captcha-challenge]'); widget.hidden = false; return;
   }
-  const r = await fetch(form.dataset.submit, {method: 'POST', body: new FormData(form)});
+  const body = new FormData(form);
+  for (const [k, f] of Object.entries(chosenFiles)) body.append(k, f, f.name);
+  const r = await fetch(form.dataset.submit, {method: 'POST', body});
   const data = await r.json();
   if (data.ok) { if (data.redirect) location.href = data.redirect; return; }
   (data.errors || []).forEach(e => { const el = document.getElementById(e.field) || form;
@@ -198,6 +228,27 @@ def _options_json(values: list[str]) -> str:
     return json.dumps(values).replace('"', "&quot;")
 
 
+def _file_group(name: str, label: str, variant: str) -> str:
+    """Resume/CV or Cover Letter group as the real board renders it (read-only inspection of a live posting, 2026-11-05)."""
+    heading = f'<div id="upload-label-{name}" class="label upload-label">{label.rstrip("*")}{"<span class=required>*</span>" if label.endswith("*") else ""}</div>'
+    hidden_input = f'<input id="{name}" class="visually-hidden" type="file" accept=".pdf,.doc,.docx,.txt,.rtf">'
+    if variant == "noresume" and name == "resume":
+        attach = ""
+    elif variant == "chooser" and name == "resume":
+        attach = '<div class="secondary-button"><div><button type="button" class="btn btn--rectangle" data-attach>Attach</button></div></div>'
+    else:
+        attach = f'<div class="secondary-button"><div><button type="button" class="btn btn--rectangle" data-attach>Attach</button><label class="visually-hidden" for="{name}">Attach</label>{hidden_input}</div></div>'
+    others = (
+        f'<div class="secondary-button"><button type="button" class="btn btn--rectangle" data-testid="{name}-dropbox">Dropbox</button></div>'
+        '<div class="secondary-button"><button type="button" class="btn btn--rectangle">Google Drive</button></div>'
+        f'<div class="secondary-button"><div><button type="button" class="btn btn--rectangle" data-testid="{name}-text">Enter manually</button><label class="visually-hidden" for="{name}_text">Enter manually</label></div></div>'
+    )
+    return (
+        f'<div role="group" aria-labelledby="upload-label-{name}" class="file-upload" data-upload="{name}">{heading}'
+        f'<div class="file-upload__wrapper"><div class="button-container">{attach}{others}<p class="file-upload__filetypes">Accepted file types: pdf, doc, docx, txt, rtf</p></div></div></div>'
+    )
+
+
 def _new_layout(org: str, job_id: str, variant: str) -> str:
     s = board_schema(org, job_id)
     token = uuid.uuid4().hex[:10]
@@ -211,12 +262,10 @@ def _new_layout(org: str, job_id: str, variant: str) -> str:
         for f in q["fields"]:
             name, t = f["name"], f["type"]
             label = q["label"] + ("*" if q["required"] else "")
-            if name.endswith("_text"):
+            if name.endswith("_text") or (variant == "missing" and name == "phone"):
                 continue
             if t == "input_file":
-                rows.append(
-                    f'<div class="input-wrapper"><label for="{name}">{label}</label> <button type="button">Attach</button><input type="file" id="{name}" name="{name}" class="visually-hidden"></div>'
-                )
+                rows.append(_file_group(name, label, variant))
             elif t == "textarea":
                 rows.append(f'<div class="input-wrapper"><label for="{name}">{label}</label><textarea id="{name}" name="{name}"></textarea></div>')
             elif t == "multi_value_single_select":

@@ -106,6 +106,20 @@ People never to contact: `unresolved` Not yet identified · `resolved` Identifie
 `summary` Filled review page · `receipt` Confirmation page · `ambiguous` Unclear result · `challenge` Human check ·
 `validation` Form complaint · `handoff` Needs you · `receipt_mismatch` Confirmation for another job? · `failed` Stopped early.
 
+## Stop reasons (`plain_failure`, filter `failure`)
+
+A failed attempt keeps its technical reason in the evidence; the page shows one sentence that ends with "Nothing was sent."
+
+| Shown | Stored reason starts with |
+|---|---|
+| The form had no place to attach the resume. | `resume field not found: …` |
+| The resume did not show as attached on the form. | `could not confirm the resume was attached: …` |
+| The form did not have: Phone, Resume/CV. | `the form is missing fields the app expected: …` |
+| The job site did not respond in time. | `the form did not respond in time …` / `timeout before final action: …` |
+| The job site reported a problem: … | `the form reported a problem: […]` / `form validation errors: […]` |
+| The resume file was not where the app expected it. | `upload path outside artifact directory` / `upload file missing` |
+| The job site is not on the list of sites the app may open. | `host … not in allowed hosts` |
+
 ## Single words
 
 | Shown | Instead of |

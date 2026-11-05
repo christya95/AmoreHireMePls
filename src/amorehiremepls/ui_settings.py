@@ -712,6 +712,35 @@ def plain_fit_line(value: Any) -> str:
     return text
 
 
+_FAILURE_PLAIN: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"^resume field not found.*", re.I | re.S), "The form had no place to attach the resume"),
+    (re.compile(r"^could not confirm the resume was attached.*", re.I | re.S), "The resume did not show as attached on the form"),
+    (re.compile(r"^the form is missing fields the app expected:\s*([^.]+)", re.I), r"The form did not have: \1"),
+    (re.compile(r"^the form did not respond in time[^;.]*", re.I), "The job site did not respond in time"),
+    (re.compile(r"^timeout before final action.*", re.I | re.S), "The job site did not respond in time"),
+    (re.compile(r"^the form reported a problem:\s*\[?([^\]]*)\]?", re.I), r"The job site reported a problem: \1"),
+    (re.compile(r"^form validation errors:\s*\[?([^\]]*)\]?", re.I), r"The job site reported a problem: \1"),
+    (re.compile(r"^upload (path outside artifact directory|file missing)[^.]*", re.I), "The resume file was not where the app expected it"),
+    (re.compile(r"^host \S+ not in allowed hosts.*", re.I), "The job site is not on the list of sites the app may open"),
+]
+
+
+def plain_failure(reason: Any) -> str:
+    """One plain sentence for a failed attempt, ending with the fact that nothing was sent. Technical text
+    (Playwright call logs, selectors) stays in the evidence, not in the sentence."""
+    text = " ".join(str(reason or "").split())
+    if not text:
+        return ""
+    text = re.sub(r"\.?\s*Nothing was (filled in or )?sent\.?$", "", text, flags=re.I).strip()
+    for pat, repl in _FAILURE_PLAIN:
+        if pat.search(text):
+            text = pat.sub(repl, text, count=1)
+            break
+    text = re.sub(r"Call log:.*$", "", text, flags=re.I).strip()
+    text = text.replace("'", "").strip(" .;:")
+    return f"{text}. Nothing was sent." if text else "Nothing was sent."
+
+
 def evidence_source(fact_id: Any) -> str:
     """Plain label for an answer's fact id. The id itself is not shown."""
     fid = str(fact_id or "")

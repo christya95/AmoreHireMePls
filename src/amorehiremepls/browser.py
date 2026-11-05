@@ -17,6 +17,17 @@ Steps run inside `plan.frame_selector` when that iframe is present (embedded job
 `choose` / `choose_multi` / `autocomplete` resolve the control kind at run time (native select, React style
 combobox, radio / checkbox group), so one plan covers several layouts of the same form.
 
+Form check first: before anything is typed, every required step's control is resolved on the loaded page
+(one page load). A missing control stops the run as a retryable failure that names the missing fields;
+nothing was filled in or sent.
+
+`upload` resolves the file control in this order: the step's selector; a file input whose label, group
+heading or nearest section heading mentions the step label (or resume / CV); a file input whose id, name or
+data attributes mention it; a visible Attach / Upload button inside such a section, driven through the file
+chooser. Hidden inputs receive the file directly. The upload is then verified (the input still reports the
+file, or the filename appears on the form, which is what React boards show after they swap the input for a
+filename row) before the run moves on; an unverified upload stops the run before the submit click.
+
 Screenshots: `summary` is the fully filled final review step captured immediately before the final submit
 click (after any `assert_value` review checks passed); `receipt` is the verified confirmation page; an
 ambiguous outcome after the final click keeps the distinct `ambiguous` label; a human check keeps `challenge`.
@@ -34,6 +45,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
+from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -59,6 +71,51 @@ CHALLENGE_SELECTORS: list[tuple[str, str]] = [
 ]
 SOLVABLE_CHALLENGES = ("text_captcha", "image_grid")
 VALIDATION_SELECTOR = "[role=alert], .error, .field-error, .helper-text--error, .input-wrapper--error [aria-invalid=true], [aria-invalid=true]"
+FILE_WORDS = re.compile(r"resume|résumé|\bcv\b|curriculum", re.I)
+ATTACH_WORDS = re.compile(r"attach|upload|choose file|browse|select file|add file", re.I)
+PREFLIGHT_TYPES = ("fill", "select", "check", "upload", "click", "choose", "choose_multi", "autocomplete")
+
+# Runs in the page: context text for every file input (own label, aria-labelledby of its group, nearest heading-like
+# text in the enclosing sections) plus its identifying attributes. Index = position in `input[type=file]`.
+_FILE_INPUTS_JS = """() => {
+  const heading = (el) => {
+    let hop = el;
+    for (let i = 0; i < 8 && hop; i++) {
+      const ids = hop.getAttribute && hop.getAttribute('aria-labelledby');
+      if (ids) { const t = ids.split(/\\s+/).map(id => (document.getElementById(id) || {}).innerText || '').join(' ').trim(); if (t) return t; }
+      const h = hop.querySelector && hop.querySelector('legend, h1, h2, h3, h4, h5, [class*="label"], [class*="heading"], [class*="title"]');
+      if (h && h.innerText && h.innerText.trim()) return h.innerText.trim();
+      hop = hop.parentElement;
+    }
+    return '';
+  };
+  return Array.from(document.querySelectorAll('input[type=file]')).map(el => {
+    const own = (el.id && document.querySelector(`label[for="${CSS.escape(el.id)}"]`)) || el.closest('label');
+    const attrs = [el.id, el.name, el.getAttribute('aria-label')].concat(Array.from(el.attributes).filter(a => a.name.startsWith('data-')).map(a => a.name + '=' + a.value));
+    return {label: own ? (own.innerText || '').trim() : '', heading: heading(el), attrs: attrs.filter(Boolean).join(' ')};
+  });
+}"""
+# Visible buttons that open a file picker, with the same context text.
+_ATTACH_BUTTONS_JS = """() => {
+  const heading = (el) => {
+    let hop = el;
+    for (let i = 0; i < 8 && hop; i++) {
+      const ids = hop.getAttribute && hop.getAttribute('aria-labelledby');
+      if (ids) { const t = ids.split(/\\s+/).map(id => (document.getElementById(id) || {}).innerText || '').join(' ').trim(); if (t) return t; }
+      const h = hop.querySelector && hop.querySelector('legend, h1, h2, h3, h4, h5, [class*="label"], [class*="heading"], [class*="title"]');
+      if (h && h.innerText && h.innerText.trim()) return h.innerText.trim();
+      hop = hop.parentElement;
+    }
+    return '';
+  };
+  return Array.from(document.querySelectorAll('button, [role=button], label[for]'))
+    .map(el => ({text: (el.innerText || '').trim(), heading: heading(el), hidden: el.getClientRects().length === 0}));
+}"""
+
+
+def host_allowed(host: str, hosts: set[str]) -> bool:
+    """Exact host, or a glob pattern such as `grnhse-*.s3.amazonaws.com` (used for vendor upload buckets)."""
+    return host in hosts or any("*" in h and fnmatchcase(host, h) for h in hosts)
 
 
 def normalize_screenshots(raw: Any) -> list[dict[str, Any]]:
@@ -245,7 +302,7 @@ class BrowserAdapter:
                 if request.url.startswith("data:") or host in allowed:
                     route.continue_()
                     return
-                if host in resources:
+                if host_allowed(host, resources):
                     try:  # resource hosts may serve scripts, styles, fonts and child frames, never the top-level page
                         top_level = request.is_navigation_request() and request.frame.parent_frame is None
                     except Exception:
@@ -295,32 +352,94 @@ class BrowserAdapter:
                     state.parent.mkdir(parents=True, exist_ok=True)
                     context.storage_state(path=str(state))
                 return evidence
-            except (AmbiguousOutcome, ActionFailed, HandoffRequired):
+            except (AmbiguousOutcome, HandoffRequired):
+                raise
+            except ActionFailed as exc:
+                if "steps_done" not in exc.evidence:
+                    # a step-level stop (file not confirmed, option not offered, ...): keep the run evidence and the page as it looked
+                    if not evidence.get("final_clicked") and not any(s.get("label") in ("failed", "validation") for s in evidence.get("screenshots") or []):
+                        self._snapshot(page, evidence, "failed", shots)
+                    exc.evidence = {**evidence, **exc.evidence}
                 raise
             except PWTimeout as exc:
                 if evidence.get("final_clicked"):
                     self._snapshot(page, evidence, "ambiguous", shots)
                     raise AmbiguousOutcome(f"timeout after final action: {exc}", evidence) from exc
                 self._snapshot(page, evidence, "failed", shots)
-                raise ActionFailed(f"timeout before final action: {str(exc)[:200]}", evidence, retryable=True) from exc
+                evidence["error"] = str(exc)[:400]
+                step_no = int(evidence.get("steps_done") or 0) + 1
+                step = plan.steps[step_no - 1] if 0 < step_no <= len(plan.steps) else None
+                what = f" at step {step_no} ({step.label or step.type})" if step else ""
+                raise ActionFailed(f"the form did not respond in time{what}; nothing was sent", evidence, retryable=True) from exc
             finally:
                 context.close()
                 browser.close()
 
     def _run_steps(self, scope: _Scope, plan: Plan, evidence: dict, shots: _ShotTarget, solver: Any | None, hold: Any | None) -> None:
         page = scope.page
+        self._preflight(scope, plan, evidence, shots)
         for i, step in enumerate(plan.steps):
             if step.final:
                 # the filled-in review state exactly as it looked before the irreversible click
                 self._snapshot(page, evidence, "summary", shots)
                 evidence["final_clicked"] = True
                 evidence["final_url_before"] = page.url
-            self._do_step(scope, step, plan)
+            self._do_step(scope, step, plan, evidence)
             evidence["steps_done"] = i + 1
             if step.type in ("click",) and not step.final:
                 self._detect_login(page, evidence, shots)
                 self._detect_validation_errors(scope, evidence, shots)
         self._await_receipt(scope, plan, evidence, shots, solver, hold)
+
+    # -- form check before anything is typed ------------------------------------------------------------
+    def _preflight(self, scope: _Scope, plan: Plan, evidence: dict, shots: _ShotTarget) -> None:
+        """Resolve every required control on the loaded page before the first fill. One page load, no typing.
+
+        The page may still be rendering (React boards): the first required control is awaited with the step's
+        timeout, then the rest are checked without waiting. Multi-page forms are checked up to and including the
+        first click (the button that leads to the next page); later pages are not loaded here. Missing controls
+        stop the run as a retryable failure whose reason lists the fields in plain words; the action returns to
+        `ready` and nothing was sent."""
+        first_page: list[Step] = []
+        for s in plan.steps:
+            first_page.append(s)
+            if s.type in ("click", "wait_url", "expect_text"):
+                break
+        required = [s for s in first_page if s.type in PREFLIGHT_TYPES and not s.optional and (s.selector or s.label)]
+        if not required:
+            return
+        first = required[0]
+        try:
+            scope.locator(first.selector).first.wait_for(state="attached", timeout=first.timeout_ms) if first.selector else None
+        except Exception:
+            pass  # resolved again below through the label / heading fallbacks; missing controls are reported together
+        missing: list[dict[str, str]] = []
+        for step in required:
+            if not self._present(scope, step):
+                missing.append({"label": step.label or step.selector[:80], "type": step.type, "selector": step.selector})
+        evidence["preflight"] = {"checked": len(required), "missing": missing}
+        if missing:
+            self._snapshot(scope.page, evidence, "failed", shots)
+            names = ", ".join(m["label"] for m in missing)
+            file_missing = any(m["type"] == "upload" for m in missing)
+            head = "resume field not found" if file_missing and FILE_WORDS.search(names) else "the form is missing fields the app expected"
+            raise ActionFailed(f"{head}: {names}. Nothing was filled in or sent", evidence, retryable=True)
+
+    def _present(self, scope: _Scope, step: Step) -> bool:
+        """Can this step's control be found right now (no waiting)?"""
+        try:
+            if step.type == "upload":
+                return self._find_upload(scope, step) is not None or self._attach_button(scope, step) is not None
+            if step.type in ("choose", "choose_multi"):
+                if any(scope.locator(sel).first.count() for sel in step.option_selectors if sel):
+                    return True
+                if self._find(scope, step) is not None:
+                    return True
+                options = step.options or [step.value]
+                return any(self._in_group(scope, step.label, o) is not None for o in options if o)
+            return self._find(scope, step) is not None
+        except Exception:
+            return False
 
     # -- receipt / challenge loop -----------------------------------------------------------------------
     def _await_receipt(self, scope: _Scope, plan: Plan, evidence: dict, shots: _ShotTarget, solver: Any | None, hold: Any | None = None) -> None:
@@ -453,7 +572,7 @@ class BrowserAdapter:
             loc.wait_for(state="attached", timeout=step.timeout_ms)
         return loc
 
-    def _do_step(self, scope: _Scope, step: Step, plan: Plan) -> None:
+    def _do_step(self, scope: _Scope, step: Step, plan: Plan, evidence: dict | None = None) -> None:
         if step.type == "fill":
             loc = self._require(scope, step)
             if loc is not None:
@@ -467,14 +586,7 @@ class BrowserAdapter:
             if loc is not None:
                 loc.check(timeout=step.timeout_ms)
         elif step.type == "upload":
-            path = self.check_upload_path(step.value)
-            loc = self._require(scope, step)
-            if loc is None:
-                return
-            loc.set_input_files(str(path), timeout=step.timeout_ms)
-            shown = loc.evaluate("el => el.files && el.files[0] ? el.files[0].name : null")
-            if shown != path.name:
-                raise ActionFailed(f"uploaded filename mismatch: expected {path.name}, saw {shown}")
+            self._upload(scope, step, evidence if evidence is not None else {})
         elif step.type == "click":
             loc = self._require(scope, step)
             if loc is not None:
@@ -595,6 +707,105 @@ class BrowserAdapter:
         if idx is None:
             raise ActionFailed(f"option '{value}' is not offered; the site offers {texts[:8]}", {"value": value, "offered": texts[:20]})
         options.nth(idx).click(timeout=timeout_ms)
+
+    # -- file upload --------------------------------------------------------------------------------------
+    def _file_words(self, step: Step) -> re.Pattern:
+        """Words that identify this file control: the step label's words plus resume / CV."""
+        words = [re.escape(w) for w in re.split(r"[^A-Za-z0-9é]+", step.label or "") if len(w) > 2]
+        return re.compile("|".join([FILE_WORDS.pattern, *words]), re.I) if words else FILE_WORDS
+
+    def _find_upload(self, scope: _Scope, step: Step):
+        """Locator for the file input, by selector, then by label / group heading / section heading, then by attributes.
+        Returns None when the page has no file input for this control (an Attach button may still open a chooser)."""
+        if step.selector:
+            loc = scope.locator(step.selector).first
+            if loc.count():
+                return loc
+        inputs = scope.locator("input[type=file]")
+        if not inputs.count():
+            return None
+        try:
+            infos = scope.locator("body").evaluate(_FILE_INPUTS_JS)
+        except Exception:
+            infos = []
+        words = self._file_words(step)
+        for key in ("label", "heading", "attrs"):
+            for idx, info in enumerate(infos):
+                if words.search(info.get(key) or ""):
+                    return inputs.nth(idx)
+        return None
+
+    def _attach_button(self, scope: _Scope, step: Step):
+        """A visible Attach / Upload button that sits under a heading naming this file control."""
+        try:
+            infos = scope.locator("body").evaluate(_ATTACH_BUTTONS_JS)
+        except Exception:
+            return None
+        words = self._file_words(step)
+        buttons = scope.locator("button, [role=button], label[for]")
+        for idx, info in enumerate(infos):
+            if info.get("hidden"):
+                continue
+            if ATTACH_WORDS.search(info.get("text") or "") and (words.search(info.get("heading") or "") or words.search(info.get("text") or "")):
+                return buttons.nth(idx)
+        return None
+
+    def _upload(self, scope: _Scope, step: Step, evidence: dict) -> None:
+        path = self.check_upload_path(step.value)
+        record: dict[str, Any] = {"label": step.label, "filename": path.name, "how": None, "verified": None}
+        evidence.setdefault("uploads", []).append(record)
+        loc = self._find_upload(scope, step)
+        if loc is not None:
+            try:
+                loc.set_input_files(str(path), timeout=step.timeout_ms)  # works on visually hidden inputs; no click needed
+                record["how"] = "file_input"
+                record["verified"] = self._verify_upload(scope, loc, path, step)
+                return
+            except ActionFailed:
+                raise
+            except Exception as exc:
+                log.info("direct file set failed (%s); trying the Attach button", type(exc).__name__)
+        button = self._attach_button(scope, step)
+        if button is None:
+            if loc is None and step.optional:
+                evidence["uploads"].remove(record)
+                return
+            raise ActionFailed(
+                f"resume field not found: the form has no file box or Attach button for '{step.label or step.selector}'. Nothing was sent",
+                {**evidence, "selector": step.selector, "label": step.label},
+                retryable=True,
+            )
+        with scope.page.expect_file_chooser(timeout=step.timeout_ms) as chooser:
+            button.click(timeout=step.timeout_ms)
+        chooser.value.set_files(str(path))
+        record["how"] = "attach_button"
+        record["verified"] = self._verify_upload(scope, None, path, step)
+
+    def _verify_upload(self, scope: _Scope, loc, path: Path, step: Step) -> str:
+        """The input still reports the file (`input_files`), or the filename is shown on the page (`filename_shown`).
+        React boards replace the input with a filename row (sometimes after an upload progress bar), so the input
+        going away is not a failure. Neither within the step's timeout stops the run before the submit click."""
+        deadline = time.monotonic() + min(step.timeout_ms, 20000) / 1000
+        last = None
+        while True:
+            if loc is not None:
+                try:
+                    if loc.count():
+                        last = loc.evaluate("el => el.files && el.files[0] ? el.files[0].name : null", timeout=1000)
+                        if last == path.name:
+                            return "input_files"
+                except Exception:
+                    pass
+            if path.name in scope.body_text():
+                return "filename_shown"
+            if time.monotonic() > deadline:
+                seen = f" (the file box reports '{last}')" if last else ""
+                raise ActionFailed(
+                    f"could not confirm the resume was attached: '{path.name}' is not shown on the form{seen}. Nothing was sent",
+                    {"filename": path.name, "seen": last},
+                    retryable=True,
+                )
+            scope.page.wait_for_timeout(250)
 
     def check_upload_path(self, value: str) -> Path:
         """Only files under the configured artifact directory may be uploaded (never arbitrary host paths)."""

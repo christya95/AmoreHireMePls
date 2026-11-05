@@ -51,6 +51,7 @@ from .ui_settings import (
     next_action_label,
     normalize_accent,
     normalize_tint,
+    plain_failure,
     plain_fit_line,
     remove_avatar_files,
     resolve_display_name,
@@ -88,6 +89,7 @@ TEMPLATES.env.filters["label"] = status_label
 TEMPLATES.env.filters["verb"] = next_action_label
 TEMPLATES.env.filters["initials"] = initials
 TEMPLATES.env.filters["plain"] = plain_fit_line
+TEMPLATES.env.filters["failure"] = plain_failure
 TEMPLATES.env.filters["evidence"] = evidence_source
 STATIC_DIR = Path(__file__).parent / "static"
 BRAND_DIR = STATIC_DIR / "brand"
@@ -1100,7 +1102,7 @@ def create_app(rt: Runtime) -> FastAPI:
             elif st == "needs_verification":
                 nxt = {"label": "The result is unclear. Check the job site", "href": app_href, "verb": "Check result", "note": ""}
             elif st == "failed":
-                nxt = {"label": "Applying failed", "href": app_href, "verb": "See what failed", "note": ""}
+                nxt = {"label": "Applying stopped early. Nothing was sent", "href": app_href, "verb": "See what failed", "note": plain_failure((app_doc or {}).get("reason"))}
             elif st == "executing":
                 nxt = {"label": "Applying now", "href": run_href or app_href, "verb": "Watch", "note": ""}
             elif active_run and active_run.get("status") in ("queued", "claimed", "running"):

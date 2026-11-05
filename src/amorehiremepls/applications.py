@@ -450,8 +450,15 @@ class ApplicationService:
             self.store.release("jobs", {"_id": job["_id"]}, worker, "needs_verification")
             self._notify(self.apps.find_one({"_id": app_id}), "needs_verification")
         elif outcome.status == "failed":
-            nxt = "retry is allowed: the action returned to ready before any irreversible step" if outcome.retryable else "fix the reported problem and prepare again"
             ev = self._with_screenshots(job["_id"], app_id, outcome.evidence)
+            missing = [m.get("label") for m in ((ev or {}).get("preflight") or {}).get("missing") or []] if isinstance(ev, dict) else []
+            if missing:
+                gone = ", ".join(str(m) for m in missing)
+                nxt = f"Nothing was sent. The form did not have: {gone}. Retry with the app reads the form again; if it still fails, apply on the site yourself."
+            elif outcome.retryable:
+                nxt = "Nothing was sent. The app stopped before the final click, so Retry with the app is safe."
+            else:
+                nxt = "Nothing was sent. Fix the reported problem, then prepare the application again."
             self._set(app_id, "failed", reason=outcome.reason, evidence=ev, retryable=outcome.retryable, next_action=nxt)
             self.store.release("jobs", {"_id": job["_id"]}, worker, "qualified")
         elif outcome.status in ("denied", "blocked"):

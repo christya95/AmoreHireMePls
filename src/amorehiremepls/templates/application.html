@@ -7,7 +7,7 @@
                'needs_verification': ('Check the job site, then record whether it went through.', '#record'),
                'challenge_retry': ('A check appeared. The app will try this once more later, then tell you if it still needs you.', None),
                'submitted': ('Applied and recorded. Next: short notes to recruiters under Recruiters.', '/outreach'),
-               'failed': ('Applying failed. See "What happened" below.', '#record')}.get(a.status) %}
+               'failed': ((a.reason|failure) ~ (' Retry with the app reads the form again and asks for your approval first.' if can_retry else ' See "What happened" below.'), '#record')}.get(a.status) %}
 <div class="stack">
 <div class="card">
   <div class="welcome">
@@ -15,7 +15,7 @@
     <div>
       <h1>{{ job.title }}</h1>
       <p>{{ job.employer }} · application <span class="mono">{{ a._id }}</span></p>
-      <div class="flex mt">{{ status(a.status) }}{% if a.reason %}<small>{{ a.reason }}</small>{% endif %}</div>
+      <div class="flex mt">{{ status(a.status) }}{% if a.reason %}<small>{{ a.reason|failure if a.status == 'failed' else a.reason }}</small>{% endif %}</div>
     </div>
     <div class="actions"><a class="btn secondary sm" href="/jobs/{{ job._id }}">Open the job</a>{% if pkg %}<a class="btn secondary sm" href="{{ pkg.apply_url }}" target="_blank" rel="noopener">Apply page ↗</a>{% endif %}</div>
   </div>
@@ -86,7 +86,8 @@
     </div>
     <div class="card" id="record">
       <div class="card-h"><h3>What happened</h3>{% if a.status == 'needs_verification' %}{{ hint('needs_verification') }}{% elif a.status == 'handoff' %}{{ hint('handoff') }}{% endif %}</div>
-      {% if action %}<p>Attempt <code class="raw">{{ action._id }}</code> {{ status(action.status) }} {{ action.outcome_reason or '' }}</p>
+      {% if action %}<p>Attempt <code class="raw">{{ action._id }}</code> {{ status(action.status) }} {{ (action.outcome_reason|failure) if a.status == 'failed' and action.outcome_reason else (action.outcome_reason or '') }}</p>
+      {% if a.status == 'failed' and a.next_action %}<p class="note">{{ a.next_action }}</p>{% endif %}
       <details class="disclosure"><summary>Technical details</summary><pre>{{ action.evidence|json }}</pre></details>{% else %}<p class="note">Nothing has been sent for this application.</p>{% endif %}
       {% if a.status == 'needs_verification' %}
       <form method="post" action="/applications/{{ a._id }}/reconcile" class="stack gap-s mt"><input type="hidden" name="csrf" value="{{ csrf }}">

@@ -13,6 +13,15 @@ Playwright inspection of the Faire posting (nothing was filled or sent):
   button is `button[type=submit]` ("Submit application"). A successful submit navigates to `/<org>/jobs/<id>/confirmation`
   which reads "Thank you for applying. Your application has been received." An invisible reCAPTCHA Enterprise badge is
   loaded from www.recaptcha.net / www.gstatic.com; the board's own scripts come from job-boards.cdn.greenhouse.io.
+* Resume/CV (re-inspected 2026-11-05 after the Faire run stopped early): the section is
+  `div.file-upload[role=group][aria-labelledby=upload-label-resume]` with the heading `#upload-label-resume` ("Resume/CV"),
+  buttons Attach / Dropbox / Google Drive / Enter manually (`data-testid="resume-text"`), a `label.visually-hidden[for=resume]`
+  reading "Attach" and `input#resume.visually-hidden[type=file]` with **no `name` attribute**. Choosing a file removes that
+  input from the DOM at once, shows `div[role=progressbar].file-upload__progressbar`, uploads the file with a POST to
+  `grnhse-prod-jben-us-east-1.s3.amazonaws.com` (so that bucket must be a permitted resource host) and then shows the
+  filename in place of the buttons. The earlier run set the file and then re-queried `#resume` to read back the filename,
+  which waited 15 s for an element that no longer existed; the browser adapter now verifies through the input *or* the
+  filename shown on the form.
 * The legacy layout (`form#application_form`, `#submit_app`, `#job_application_answers_attributes_N_*`, native selects,
   `#grnhse_iframe` on company sites) is no longer served for hosted boards; the plan still copes with it through label
   based fallbacks, native select / radio handling and the optional iframe scope, and the fixture site exercises that path.
@@ -50,6 +59,8 @@ RESOURCE_HOSTS = [
     "c.spl.greenhouse.io",
     "my.greenhouse.io",
     "boards-api.greenhouse.io",
+    "grnhse-*.s3.amazonaws.com",  # resume / cover letter upload bucket (POST from the page, never a navigation)
+    "grnhse-*.s3.*.amazonaws.com",
     "www.recaptcha.net",
     "www.google.com",
     "www.gstatic.com",
@@ -295,7 +306,19 @@ class GreenhouseAdapter:
             sel = f'{_css_id(name)}, [name="{name}"]'
             kind = f.get("type", "text")
             if kind == "file":
-                steps.append(Step("upload", f"{_css_id(name)}, input[type=file][name={name}], [data-field={name}] input[type=file]", a["value"], label=label))
+                # React board: `input#resume[type=file]` (hidden, no name) under the "Resume/CV" group; legacy: named input in a
+                # `[data-field]` wrapper. Anything else is found by the browser adapter through the section heading / Attach button.
+                sel = ", ".join(
+                    [
+                        f"input[type=file]{_css_id(name)}",
+                        f"input[type=file][name={name}]",
+                        f"input[type=file][name='job_application[{name}]']",
+                        f"[data-field={name}] input[type=file]",
+                        f"[aria-labelledby=upload-label-{name}] input[type=file]",
+                        f"[data-testid={name}] input[type=file]",
+                    ]
+                )
+                steps.append(Step("upload", sel, a["value"], label=label))
             elif name == "location":
                 steps.append(Step("autocomplete", "#candidate-location, #auto_complete_input, #job_application_location, [name=location]", a["value"], label="Location"))
             elif name == "country":

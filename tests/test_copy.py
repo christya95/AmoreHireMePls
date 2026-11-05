@@ -224,3 +224,24 @@ def test_step_names_and_glossary_are_plain():
     for pat in DENYLIST:
         hits = [m.group(0) for m in re.finditer(pat, corpus, flags=re.I)]
         assert not hits, (pat, hits)
+
+
+def test_failure_reasons_become_plain_sentences():
+    """The technical stop reason stays in the evidence; the page shows one plain sentence that says nothing was sent."""
+    from amorehiremepls.ui_settings import plain_failure
+
+    raw = 'timeout before final action: Locator.evaluate: Timeout 15000ms exceeded.\nCall log:\n  - waiting for locator("#resume, input[type=file][name=resume]").first\n'
+    assert plain_failure(raw) == "The job site did not respond in time. Nothing was sent."
+    assert plain_failure("the form did not respond in time at step 6 (Resume/CV); nothing was sent") == "The job site did not respond in time. Nothing was sent."
+    assert plain_failure("resume field not found: Resume/CV. Nothing was filled in or sent") == "The form had no place to attach the resume. Nothing was sent."
+    missing = "the form is missing fields the app expected: Phone, Resume/CV. Nothing was filled in or sent"
+    assert plain_failure(missing) == "The form did not have: Phone, Resume/CV. Nothing was sent."
+    unconfirmed = "could not confirm the resume was attached: 'A_Resume.pdf' is not shown on the form. Nothing was sent"
+    assert plain_failure(unconfirmed) == "The resume did not show as attached on the form. Nothing was sent."
+    problem = "the form reported a problem: ['Phone must include an area code']"
+    assert plain_failure(problem) == "The job site reported a problem: Phone must include an area code. Nothing was sent."
+    assert plain_failure("") == "" and plain_failure(None) == ""
+    for sentence in (plain_failure(raw), plain_failure("resume field not found: Resume/CV")):
+        for pat in DENYLIST:
+            assert not re.search(pat, sentence, flags=re.I), (pat, sentence)
+        assert "Locator" not in sentence and "#" not in sentence

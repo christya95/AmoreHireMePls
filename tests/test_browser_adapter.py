@@ -66,6 +66,17 @@ def _by_label(ev: dict) -> dict[str, dict]:
 
 
 @skip_no_browser
+def test_resource_host_patterns_match_vendor_upload_buckets():
+    from amorehiremepls.browser import host_allowed
+
+    hosts = {"job-boards.cdn.greenhouse.io", "grnhse-*.s3.amazonaws.com", "grnhse-*.s3.*.amazonaws.com"}
+    assert host_allowed("job-boards.cdn.greenhouse.io", hosts)
+    assert host_allowed("grnhse-prod-jben-us-east-1.s3.amazonaws.com", hosts)  # observed upload target of the React board
+    assert host_allowed("grnhse-prod-jben-eu-west-1.s3.eu-west-1.amazonaws.com", hosts)
+    assert not host_allowed("evil-grnhse-prod.s3.amazonaws.com", hosts) and not host_allowed("s3.amazonaws.com", hosts)
+    assert not host_allowed("job-boards.greenhouse.io", hosts)
+
+
 def test_multi_step_form_upload_and_receipt(site, tmp_path):
     resume = tmp_path / "Alex_Example_Resume_Acme_R42.pdf"
     resume.write_bytes(b"%PDF-1.4 test")
