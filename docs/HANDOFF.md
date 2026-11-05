@@ -37,7 +37,7 @@ No private values here: field names and counts only. Keep under 120 lines; finis
   the decline option (owner).
 - Per user accounts: the admin role never expires, members get 365 days with top ups (agent design, owner approved the concept).
 - "Remove" a user means Turn off (reversible) or Delete permanently with a backup and a tombstone (agent).
-- Tracker sync keeps running for expired members (agent; owner to confirm, see open questions).
+- Tracker sync keeps running for an expired member (owner, 2026-11-05). Turning access off or letting it end does not pause the GitHub ledger.
 - AI usage, token counts, pricing and spend are admin only: members never see the AI usage page, cost chips or per run
   spend; the admin People page shows per person usage and cost; the owner views his own through the admin surface for
   consistency (agent design, owner approved).
@@ -53,7 +53,7 @@ No private values here: field names and counts only. Keep under 120 lines; finis
 4. BMO job `job_37efeb56f094fb95`: the Workday posting is gone (403). Mark it closed or keep it?
 5. Faire application `app_1c0408f4d9f27059`: retry from the dashboard (Retry with the app, then approve) now that the upload
    fix is deployed? Never retried by an agent.
-6. Should tracker sync pause for expired members, or keep running as designed?
+6. Answered 2026-11-05: tracker sync keeps running for an expired member.
 7. Copy `candidate/profile.toml` to the NAS `/candidate` so the Profile card finds it? It holds preferences, not secrets.
 8. The handoff notes file in `candidate/` is truncated at the 40,000 character cap; trim or split it so the important part
    sorts first.
@@ -73,8 +73,9 @@ No private values here: field names and counts only. Keep under 120 lines; finis
    `ScopedStore`, argon2id passwords, `users` collection (`role`, `access_until`, `status`), `require_session` gate to
    `/access-ended`, People page under `/admin` (extend, set password, turn off, delete with backup and tombstone), Overview
    badge for members only, worker filters to active users, `amore migrate-users` makes the original operator admin with no
-   expiry. Step order 1, 2, 4, 7, 5, 8, 9; `backup_user()` and `access_summary` can be drafted first. Waits for: item 2 and
-   the owner's answer to question 6.
+   expiry. Step order 1, 2, 4, 7, 5, 8, 9 was not written out anywhere else; implement ScopedStore, then the session gate,
+   the People page, worker filtering, then admin-only usage. `backup_user()` and `access_summary` land with the store.
+   Question 6 is answered: sync keeps running. Item 2 is deployed.
    - Hide `/usage`, the usage KPIs on the Overview and the cost figures on run and application pages for `role=member`; add
      a per person usage column and a usage detail view under `/admin`; keep per user budget enforcement unchanged.
 4. Deploy after each of items 1 to 3 and record the tag here and in `docs/PROGRESS.md`. Size: S. Plan: operating rule 3.

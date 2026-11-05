@@ -285,7 +285,7 @@ Queue item 2. Preflight was already recorded: the NAS LangGraph checkpoints hold
 
 ## Exact next step
 
-Do not start per-user accounts (queue item 3) until the owner answers handoff question 6 (whether tracker sync pauses for an expired member). Queue item 2 is deployed as `lepia/amorehiremepls:4fce6fdef10d`.
+Owner decision 2026-11-05: tracker sync keeps running for an expired member. Queue item 3 (per-user accounts) is unblocked. Queue item 2 is deployed as `lepia/amorehiremepls:4fce6fdef10d`.
 
 Greenhouse, Lever, and Ashby form filling, owner notifications, the human-check hold, and one later try are fixture-tested only. None of those paths has been live-submitted. Do not retry the Faire application or mark the BMO job closed; those are owner decisions (handoff questions 4 and 5).
 
