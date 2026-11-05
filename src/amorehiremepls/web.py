@@ -9,6 +9,7 @@ import os
 import re
 import secrets
 from datetime import timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -66,6 +67,29 @@ TEMPLATES.env.filters["label"] = status_label
 TEMPLATES.env.filters["verb"] = next_action_label
 TEMPLATES.env.filters["initials"] = initials
 STATIC_DIR = Path(__file__).parent / "static"
+BRAND_DIR = STATIC_DIR / "brand"
+
+
+def _brand_paths() -> str:
+    """Inner markup of static/brand/mark.svg (the paths only), the single source for every rendering of the logo."""
+    svg = (BRAND_DIR / "mark.svg").read_text(encoding="utf-8")
+    inner = re.sub(r"^.*?<svg[^>]*>", "", svg, count=1, flags=re.S)
+    inner = re.sub(r"</svg>\s*$", "", inner, flags=re.S)
+    return re.sub(r"<!--.*?-->", "", inner, flags=re.S).strip()
+
+
+TEMPLATES.env.globals["brand_paths"] = _brand_paths()
+# the same mark without the smallest heart (<g class="detail">), for renderings that cannot apply CSS (favicons)
+TEMPLATES.env.globals["brand_paths_small"] = re.sub(r'<g class="detail">.*?</g>', "", _brand_paths(), flags=re.S).strip()
+
+
+@lru_cache(maxsize=64)
+def favicon_svg(accent: str) -> str:
+    """The tile mark with the saved accent substituted, drawn without the smallest heart because favicons are 16 to 32 px;
+    cached per accent (the accent is already a validated hex)."""
+    return TEMPLATES.env.from_string('{% from "_brand.html" import mark %}{{ mark(standalone=True, color=color, small=True) }}').render(color=accent)
+
+
 SESSION_COOKIE = "amore_session"
 SESSION_MAX_AGE = 60 * 60 * 24 * 14
 UI_COOKIE = "amore_ui"  # theme|accent|tint mirror of the saved setting, so the first paint (and the login page) match
@@ -275,10 +299,17 @@ def create_app(rt: Runtime) -> FastAPI:
 
     @app.get("/brand.svg")
     def brand_svg(request: Request):
-        """The favicon: the same brand mark as the sidebar, drawn by templates/_brand.html (a static asset, no state)."""
+        """The favicon: the same tile mark as the sidebar, in the saved accent colour (from the mirror cookie, so it works
+        before sign-in too). Rendered once per accent; /static/brand/favicon.svg is the fixed sage fallback."""
         _, accent, _ = _parse_ui_cookie(request.cookies.get(UI_COOKIE))
-        svg = TEMPLATES.env.from_string('{% from "_brand.html" import mark %}{{ mark(standalone=True, color=color) }}').render(color=accent)
-        return HTMLResponse(svg, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=3600", "X-Content-Type-Options": "nosniff"})
+        return HTMLResponse(favicon_svg(accent), media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=3600", "X-Content-Type-Options": "nosniff"})
+
+    @app.get("/apple-touch-icon.png")
+    @app.get("/apple-touch-icon-precomposed.png")
+    def apple_touch_icon():
+        """180 px PNG of the sage tile for home-screen bookmarks (rendered by tools/brand/render.sh, kept in static/brand)."""
+        headers = {"Cache-Control": "public, max-age=86400", "X-Content-Type-Options": "nosniff"}
+        return FileResponse(BRAND_DIR / "favicon-180.png", media_type="image/png", headers=headers)
 
     @app.get("/login", response_class=HTMLResponse)
     def login_form(request: Request):

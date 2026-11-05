@@ -1,11 +1,14 @@
-{#- The brand mark, drawn in exactly one place. Sidebar, sign-in page, favicon (/brand.svg) and the avatar
-    fallback all call mark(); replace the shapes inside <g> to change the logo everywhere.
-    Placeholder until the real logo (paper plane + briefcase + heart) is chosen. -#}
-{% macro mark(cls='', standalone=False, color=None) -%}
-<svg{% if standalone %} xmlns="http://www.w3.org/2000/svg" width="64" height="64"{% endif %} class="brand-svg {{ cls }}" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-<g>
-<rect width="32" height="32" rx="10" fill="{{ color or 'var(--accent)' }}"/>
-<text x="16" y="21.6" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="17" font-weight="800" fill="#ffffff">A</text>
-</g>
+{#- The brand mark (paper plane with a briefcase handle and a heart trail), drawn in exactly one place.
+    The shapes come from static/brand/mark.svg, read once at startup into the `brand_paths` global, so the
+    sidebar lockup, the sign-in page, the favicon (/brand.svg), the apple-touch icon source and the "logo"
+    avatar style all change together when that file changes (regenerate it with tools/brand/gen.py).
+    tile=True draws the white mark on an accent-coloured rounded tile; tile=False draws the bare mark in
+    currentColor. Add class "logo-sm" below 24px so the smallest heart (.detail) is dropped; small=True drops it in
+    the markup itself for renderings without CSS (the favicon route). -#}
+{% macro mark(cls='', standalone=False, color=None, tile=True, small=False) -%}
+{%- set paths = brand_paths_small if small else brand_paths -%}
+<svg{% if standalone %} xmlns="http://www.w3.org/2000/svg" width="64" height="64"{% endif %} class="brand-svg {{ cls }}" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+{%- if tile %}<rect width="64" height="64" rx="14" fill="{{ color or 'var(--accent)' }}"/><g fill="#fff" transform="translate(6.4 6.4) scale(0.8)">{{ paths|safe }}</g>
+{%- else %}<g fill="{{ color or 'currentColor' }}">{{ paths|safe }}</g>{% endif %}
 </svg>
 {%- endmacro %}

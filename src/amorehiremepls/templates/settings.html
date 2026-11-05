@@ -53,7 +53,7 @@
         <button class="secondary"><svg class="icon"><use href="#i-upload"/></svg>Upload</button></form>
       <form method="post" action="/settings/avatar" class="mt"><input type="hidden" name="csrf" value="{{ csrf }}">
         <label>Or pick an initials style</label>
-        <div class="avatar-choices mt">{% for s in styles %}<label class="choice"><input type="radio" name="style" value="{{ s }}" {{ 'checked' if ui.avatar.style == s }}><span><span class="avatar sm style-{{ s }}">{% if s == 'mark' %}{{ mark() }}{% else %}{{ initials }}{% endif %}</span>{{ 'logo' if s == 'mark' else s }}</span></label>{% endfor %}</div>
+        <div class="avatar-choices mt">{% for s in styles %}<label class="choice"><input type="radio" name="style" value="{{ s }}" {{ 'checked' if ui.avatar.style == s }}><span><span class="avatar sm style-{{ s }}">{% if s == 'mark' %}{{ mark(cls='logo-sm') }}{% else %}{{ initials }}{% endif %}</span>{{ 'logo' if s == 'mark' else s }}</span></label>{% endfor %}</div>
         <div class="form-actions"><button class="secondary">Use initials</button></div>
       </form>
       {% if ui.avatar.kind == 'upload' %}<form method="post" action="/settings/avatar/remove" class="mt"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost"><svg class="icon"><use href="#i-trash"/></svg>Remove uploaded image</button></form>{% endif %}
