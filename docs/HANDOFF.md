@@ -5,9 +5,9 @@ No private values here: field names and counts only. Keep under 120 lines; finis
 
 ## State now
 
-- Deployed: NAS Portainer stack `amorehiremepls`, image `lepia/amorehiremepls:e57cd6de0ff4` (12 character sha of the deployed
-  commit), web and worker healthy, dashboard `http://192.168.2.49:8790` (`/health` 200, Overview greeting shows the display
-  name, tracker on). `origin/main` is docs only commits ahead of the deployed tag (`45be592` plus this handoff); no redeploy needed.
+- Deployed: NAS Portainer stack `amorehiremepls`, image `lepia/amorehiremepls:68c7a2576966` (12 character sha of the deployed
+  commit, queue item 1 included), web and worker healthy, dashboard `http://192.168.2.49:8790` (`/health` 200, Overview
+  greeting shows the display name, tracker on). `origin/main` is only this docs commit ahead of the deployed tag.
 - Live and used for real: profile store, base resume registration, tracker preview/import (nothing pushed), discovery by URL,
   model check through `op run`, deterministic tailoring with a 2 page PDF, review package and approval gates, honest
   application status plus the Updates list on the Overview (built from stored events, no model call), fit check with resume
@@ -18,7 +18,6 @@ No private values here: field names and counts only. Keep under 120 lines; finis
   surface (`amore profile import --from … [--dry-run]`, `export --to …`, `fingerprint`, Profile page Load button). The
   owner's live preferences are exported to the gitignored Mac copy of `profile.toml`; the NAS Profile card says "not found"
   because the file is only on the Mac. Suite: 336 passed, ruff clean.
-- On `main`, not yet deployed: form rules for every saved answer key (queue item 1); the NAS still runs `e57cd6de0ff4`.
 - Fixture tested only: Greenhouse, Lever and Ashby form filling including the hidden input upload fix and the pre fill form
   check; the salary skill; Workday posting refresh; owner notifications, the human check hold and the one later try.
 - Not verified: no live employer receipt exists yet for any ATS; nothing has ever been submitted by the app.
@@ -67,7 +66,7 @@ No private values here: field names and counts only. Keep under 120 lines; finis
    key, `years_*` saved answers, `veteran_status` and `indigenous_identity` in `SELF_ID_RULES`, `own_personal_answer`
    shared by the mapper and the three adapters. Still waits for the owner: `pronouns` and `citizenship_status` stay blank
    until each saved answer carries a `question_pattern` (Profile page or `profile.toml` `match`); see question 9.
-   Deploy pending (item 4).
+   Deployed as `68c7a2576966`.
 2. Directory reorganization into `core/ candidate/ jobs/ apply/ records/ outreach/ web/` with `git mv` and absolute imports.
    Size: M-L. Plan: first commit move only, from a clean tree; before moving, check `lg_checkpoint_writes` for stored class
    paths (LangGraph checkpoints pickle module paths). Then split web routes, docstring standard plus the 22 high value
