@@ -12,12 +12,15 @@ See `docs/` for the capability map, backup/restore, troubleshooting and NAS depl
 ## Setup (Mac, development)
 
 ```bash
-uv sync                                  # Python 3.12 virtualenv from uv.lock
-uv run playwright install chromium       # browser for the adapter and fixture tests
+uv sync --frozen --all-extras            # Python 3.12 virtualenv from uv.lock; --all-extras adds pytest/ruff (plain `uv sync` removes them)
+uv run playwright install chromium       # Chromium into ~/Library/Caches/ms-playwright (install-deps is Linux-only; a no-op on macOS)
+brew install --cask libreoffice          # optional: DOCX -> PDF page verification on the Mac (otherwise pages stay "unverified")
 docker compose --profile dev-mongo up -d dev-mongo
 cp .env.example .env                     # edit AMORE_APP_PASSWORD (>= 12 chars) and AMORE_APP_SECRET (>= 32 chars)
 uv run amore setup-db                    # indexes + checkpointer check
 ```
+
+Tooling notes (verified on macOS arm64, Nov 2026): `uv` installs CPython 3.12 itself (`uv python list`). LibreOffice needs no configuration: `find_soffice()` checks `soffice` on `PATH` (Homebrew links `/opt/homebrew/bin/soffice`) and then `/Applications/LibreOffice.app/Contents/MacOS/soffice`. Calibri is not present on a Mac without Microsoft Office; LibreOffice substitutes its bundled, metric-compatible Carlito, which is the same font the Docker image uses (`fonts-crosextra-carlito`), so page counts agree between Mac and container. If a shell has `PLAYWRIGHT_BROWSERS_PATH` set (agent sandboxes do this), Playwright installs and looks for Chromium there instead of the user cache; unset it or run `playwright install chromium` again from a normal Terminal.
 
 Secrets: do not put API keys in `.env`. Copy `.env.references.example` to `.env.references` with `op://` references and run commands through `op run --env-file .env.references -- uv run amore web`. See `docs/nas-deployment.md` for the unattended NAS variant.
 
