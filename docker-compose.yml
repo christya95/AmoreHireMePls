@@ -13,7 +13,7 @@ x-app: &app
     AMORE_PRIVATE_DIR: /data/private
     AMORE_LOG_DIR: /data/logs
     AMORE_BROWSER_SESSION_DIR: /data/private/sessions
-    AMORE_TRACKER_CLONE_DIR: /data/private/job-application-records
+    AMORE_TRACKER_CLONE_DIR: /data/private/tracker
     AMORE_BIND_HOST: 0.0.0.0
   # On the NAS the existing MongoDB publishes 27017 on the host; containers reach it as
   # host.docker.internal (set AMORE_MONGODB_URI in .env). Harmless on Docker Desktop.

@@ -1,10 +1,16 @@
-# AmoreHireMePls on the UGREEN DXP4800 Plus, deployed as a Portainer standalone stack (name: amorehiremepls).
+# AmoreHireMePls on a NAS, deployed as a Portainer standalone stack (name: amorehiremepls).
+# The defaults below are the original operator's UGREEN setup; every host specific value is a stack variable.
 #
 # Deployed by scripts/deploy_nas.sh through the Portainer API (no SSH). Secret values never appear here:
 # they are Portainer stack environment variables, read from the 1Password vault at deploy time.
 #
 # Stack variables (names only):
+#   AMORE_IMAGE                image repository (default docker.io/lepia/amorehiremepls; set by scripts/deploy_nas.sh from IMAGE_REPO)
 #   AMORE_IMAGE_TAG            image tag to run (git sha pushed by scripts/deploy_nas.sh; "latest" also exists)
+#   AMORE_DATA_ROOT            bind mount root on the NAS (default /volume1/docker/amorehiremepls)
+#   AMORE_TIMEZONE             timezone for schedules and dates shown in the dashboard (default America/Toronto here)
+#   AMORE_TRACKER_ENABLED      "true" keeps a private GitHub ledger of confirmed applications (default true here; off = database only)
+#   AMORE_TRACKER_REMOTE_URL   the ledger repository to clone when the tracker is on
 #   AMORE_PUBLISH_HOST         host address the dashboard is published on (default: NAS LAN address 192.168.2.49;
 #                              0.0.0.0 also answers on the Tailscale address, see docs/nas-deployment.md)
 #   AMORE_MODEL                model name (default gpt-5.4-mini)
@@ -42,10 +48,10 @@
 name: amorehiremepls
 
 x-app: &app
-  image: docker.io/lepia/amorehiremepls:${AMORE_IMAGE_TAG:-latest}
+  image: ${AMORE_IMAGE:-docker.io/lepia/amorehiremepls}:${AMORE_IMAGE_TAG:-latest}
   environment:
-    TZ: America/Toronto
-    AMORE_TIMEZONE: America/Toronto
+    TZ: ${AMORE_TIMEZONE:-America/Toronto}
+    AMORE_TIMEZONE: ${AMORE_TIMEZONE:-America/Toronto}
     AMORE_MONGODB_URI: mongodb://mongodb:27017/?directConnection=true
     AMORE_MONGODB_DATABASE: amorehiremepls
     AMORE_MONGODB_AUTH_SOURCE: amorehiremepls
@@ -65,6 +71,8 @@ x-app: &app
     AMORE_BROWSER_SESSION_DIR: /runtime/private/sessions
     AMORE_BROWSER_HEADLESS: "true"
     AMORE_BROWSER_ALLOWED_HOSTS: ${AMORE_BROWSER_ALLOWED_HOSTS:-}
+    AMORE_TRACKER_ENABLED: "${AMORE_TRACKER_ENABLED:-true}"
+    AMORE_TRACKER_REMOTE_URL: ${AMORE_TRACKER_REMOTE_URL:-https://github.com/christya95/job-application-records.git}
     AMORE_TRACKER_CLONE_DIR: /runtime/private/job-application-records
     AMORE_TRACKER_PUSH_ENABLED: "false"
     AMORE_PRICING_FILE: /app/config/pricing.json
@@ -99,7 +107,7 @@ services:
   # One-shot: make the bind-mounted data directories writable by the app user (uid 10001). Runs as root
   # for the chown only, then exits. Idempotent.
   init:
-    image: docker.io/lepia/amorehiremepls:${AMORE_IMAGE_TAG:-latest}
+    image: ${AMORE_IMAGE:-docker.io/lepia/amorehiremepls}:${AMORE_IMAGE_TAG:-latest}
     user: "0:0"
     entrypoint: ["/bin/sh", "-c"]
     command:
@@ -110,10 +118,10 @@ services:
         chmod 750 /runtime/artifacts /runtime/private /runtime/logs /candidate
         echo "data directories ready"
     volumes:
-      - /volume1/docker/amorehiremepls/artifacts:/runtime/artifacts
-      - /volume1/docker/amorehiremepls/private:/runtime/private
-      - /volume1/docker/amorehiremepls/logs:/runtime/logs
-      - /volume1/docker/amorehiremepls/candidate:/candidate
+      - ${AMORE_DATA_ROOT:-/volume1/docker/amorehiremepls}/artifacts:/runtime/artifacts
+      - ${AMORE_DATA_ROOT:-/volume1/docker/amorehiremepls}/private:/runtime/private
+      - ${AMORE_DATA_ROOT:-/volume1/docker/amorehiremepls}/logs:/runtime/logs
+      - ${AMORE_DATA_ROOT:-/volume1/docker/amorehiremepls}/candidate:/candidate
     restart: "no"
     security_opt:
       - no-new-privileges:true
@@ -130,10 +138,10 @@ services:
     command: ["amore", "web"]
     # The dashboard's Profile page writes uploaded resume/notes files into /candidate (no SSH on the NAS, so this is the drop path).
     volumes:
-      - /volume1/docker/amorehiremepls/artifacts:/runtime/artifacts
-      - /volume1/docker/amorehiremepls/private:/runtime/private
-      - /volume1/docker/amorehiremepls/logs:/runtime/logs
-      - /volume1/docker/amorehiremepls/candidate:/candidate
+      - ${AMORE_DATA_ROOT:-/volume1/docker/amorehiremepls}/artifacts:/runtime/artifacts
+      - ${AMORE_DATA_ROOT:-/volume1/docker/amorehiremepls}/private:/runtime/private
+      - ${AMORE_DATA_ROOT:-/volume1/docker/amorehiremepls}/logs:/runtime/logs
+      - ${AMORE_DATA_ROOT:-/volume1/docker/amorehiremepls}/candidate:/candidate
     ports:
       - "${AMORE_PUBLISH_HOST:-192.168.2.49}:8790:8790"
     healthcheck:
@@ -148,10 +156,10 @@ services:
     command: ["amore", "worker"]
     # The worker only reads the candidate folder (fit checks and tailoring).
     volumes:
-      - /volume1/docker/amorehiremepls/artifacts:/runtime/artifacts
-      - /volume1/docker/amorehiremepls/private:/runtime/private
-      - /volume1/docker/amorehiremepls/logs:/runtime/logs
-      - /volume1/docker/amorehiremepls/candidate:/candidate:ro
+      - ${AMORE_DATA_ROOT:-/volume1/docker/amorehiremepls}/artifacts:/runtime/artifacts
+      - ${AMORE_DATA_ROOT:-/volume1/docker/amorehiremepls}/private:/runtime/private
+      - ${AMORE_DATA_ROOT:-/volume1/docker/amorehiremepls}/logs:/runtime/logs
+      - ${AMORE_DATA_ROOT:-/volume1/docker/amorehiremepls}/candidate:/candidate:ro
     # Chromium needs a larger /dev/shm than Docker's 64 MB default.
     shm_size: 512m
     healthcheck:

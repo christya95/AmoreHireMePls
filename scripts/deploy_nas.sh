@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# Build the linux/amd64 image, push it to the private Docker Hub repo and create/update the Portainer stack
-# on the UGREEN NAS. No SSH; everything goes through Docker Hub and the Portainer API. Idempotent.
+# Build the linux/amd64 image, push it to a private Docker Hub repo and create/update a Portainer stack on a NAS.
+# No SSH; everything goes through Docker Hub and the Portainer API. Idempotent.
 #
-# Secrets are read from 1Password at run time and are never printed or written to disk:
-#   AmoreHireMePls / Docker Hub Push Token / credential   -> docker login (stdin)
-#   AmoreHireMePls / Portainer API Token / credential     -> X-API-Key header (via op run, curl reads $PORTAINER_API_KEY)
-#   AmoreHireMePls / Dashboard Password, App Session Secret, NAS MongoDB App User, OpenAI API Key
-#                                                         -> Portainer stack environment variables
+# Secrets are read from 1Password at run time and are never printed or written to disk (vault name: $OP_VAULT):
+#   $OP_VAULT / Docker Hub Push Token / credential   -> docker login (stdin)
+#   $OP_VAULT / Portainer API Token / credential     -> X-API-Key header (via op run, curl reads $PORTAINER_API_KEY)
+#   $OP_VAULT / Dashboard Password, App Session Secret, NAS MongoDB App User, OpenAI API Key
+#                                                    -> Portainer stack environment variables
+#
+# Your own setup goes in environment variables (the defaults are the original operator's; see docs/nas-deployment.md):
+#   OP_VAULT, PORTAINER_URL, PORTAINER_ENDPOINT_ID, STACK_NAME, IMAGE_REPO, HUB_USER, DEFAULT_PUBLISH_HOST, HEALTH_URL,
+#   AMORE_PUBLISH_HOST, AMORE_DATA_ROOT (bind mount root on the NAS; compose default /volume1/docker/amorehiremepls)
 #
 # Usage:
 #   scripts/deploy_nas.sh                 # build HEAD, push, create or update the stack, wait for health
@@ -17,7 +21,7 @@
 #   scripts/deploy_nas.sh --skip-build --set AMORE_PUBLISH_HOST=0.0.0.0   # publish on all NAS interfaces (LAN + tailnet)
 #   scripts/deploy_nas.sh --set AMORE_CANDIDATE_DIR=/candidate            # drop folder inside the containers (compose default)
 #
-# Stack variables not managed here (anything other than AMORE_IMAGE_TAG and the vault secrets) are carried over from
+# Stack variables not managed here (anything other than AMORE_IMAGE, AMORE_IMAGE_TAG and the vault secrets) are carried over from
 # the stack's current environment, so a value set once with --set stays until changed. Secret names cannot be --set.
 #
 # Requirements on the Mac: docker (buildx), op (signed in), curl, python3, git. Run from anywhere in the repo.
@@ -26,14 +30,18 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+OP_VAULT="${OP_VAULT:-AmoreHireMePls}"
 PORTAINER_URL="${PORTAINER_URL:-http://192.168.2.49:9000}"
 PORTAINER_ENDPOINT_ID="${PORTAINER_ENDPOINT_ID:-1}"
 STACK_NAME="${STACK_NAME:-amorehiremepls}"
 IMAGE_REPO="${IMAGE_REPO:-docker.io/lepia/amorehiremepls}"
-HUB_USER="${HUB_USER:-lepia}"
+HUB_USER_DEFAULT="${IMAGE_REPO#docker.io/}"; HUB_USER_DEFAULT="${HUB_USER_DEFAULT%%/*}"
+HUB_USER="${HUB_USER:-$HUB_USER_DEFAULT}"
 COMPOSE_FILE="deploy/nas/compose.yaml"
-HEALTH_URL="${HEALTH_URL:-http://192.168.2.49:8790/health}"
-PUBLISH_HOST="${AMORE_PUBLISH_HOST:-}"   # empty = keep the stack's current value (first deploy: 192.168.2.49)
+DEFAULT_PUBLISH_HOST="${DEFAULT_PUBLISH_HOST:-192.168.2.49}"   # used on the first deploy when AMORE_PUBLISH_HOST is unset
+PUBLISH_HOST="${AMORE_PUBLISH_HOST:-}"   # empty = keep the stack's current value
+HEALTH_URL="${HEALTH_URL:-http://${PUBLISH_HOST:-$DEFAULT_PUBLISH_HOST}:8790/health}"
+DATA_ROOT="${AMORE_DATA_ROOT:-}"          # empty = keep the stack's current value (compose default /volume1/docker/amorehiremepls)
 
 SKIP_BUILD=0
 TAG=""
@@ -67,7 +75,7 @@ trap 'rm -rf "$CTX" "$REFS"' EXIT
 
 # ---------------------------------------------------------------- 1. build + push (amd64, from a clean export of HEAD)
 log "docker login (token from 1Password, stdin only)"
-op read 'op://AmoreHireMePls/Docker Hub Push Token/credential' | docker login -u "$HUB_USER" --password-stdin >/dev/null
+op read "op://$OP_VAULT/Docker Hub Push Token/credential" | docker login -u "$HUB_USER" --password-stdin >/dev/null
 if [ "$SKIP_BUILD" -eq 0 ]; then
   git archive HEAD | tar -x -C "$CTX"
   log "building $IMAGE_REPO:$TAG for linux/amd64 and pushing (also :latest)"
@@ -85,16 +93,16 @@ docker logout docker.io >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------- 2. create or update the Portainer stack
 log "applying Portainer stack '$STACK_NAME' with AMORE_IMAGE_TAG=$TAG"
-cat >"$REFS" <<'EOF'
-PORTAINER_API_KEY=op://AmoreHireMePls/Portainer API Token/credential
-AMORE_APP_PASSWORD=op://AmoreHireMePls/Dashboard Password/password
-AMORE_APP_SECRET=op://AmoreHireMePls/App Session Secret/credential
-AMORE_MONGODB_USERNAME=op://AmoreHireMePls/NAS MongoDB App User/username
-AMORE_MONGODB_PASSWORD=op://AmoreHireMePls/NAS MongoDB App User/password
-OPENAI_API_KEY=op://AmoreHireMePls/OpenAI API Key/credential
+cat >"$REFS" <<EOF
+PORTAINER_API_KEY=op://$OP_VAULT/Portainer API Token/credential
+AMORE_APP_PASSWORD=op://$OP_VAULT/Dashboard Password/password
+AMORE_APP_SECRET=op://$OP_VAULT/App Session Secret/credential
+AMORE_MONGODB_USERNAME=op://$OP_VAULT/NAS MongoDB App User/username
+AMORE_MONGODB_PASSWORD=op://$OP_VAULT/NAS MongoDB App User/password
+OPENAI_API_KEY=op://$OP_VAULT/OpenAI API Key/credential
 EOF
 
-export PORTAINER_URL PORTAINER_ENDPOINT_ID STACK_NAME COMPOSE_FILE TAG PUBLISH_HOST IMAGE_REPO SET_JSON
+export PORTAINER_URL PORTAINER_ENDPOINT_ID STACK_NAME COMPOSE_FILE TAG PUBLISH_HOST DEFAULT_PUBLISH_HOST DATA_ROOT IMAGE_REPO SET_JSON
 op run --env-file "$REFS" -- python3 - <<'PY'
 import json, os, sys, time, urllib.error, urllib.request
 
@@ -104,7 +112,7 @@ name = os.environ["STACK_NAME"]
 key = os.environ["PORTAINER_API_KEY"]
 compose = open(os.environ["COMPOSE_FILE"], encoding="utf-8").read()
 SECRET_NAMES = ("AMORE_APP_PASSWORD", "AMORE_APP_SECRET", "AMORE_MONGODB_USERNAME", "AMORE_MONGODB_PASSWORD", "OPENAI_API_KEY")
-MANAGED = set(SECRET_NAMES) | {"AMORE_IMAGE_TAG"}
+MANAGED = set(SECRET_NAMES) | {"AMORE_IMAGE_TAG", "AMORE_IMAGE"}
 overrides = dict(json.loads(os.environ["SET_JSON"]))
 for k in overrides:
     if k in MANAGED:
@@ -137,8 +145,10 @@ if existing:
 carried.update(overrides)
 if os.environ.get("PUBLISH_HOST"):
     carried["AMORE_PUBLISH_HOST"] = os.environ["PUBLISH_HOST"]
-carried.setdefault("AMORE_PUBLISH_HOST", "192.168.2.49")
-env = [{"name": "AMORE_IMAGE_TAG", "value": os.environ["TAG"]}]
+carried.setdefault("AMORE_PUBLISH_HOST", os.environ["DEFAULT_PUBLISH_HOST"])
+if os.environ.get("DATA_ROOT"):
+    carried["AMORE_DATA_ROOT"] = os.environ["DATA_ROOT"]
+env = [{"name": "AMORE_IMAGE_TAG", "value": os.environ["TAG"]}, {"name": "AMORE_IMAGE", "value": os.environ["IMAGE_REPO"]}]
 env += [{"name": k, "value": v} for k, v in sorted(carried.items())]
 env += [{"name": k, "value": os.environ[k]} for k in SECRET_NAMES]
 for e in env:
