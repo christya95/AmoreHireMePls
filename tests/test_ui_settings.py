@@ -299,7 +299,7 @@ def test_overview_lists_and_new_pages_render_with_data(client):
     assert "Needs your attention" in home and "Outcome unknown" in home and "/applications/app_test1" in home
     assert 'class="chart"' in home and "Job pipeline" in home and "Spend this month" in home
     apps = client.get("/applications").text
-    assert "app_test1" in apps and "needs verification" in apps
+    assert "app_test1" in apps and "Outcome unknown, check it" in apps
     assert "app_test1" in client.get("/applications?status_filter=needs_verification").text
     assert "app_test1" not in client.get("/applications?status_filter=submitted").text
     assert client.get("/documents").status_code == 200
@@ -310,3 +310,121 @@ def test_overview_lists_and_new_pages_render_with_data(client):
     page = client.get("/").text
     assert "Emergency stop active" in page and "Clear emergency stop" in page
     client.post("/controls/emergency-stop", data={"csrf": csrf, "active": "off"})
+
+
+def test_tint_normalisation_presets_and_cookie_fallback():
+    from amorehiremepls.ui_settings import TINT_PRESETS, normalize_tint, tint_css_from_cookie
+
+    assert normalize_tint("accent") == "accent" and normalize_tint(" Neutral ") == "neutral"
+    assert normalize_tint("#A1B2C3") == "#a1b2c3"
+    for bad in ("", None, "#abc", "red", "url(x)", "#gggggg"):
+        assert normalize_tint(bad) is None, bad
+    assert tint_css_from_cookie("accent") == "accent" and tint_css_from_cookie(None) == "accent"
+    assert tint_css_from_cookie("warm") == TINT_PRESETS["warm"] and tint_css_from_cookie("#112233") == "#112233"
+    assert UISettings(bg_tint="cool").tint_css == TINT_PRESETS["cool"] and UISettings(bg_tint="cool").tint_name == "cool"
+    assert UISettings(bg_tint="#445566").tint_css == "#445566" and UISettings(bg_tint="#445566").tint_name is None
+    assert UISettings().tint_css == "accent"
+
+
+def test_status_labels_and_next_actions_are_plain_language():
+    from amorehiremepls.ui_settings import GLOSSARY, PAGE_INTROS, next_action_label, status_label
+
+    assert status_label("awaiting_authorization") == "Waiting for your approval"
+    assert status_label("needs_input") == "Needs your answers" and status_label("handoff") == "Finish on the site"
+    assert status_label("needs_verification") == "Outcome unknown, check it"
+    assert status_label("local_only") == status_label("sync_pending") == "Not yet recorded on GitHub"
+    assert status_label("some_new_state") == "some new state"  # unknown states still humanise instead of failing
+    assert next_action_label("ready_for_review") == "Review package" and next_action_label("needs_input") == "Answer questions"
+    assert next_action_label("handoff") == "Finish on site" and next_action_label("needs_verification") == "Check outcome"
+    assert next_action_label("unknown") == "Open"
+    for key in ("authorization", "material_hash", "batch", "needs_verification", "handoff", "emergency_stop", "sync_states", "outreach_scope", "regenerate"):
+        title, text = GLOSSARY[key]
+        assert title and text and "-" not in title
+    for name in ("index.html", "jobs.html", "job.html", "applications.html", "settings.html", "help.html", "runs.html"):
+        assert len(PAGE_INTROS[name]) == 2 and all(PAGE_INTROS[name])
+
+
+@pytest.mark.mongo
+def test_background_tint_persists_mirrors_in_cookie_and_validates(client):
+    from amorehiremepls.ui_settings import TINT_PRESETS
+
+    csrf = _login(client)
+    home = client.get("/").text
+    assert 'data-tint="accent"' in home  # default: follow the accent
+    r = client.post("/settings/appearance", data={"csrf": csrf, "theme": "system", "accent": "sage", "tint": "neutral"})
+    assert r.status_code == 303 and r.headers["location"] == "/settings?ok=saved"
+    assert "amore_ui=system|" in r.headers["set-cookie"] and "|neutral" in r.headers["set-cookie"]
+    page = client.get("/settings").text
+    assert f'data-tint="{TINT_PRESETS["neutral"]}"' in page
+    assert client.app.state.rt.store.get_control("ui_settings")["bg_tint"] == "neutral"
+    # custom hex, then invalid hex (refused, previous value kept)
+    r = client.post("/settings/appearance", data={"csrf": csrf, "theme": "system", "accent": "sage", "tint": "custom", "tint_hex": "#ABCDEF"})
+    assert r.status_code == 303 and 'data-tint="#abcdef"' in client.get("/settings").text
+    r = client.post("/settings/appearance", data={"csrf": csrf, "theme": "system", "accent": "sage", "tint": "custom", "tint_hex": "javascript:alert(1)"})
+    assert r.status_code == 303 and r.headers["location"].endswith("err=bad_tint")
+    assert 'data-tint="#abcdef"' in client.get("/settings").text
+    assert client.post("/settings/appearance", data={"csrf": csrf, "theme": "system", "accent": "sage", "tint": "plaid"}).headers["location"].endswith("err=bad_tint")
+    # the sign-in page and favicon honour the three-part cookie before any session exists; old two-part cookies still parse
+    anon = TestClient(client.app, follow_redirects=False)
+    anon.cookies.set("amore_ui", "dark|#a1b2c3|warm")
+    login = anon.get("/login").text
+    assert 'data-theme="dark"' in login and 'data-accent="#a1b2c3"' in login and f'data-tint="{TINT_PRESETS["warm"]}"' in login
+    anon.cookies.set("amore_ui", "light|#a1b2c3")
+    assert 'data-tint="accent"' in anon.get("/login").text
+    icon = anon.get("/brand.svg")
+    assert icon.status_code == 200 and icon.headers["content-type"].startswith("image/svg+xml") and "<svg" in icon.text
+    assert 'rel="icon"' in login and "/brand.svg" in login
+
+
+@pytest.mark.mongo
+def test_checklist_and_page_tips_remember_state(client):
+    csrf = _login(client)
+    home = client.get("/").text
+    assert "Getting started" in home and "Confirm your profile facts" in home and "AMORE_BROWSER_ALLOWED_HOSTS=" in home
+    assert "Setup checklist" not in home or "Hide" in home
+    r = client.post("/settings/checklist", data={"csrf": csrf, "dismissed": "1", "next": "/"})
+    assert r.status_code == 303 and "Getting started" not in client.get("/").text
+    assert "Show it again" in client.get("/settings").text
+    client.post("/settings/checklist", data={"csrf": csrf, "dismissed": "0", "next": "/settings"})
+    assert "Getting started" in client.get("/").text
+    # per-page intro strips
+    jobs = client.get("/jobs").text
+    assert 'class="intro' in jobs and "Hide" in jobs
+    r = client.post("/settings/intro", data={"csrf": csrf, "page": "jobs", "collapsed": "1", "next": "/jobs"})
+    assert r.status_code == 303 and r.headers["location"] == "/jobs"
+    jobs = client.get("/jobs").text
+    assert 'class="intro folded' in jobs and "Show tips" in jobs
+    assert 'class="intro folded' not in client.get("/history").text  # other pages unaffected
+    assert client.app.state.rt.store.get_control("ui_settings")["collapsed_intros"] == ["jobs"]
+    assert client.post("/settings/intro", data={"csrf": csrf, "page": "../etc", "collapsed": "1"}).status_code == 400
+    assert client.post("/settings/intro", data={"csrf": csrf, "page": "nosuchpage", "collapsed": "1"}).status_code == 400
+    r = client.post("/settings/intro", data={"csrf": csrf, "page": "history", "collapsed": "1"}, headers={"x-requested-with": "fetch"})
+    assert r.status_code == 200 and r.json() == {"ok": True, "collapsed": ["history", "jobs"]}
+    client.post("/settings/intro", data={"csrf": csrf, "reset": "1", "next": "/settings"})
+    assert client.app.state.rt.store.get_control("ui_settings")["collapsed_intros"] == []
+    assert 'class="intro folded' not in client.get("/jobs").text
+    # the new POSTs need a session and a token like everything else
+    for data in ({"dismissed": "1"}, {"page": "jobs"}):
+        path = "/settings/checklist" if "dismissed" in data else "/settings/intro"
+        assert client.post(path, data=data).status_code == 422
+        assert client.post(path, data={**data, "csrf": "bogus"}).status_code == 403
+    anon = TestClient(client.app, follow_redirects=False)
+    assert anon.get("/help").status_code == 303 and anon.post("/settings/intro", data={"csrf": "x", "page": "jobs"}).status_code in (303, 401)
+
+
+@pytest.mark.mongo
+def test_help_page_and_runs_tab(client):
+    _login(client)
+    page = client.get("/help")
+    assert page.status_code == 200
+    for anchor in ('id="hosts"', 'id="files"', 'id="authorization"', 'id="material_hash"', 'id="emergency_stop"', 'id="handoff"', 'id="sync_states"'):
+        assert anchor in page.text, anchor
+    assert "AMORE_BROWSER_ALLOWED_HOSTS=boards.greenhouse.io" in page.text
+    assert "Waiting for your approval" in page.text and "<code" in page.text  # label plus raw state
+    assert "never" in page.text.lower() and "Emergency stop" in page.text
+    runs = client.get("/runs").text
+    assert "Worker runs" in runs and "Review packages" in runs
+    # Runs lives under Applications in the menu: the Applications item is marked active and /runs is not a menu entry
+    assert re.search(r'href="/applications"[^>]*aria-current="page"', runs) or re.search(r'aria-current="page"[^>]*href="/applications"', runs)
+    assert 'href="/runs" class="nav-item' not in runs and 'href="/help"' in runs
+    assert 'href="/runs"' in client.get("/applications").text

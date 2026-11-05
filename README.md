@@ -58,14 +58,19 @@ Authenticated job sites (Workday etc.): `uv run amore browser login myworkdayjob
 
 ## Operate
 
-Dashboard pages (left sidebar): Overview (greeting, KPI tiles, applications-per-month chart, job pipeline, "needs your attention" list with direct actions, system health, recent runs and activity), Jobs (import URL, discovery sources, qualification, fit evidence, single-job run, bounded batch), Applications (local review packages by status), Runs (pause/resume/cancel, interrupts), Documents (tailored resumes with hashes, page verification and grounding), Outreach (recipients, history reconciliation, drafts, handoff/record send), History (tracker import preview/import), Sync (outbox states, retry, crash reconcile), Usage (measured tokens, known vs unknown cost, skill catalog), Authorizations (single and bounded batch scopes, revoke), Candidate profile (facts with provenance, computed experience, preferences, exclusions, base resume), Settings (appearance, name, avatar).
+Dashboard pages (left sidebar): Overview (getting-started checklist computed from real state, greeting, KPI tiles, applications-per-month chart, job pipeline, "needs your attention" list with one verb button per item, system health, recent runs and activity), Jobs (import URL, discovery sources, qualification, fit evidence, single-job run, bounded batch), Applications (tabs: review packages by status, worker runs with pause/resume/cancel; `/runs` still works), Documents (tailored resumes with hashes, page verification and grounding), Outreach (recipients, history reconciliation, drafts, handoff/record send), History (tracker import preview/import), Sync (outbox states, retry, crash reconcile), Usage (measured tokens, known vs unknown cost, skill catalog), Authorizations (single and bounded batch scopes, revoke), Candidate profile (facts with provenance, computed experience, preferences, exclusions, base resume), Settings (appearance, name, avatar, guidance), Help (two-minute workflow, what every status means, safety model, environment setup, where files live).
+
+Guidance built into the pages: every page opens with a one-line strip saying what it is for and what to do (Hide/Show per page, remembered); statuses are shown in plain words with the raw state in a small monospace chip (`ready_for_review` → "Waiting for your approval", `needs_input` → "Needs your answers", `handoff` → "Finish on the site", `needs_verification` → "Outcome unknown, check it", `local_only`/`sync_pending` → "Not yet recorded on GitHub"); "?" disclosures explain authorization scope, material hash, batch runs, handoffs, emergency stop, sync states and outreach scopes without JavaScript. The job page shows the eight-step path (Import → Qualify → Tailor → Review → Authorize → Submit → Record → Outreach) with the current step and the one next action under it; "More actions" holds Re-qualify, Start a new run and **Regenerate documents** (fresh DOCX, and PDF when LibreOffice is present; older artifacts are marked superseded, any single approval for that job is revoked because the hashes change, and a live review package is rebuilt; refused while a run is active or after submission).
 
 Emergency stop is in the header on every page (two steps: open, then confirm with an optional reason) and at `amore emergency-stop`. It blocks any new external action; in-flight actions finish into `needs_verification` or a recorded outcome.
 
-### Settings (appearance, name, avatar)
+### Settings (appearance, name, avatar, guidance)
 
 - **Theme**: system / light / dark. The sun-moon button in the header flips it instantly; the Settings page sets it explicitly. The saved value is mirrored in the `amore_ui` cookie so the first paint (and the sign-in page) already use the right theme; `prefers-color-scheme` applies when the setting is `system`.
-- **Accent colour**: six presets (sage, blue, violet, teal, amber, rose) or any `#rrggbb`. Everything else (hover, soft tints, page background, chart fill) derives from `--accent` through `color-mix()` in `src/amorehiremepls/static/app.css`.
+- **Accent colour**: six presets (sage, blue, violet, teal, amber, rose) or any `#rrggbb`. Controls, links, the active menu item and the chart derive from `--accent` through `color-mix()` in `src/amorehiremepls/static/app.css`.
+- **Background tint**: "Match accent" (default, the original look), Neutral, Warm, Cool, or any `#rrggbb`. It drives `--tint`, which colours the page background and soft surfaces independently of the accent in light and dark. Live preview; persisted next to the accent and mirrored as the third part of the `amore_ui` cookie (`theme|accent|tint`).
+- **Guidance**: bring back the getting-started checklist or all per-page tips from here.
+- **Brand mark**: one macro in `templates/_brand.html` draws the sidebar mark, the sign-in page, the favicon (`GET /brand.svg`) and the "logo" avatar style; replacing the placeholder is a one-file change.
 - **Display name**: used in greetings and the header only. Empty means "use the profile's preferred or first name"; the code falls back to a generic name, never to data in templates.
 - **Avatar**: upload a PNG, JPEG or WebP up to 1 MB (declared type, file header and dimensions are all checked) or pick one of four initials styles. The file is stored under `AMORE_PRIVATE_DIR/avatar/` and served only through the authenticated `/settings/avatar/image` route.
 - Storage: everything except the image file lives in the MongoDB `controls` collection under the key `ui_settings`. Nothing here feeds resumes, answers or messages.
@@ -80,7 +85,7 @@ Nothing is submitted or sent without an authorization scope bound to the exact j
 ## Test
 
 ```bash
-uv run pytest                   # 86 tests; mongo-marked tests skip automatically if 127.0.0.1:27027 is down
+uv run pytest                   # 98 tests; mongo-marked tests skip automatically if 127.0.0.1:27027 is down
 TEST_MONGO_URI=mongodb://127.0.0.1:27027 uv run pytest -m mongo
 uv run pytest -m browser        # Playwright adapter against the local fixture site (skips without Chromium)
 uv run ruff check src tests && uv run ruff format --check src tests

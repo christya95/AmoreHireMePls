@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -117,7 +119,7 @@ def test_review_page_and_single_scope_authorization(client, tmp_path):
     assert run["status"] == "waiting" and run["interrupt"]["type"] == "awaiting_authorization", run
     app_id = run["interrupt"]["application_id"]
     page = client.get(f"/applications/{app_id}")
-    assert page.status_code == 200 and "Authorize this exact submission" in page.text
+    assert page.status_code == 200 and "Approve this exact submission" in page.text
     a = rt.store.c("applications").find_one({"_id": app_id})
     # stale material hash is refused; the real one grants a single scope and requests resume
     assert client.post(f"/applications/{app_id}/authorize", data={"csrf": csrf, "material_hash": "stale", "hours": 1}).status_code == 409
@@ -131,3 +133,59 @@ def test_review_page_and_single_scope_authorization(client, tmp_path):
     assert run["status"] == "waiting" and run["interrupt"]["type"] == "handoff", run
     assert rt.store.c("applications").find_one({"_id": app_id})["status"] == "handoff"
     assert "Record manual submission" in client.get(f"/applications/{app_id}").text
+
+
+def test_regenerate_documents_supersedes_artifacts_and_invalidates_approval(client, tmp_path):
+    from amorehiremepls.profile import build_profile_from_skills
+    from amorehiremepls.worker import Worker
+    from tests.fixtures.make_resume import make_base_resume
+    from tests.test_profile import FAKE_APPLY, FAKE_FACTS, FAKE_SALARY
+
+    csrf = _login(client)
+    rt = client.app.state.rt
+    r = client.post("/jobs/import", data={"csrf": csrf, "url": "https://careers.acme.example/jobs/R79", "employer": "Acme", "title": "Backend Developer", "requisition_id": "R79"})
+    job_id = r.headers["location"].rsplit("/", 1)[1]
+    # no approved base resume yet -> refused with a clear reason, nothing written
+    r = client.post(f"/jobs/{job_id}/regenerate", data={"csrf": csrf})
+    assert r.status_code == 303 and r.headers["location"].endswith("err=no_base")
+    assert rt.store.c("artifacts").count_documents({"owner_id": job_id}) == 0
+    assert client.post("/jobs/job_missing/regenerate", data={"csrf": csrf}).status_code == 404
+    assert client.post(f"/jobs/{job_id}/regenerate", data={}).status_code == 422
+
+    rt.profiles.save(build_profile_from_skills(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY), actor="test")
+    base = make_base_resume(tmp_path / "base.docx")
+    rt.profiles.select_base_resume(base, "2026-10-01", "test", rt.settings.private_dir)
+    rt.reload_profile()
+    run_url = client.post(f"/jobs/{job_id}/run", data={"csrf": csrf}).headers["location"]
+    # while the run is queued the documents are left alone
+    r = client.post(f"/jobs/{job_id}/regenerate", data={"csrf": csrf})
+    assert r.headers["location"].endswith("err=busy")
+    Worker(rt).tick()
+    run = rt.store.c("runs").find_one({"_id": run_url.rsplit("/", 1)[1]})
+    assert run["interrupt"]["type"] == "awaiting_authorization"
+    app_id = run["interrupt"]["application_id"]
+    a0 = rt.store.c("applications").find_one({"_id": app_id})
+    first = rt.store.c("artifacts").find_one({"owner_id": job_id, "kind": "resume_tailored"})
+    assert client.post(f"/applications/{app_id}/authorize", data={"csrf": csrf, "material_hash": a0["material_hash"], "hours": 1}).status_code == 303
+    assert len([s for s in rt.auth.active("application_submit") if s.binding.target_id == job_id]) == 1
+    # the job page shows the stepper and the regenerate action with its warning
+    page = client.get(f"/jobs/{job_id}").text
+    assert "Regenerate documents" in page and "approval for the old package is withdrawn" in page and "Authorize" in page and "Outreach" in page
+
+    r = client.post(f"/jobs/{job_id}/regenerate", data={"csrf": csrf})
+    assert r.status_code == 303 and r.headers["location"].endswith("ok=regenerated"), r.headers["location"]
+    arts = list(rt.store.c("artifacts").find({"owner_id": job_id, "kind": "resume_tailored"}).sort("created_at", 1))
+    assert len(arts) == 2 and arts[0]["_id"] == first["_id"] and arts[0].get("superseded") is True and not arts[1].get("superseded")
+    assert Path(arts[1]["path"]).is_file()
+    a1 = rt.store.c("applications").find_one({"_id": app_id})
+    assert a1["status"] in ("ready_for_review", "needs_input") and a1["artifact_id"] == arts[1]["_id"] and a1["material_hash"] != a0["material_hash"]
+    # the old single approval no longer covers the new files
+    assert not [s for s in rt.auth.active("application_submit") if s.binding.target_id == job_id]
+    assert rt.store.c("audit").find_one({"event": "documents_regenerated", "subject_id": job_id})
+    page = client.get(f"/jobs/{job_id}").text
+    assert "replaced by a newer version" in page
+    # a submitted application is never re-tailored from here
+    rt.store.c("applications").update_one({"_id": app_id}, {"$set": {"status": "submitted"}})
+    r = client.post(f"/jobs/{job_id}/regenerate", data={"csrf": csrf})
+    assert r.headers["location"].endswith("err=already_submitted")
+    assert rt.store.c("artifacts").count_documents({"owner_id": job_id, "kind": "resume_tailored"}) == 2
