@@ -222,7 +222,7 @@ class GreenhouseAdapter:
 
     def map_answers(self, fields: list[FormField], profile: Profile, job: dict, resume_path: str | None, band: BandEvidence | None, fit: str, salary_case=None) -> list[Answer]:
         """Deterministic mapping by Greenhouse field name first, then the generic label rules. Nothing is inferred."""
-        from ..applications import SENSITIVE, Answer, map_answers, self_identification_answer
+        from ..applications import SENSITIVE, Answer, map_answers, own_personal_answer, years_bucket_answer
         from ..profile import compute_experience
 
         out: list[Answer] = []
@@ -232,7 +232,7 @@ class GreenhouseAdapter:
             meta = f.meta or {}
             name, section, label = meta.get("name", f.id), meta.get("section", "questions"), f.label or f.id
             if section in ("compliance", "demographic") or SENSITIVE.search(label):
-                if own := self_identification_answer(f, profile, _decline_option(f.options)):
+                if own := own_personal_answer(f, profile, _decline_option(f.options)):
                     out.append(own)
                 elif f.required and f.options and (opt := _decline_option(f.options)):
                     out.append(
@@ -275,8 +275,7 @@ class GreenhouseAdapter:
                 continue
             if YEARS_RULE.search(label) and f.options:
                 years = exp.full_time_years_completed if FULL_TIME_RULE.search(label) else exp.total_years_completed
-                opt = _pick_bucket(f.options, years)
-                out.append(Answer(f.id, label, opt, [e.id for e in profile.employment], needs_input=opt is None, reason=f"{years} completed years computed from dates"))
+                out.append(years_bucket_answer(f, profile, years, _pick_bucket))
                 continue
             generic.append(f)
         for a in map_answers(generic, profile, job, resume_path, band, fit, salary_case=salary_case):

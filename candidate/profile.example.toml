@@ -90,7 +90,9 @@ match = "quota attainment|percent of quota"
 value = "112 percent in 2024, 131 percent in 2025"
 
 # Optional self identification answers you choose to give. Anything not listed here is left blank on forms, always.
-# Keys: gender, disability_status, sexual_orientation, visible_minority, ethnicity.
+# Keys: gender, disability_status, sexual_orientation, visible_minority, ethnicity, veteran_status, indigenous_identity.
+# Other personal questions (pronouns, citizenship) are typed only from an answer that carries a "match" pattern, like the
+# pronouns fact above.
 # [[answers]]
 # key = "gender"
 # value = "Prefer not to say"

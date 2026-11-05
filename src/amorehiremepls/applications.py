@@ -21,20 +21,31 @@ from .authorization import material_hash
 from .browser import Plan, normalize_screenshots
 from .db import Store
 from .jobs import JobStore
-from .profile import BandEvidence, Profile, compute_experience, desired_salary
+from .profile import BandEvidence, Fact, Profile, compute_experience, desired_salary
 from .tailoring import Tailor, page_limit_block_reason
 from .util import local_zone, new_id, sha256_file, to_local, utcnow
 
 log = logging.getLogger(__name__)
 
-SENSITIVE = re.compile(r"(gender|race|ethnic|disab|veteran|sexual orientation|religion|pronoun|date of birth|age\b|marital|citizenship status|criminal)", re.I)
+SENSITIVE = re.compile(
+    r"(gender|race|ethnic|disab|veteran|military|armed forces|sexual orientation|religion|pronoun|date of birth|\bage\b|marital|citizenship|criminal"
+    r"|indigenous|aboriginal|first nations|m[ée]tis|inuit)",
+    re.I,
+)
+# Label rules in priority order (the first match wins). Field neutral: a rule names what a form asks, never a
+# profession, place or technology. Keys are the candidate's saved fact / answer keys; `__x__` keys are computed.
 FIELD_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bfirst\s*name|given name", re.I), "legal_first_name"),
     (re.compile(r"\blast\s*name|surname|family name", re.I), "legal_last_name"),
     (re.compile(r"preferred name|nickname", re.I), "preferred_name"),
+    (re.compile(r"middle (name|initial)", re.I), "legal_middle_name"),
     (re.compile(r"\be-?mail", re.I), "email"),
     (re.compile(r"country code|dial(ing)? code", re.I), "phone_country_code"),
     (re.compile(r"\bphone|mobile|telephone", re.I), "phone"),
+    (re.compile(r"time ?zone", re.I), "time_zone"),
+    # eligibility before the address block: "authorized to work in this country" asks about eligibility, not the country
+    (re.compile(r"authoriz|eligible to work|legally (able|entitled) to work|work permit", re.I), "work_authorization"),
+    (re.compile(r"sponsor", re.I), "requires_sponsorship"),
     (re.compile(r"address line ?1|street|^address$", re.I), "address_line1"),
     (re.compile(r"\bcity\b|town", re.I), "city"),
     (re.compile(r"province|state|region", re.I), "province"),
@@ -43,12 +54,33 @@ FIELD_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"linkedin", re.I), "linkedin_url"),
     (re.compile(r"github", re.I), "github_url"),
     (re.compile(r"portfolio|website|personal site|\burl\b", re.I), "website_url"),
-    (re.compile(r"authoriz|eligible to work|legally (able|entitled) to work|work permit", re.I), "work_authorization"),
-    (re.compile(r"sponsor", re.I), "requires_sponsorship"),
+    (re.compile(r"relocat", re.I), "willing_to_relocate"),
+    (re.compile(r"(percent(age)?|%|how much|how often).{0,40}travel|travel.{0,40}(percent(age)?|%)", re.I), "travel_percentage"),
+    (re.compile(r"\btravel", re.I), "willing_to_travel"),
+    (re.compile(r"overtime|extended hours", re.I), "overtime_willing"),
+    (re.compile(r"\bon[- ]?call\b", re.I), "on_call_willing"),
+    (re.compile(r"security clearance|\bclearance\b", re.I), "security_clearance"),
+    (re.compile(r"background (check|screen|verification)|consent to (a )?(check|screening)", re.I), "background_check_consent"),
+    (re.compile(r"(may|can) we contact|contact (your )?(current|present|former|previous|past) employer", re.I), "former_employer_contact"),
+    (re.compile(r"\breferences?\b|referees?\b", re.I), "references_policy"),
+    (re.compile(r"\brelatives?\b|family members?|related to (any|an|a) (current |existing )?(employee|staff)", re.I), "relatives_at_employer"),
+    (re.compile(r"non[- ]?compet|non[- ]?solicit|restrictive covenant|confidentiality agreement|bound by (any |an )?agreement", re.I), "restrictive_agreements"),
+    (re.compile(r"outside (business|employment|activit|interest|work)|secondary employment|conflict of interest", re.I), "outside_business_interests"),
+    (re.compile(r"reason for leaving|why (are|were|did) you (leav|look|consider)|why are you (looking|open) (for|to)", re.I), "reason_for_leaving_most_recent_role"),
+    (re.compile(r"currently employed|presently employed|are you (currently |presently )?(employed|working)|employment status", re.I), "currently_employed"),
+    (re.compile(r"career (goals?|aspirations?|objectives?|plans?)|where do you see yourself|long[- ]term goals?", re.I), "career_goals"),
+    (re.compile(r"cover letter", re.I), "cover_letter_preference"),
     (re.compile(r"salary|compensation|pay expectation|expected pay", re.I), "__salary__"),
     (re.compile(r"resume|cv\b|curriculum", re.I), "__resume__"),
+    (re.compile(r"\bgpa\b|grade point", re.I), "gpa"),
+    (re.compile(r"graduat", re.I), "graduation_year"),
+    (re.compile(r"field of study|area of study|\bmajor\b|\bdiscipline\b|concentration", re.I), "field_of_study"),
     (re.compile(r"degree|education level|highest level", re.I), "degree_level"),
+    (re.compile(r"\bprogram(me)?\b", re.I), "program"),
     (re.compile(r"school|university|college|institution", re.I), "school"),
+    (re.compile(r"driv(er'?s?|ing) licen[cs]e|licen[cs]e to drive|driver'?s? permit", re.I), "drivers_licence"),
+    (re.compile(r"certif|professional designation|professional licen[cs]e", re.I), "certifications"),
+    (re.compile(r"languages? (spoken|you speak|proficienc|fluenc)|spoken languages?|language skills|fluent in|^languages?$", re.I), "languages"),
     (YEARS_RULE, "__years_full_time__"),
     (re.compile(r"total years|years of experience", re.I), "__years_total__"),
     (re.compile(r"employment type|job type|looking for", re.I), "employment_preference"),
@@ -57,6 +89,10 @@ FIELD_RULES: list[tuple[re.Pattern, str]] = [
 ]
 # A candidate's own recurring question ("Do you use AI tools?", "Are you licensed in this state?") is a fact with a
 # `question_pattern`; those are matched after the built-in rules. See [[facts]] in candidate/profile.toml.
+# On a personal question (the SENSITIVE labels) a `question_pattern` is the only way a saved answer gets typed:
+# pronouns, citizenship and the like are never answered from a plain key.
+SAVED_ANSWER_REASON = "from your saved answer to this question"
+YEARS_KEY_PREFIX = "years_"
 # A question for one kind of link may be answered by another saved link when the first is not on file.
 LINK_FALLBACKS: dict[str, tuple[str, ...]] = {"website_url": ("website_url", "portfolio_url", "github_url"), "portfolio_url": ("portfolio_url", "website_url", "github_url")}
 YES_WORDS = ("yes", "authorized", "authorised", "eligible", "i am", "no sponsorship", "do not require")
@@ -64,8 +100,8 @@ NO_WORDS = ("no", "not ", "require sponsorship", "need sponsorship")
 
 # -- self-identification (EEOC / employment equity) ----------------------------------------------------------------
 # Only the answers the candidate gave explicitly, matched to the option text of the form's own question. Deterministic: when no
-# option clearly carries the saved answer, the question keeps the explicit decline (or stays blank). Veteran status,
-# Indigenous identity, pronouns, religion, age and the like have no saved fact and are never inferred.
+# option clearly carries the saved answer, the question keeps the explicit decline (or stays blank). Pronouns,
+# religion, age and the like have no rule here and are never inferred.
 SELF_ID_REASON = "from your self-identification answers"
 _NEGATED = re.compile(r"\b(no|not|don't|do not|never|without|non)\b", re.I)
 
@@ -88,7 +124,7 @@ def _match_yes_no(options: list[str], value: str, topic_words: tuple[str, ...]) 
         low = o.strip().lower()
         if want_yes and (low.startswith("yes") or (_opt_has(o, *topic_words) and not _NEGATED.search(low) and "wish" not in low and "prefer" not in low)):
             return o
-        if not want_yes and (low.startswith("no") and "not wish" not in low and "prefer" not in low):
+        if not want_yes and "not wish" not in low and "prefer" not in low and (low.startswith("no") or (_opt_has(o, *topic_words) and _NEGATED.search(low))):
             return o
     return None
 
@@ -110,6 +146,19 @@ def _match_orientation(options: list[str], value: str) -> str | None:
     return next((o for o in options if _opt_has(o, v)), None)
 
 
+def _match_group_or_yes_no(topic_words: tuple[str, ...]) -> Callable[[list[str], str], str | None]:
+    """A saved group name picks the option that names it; a saved yes / no picks the affirmative or negative statement."""
+
+    def match(options: list[str], value: str) -> str | None:
+        v = value.strip().lower()
+        if v not in ("yes", "no", "true", "false", "y", "n"):
+            return next((o for o in options if _opt_has(o, v)), None)
+        return _match_yes_no(options, value, topic_words)
+
+    return match
+
+
+_INDIGENOUS_WORDS = ("indigenous", "aboriginal", "first nations", "métis", "metis", "inuit")
 # (question pattern, fact keys tried in order, matcher(options, fact value) -> option)
 SELF_ID_RULES: list[tuple[re.Pattern, tuple[str, ...], Callable[[list[str], str], str | None]]] = [
     (re.compile(r"sexual orientation", re.I), ("sexual_orientation",), _match_orientation),
@@ -117,7 +166,9 @@ SELF_ID_RULES: list[tuple[re.Pattern, tuple[str, ...], Callable[[list[str], str]
     # Canadian employment equity: a visible minority question may list groups (use the ethnicity fact) or ask yes/no
     (re.compile(r"visible minority|racialized|racialised", re.I), ("ethnicity",), _match_ethnicity),
     (re.compile(r"visible minority|racialized|racialised", re.I), ("visible_minority",), lambda opts, v: _match_yes_no(opts, v, ("visible minority", "racialized", "racialised"))),
+    (re.compile(r"indigenous|aboriginal|first nations|m[ée]tis|inuit", re.I), ("indigenous_identity",), _match_group_or_yes_no(_INDIGENOUS_WORDS)),
     (re.compile(r"\brace\b|racial|ethnic", re.I), ("ethnicity",), _match_ethnicity),
+    (re.compile(r"veteran|military|armed forces", re.I), ("veteran_status",), _match_group_or_yes_no(("veteran", "military", "armed forces", "served"))),
     (re.compile(r"\bgender\b|\bsex\b", re.I), ("gender",), _match_gender),
 ]
 
@@ -142,6 +193,85 @@ def self_identification_answer(field: FormField, profile: Profile, decline: str 
                 continue
             return Answer(field.id, label, opt, [fact.id], needs_input=False, reason=SELF_ID_REASON, sensitive=True)
     return None
+
+
+def own_personal_answer(field: FormField, profile: Profile, decline: str | None = None) -> Answer | None:
+    """The candidate's own answer to a personal question, or None so the caller keeps the decline / blank.
+
+    Two sources, both explicit: a self-identification fact matched to the form's options, else a saved fact whose
+    `question_pattern` matches this label (the only way pronouns, citizenship and similar questions get an answer).
+    Either way the answer is flagged sensitive and never reaches a model, a log or the audit trail."""
+    own = self_identification_answer(field, profile, decline)
+    if own is not None:
+        return own
+    label = field.label or field.id
+    key = _question_pattern_key(profile, label)
+    fact = profile.fact(key) if key else None
+    if fact is None or not fact.value:
+        return None
+    value = _option_for(field.options, fact.value) if field.options else fact.value
+    if value is None or value == decline:
+        return None
+    return Answer(field.id, label, value, [fact.id], needs_input=False, reason=SAVED_ANSWER_REASON, sensitive=True)
+
+
+def _option_for(options: list[str], value: str) -> str | None:
+    """The option that carries a saved value: the same text, else the one that contains it as whole words, else (for
+    values long enough not to hide inside another word) a plain substring."""
+    low = value.strip().lower()
+    if not low:
+        return None
+    for o in options:
+        if o.strip().lower() == low:
+            return o
+    for o in options:
+        if _opt_has(o, low):
+            return o
+    if len(low) >= 4:
+        return next((o for o in options if low in o.lower()), None)
+    return None
+
+
+def saved_years(profile: Profile, label: str) -> tuple[Fact | None, int | None]:
+    """A saved `years_<words>` answer whose words all appear in the question ("years_<x>" answers "years of <x>
+    experience"), longest key first, with the whole number it states. (None, None) when nothing saved matches."""
+    best: Fact | None = None
+    for fact in [*profile.facts, *profile.answers]:
+        if not fact.key.startswith(YEARS_KEY_PREFIX) or not fact.value:
+            continue
+        words = [w for w in fact.key[len(YEARS_KEY_PREFIX) :].split("_") if w]
+        if not words or not all(_opt_has(label, w) for w in words):
+            continue
+        if best is None or len(fact.key) > len(best.key):
+            best = fact
+    if best is None:
+        return None, None
+    m = re.search(r"\d+", best.value or "")
+    return best, (int(m.group(0)) if m else None)
+
+
+def years_bucket_answer(f: FormField, profile: Profile, computed_years: int, pick_bucket: Callable[[list[str], int], str | None]) -> Answer:
+    """A years-of-experience question with range options: the candidate's saved `years_<words>` answer when one matches
+    the question, otherwise the years computed from employment dates, both mapped onto the form's own buckets."""
+    label = f.label or f.id
+    saved, saved_n = saved_years(profile, label)
+    if saved is not None:
+        opt = _years_option(f.options, saved.value or "", saved_n, pick_bucket)
+        return Answer(f.id, label, opt, [saved.id], needs_input=opt is None, reason=SAVED_ANSWER_REASON if opt else f"option list lacks '{saved.value}'")
+    opt = pick_bucket(f.options, computed_years)
+    return Answer(f.id, label, opt, [e.id for e in profile.employment], needs_input=opt is None, reason=f"{computed_years} completed years computed from dates")
+
+
+def _years_option(options: list[str], value: str, n: int | None, pick_bucket: Callable[[list[str], int], str | None] | None = None) -> str | None:
+    """The option for a saved years answer: the same text, else the range bucket holding the number, else the option
+    that states exactly that number (digit bounded, so 5 never picks 15)."""
+    low = value.strip().lower()
+    exact = next((o for o in options if o.strip().lower() == low), None)
+    if exact or n is None:
+        return exact
+    if pick_bucket is not None and (bucket := pick_bucket(options, n)):
+        return bucket
+    return next((o for o in options if re.search(rf"(?<![\d.]){n}(?![\d.])", o)), None)
 
 
 # -- salary research ----------------------------------------------------------------------------------------------
@@ -344,7 +474,7 @@ def map_answers(
     for f in fields:
         label = f.label or f.id
         if SENSITIVE.search(label):
-            own = self_identification_answer(f, profile)
+            own = own_personal_answer(f, profile)
             blank = Answer(f.id, label, None, [], needs_input=f.required, reason=SENSITIVE_BLANK_REASON, sensitive=True)
             answers.append(own or blank)
             continue
@@ -360,7 +490,15 @@ def map_answers(
         if key == "__salary__":
             answers.append(salary_answer(f, profile, band, fit, salary_case))
             continue
+        if key == "cover_letter_preference" and f.type == "file":
+            answers.append(Answer(f.id, label, None, [], needs_input=f.required, reason="optional: no cover letter is attached unless you add one"))
+            continue
         if key in ("__years_full_time__", "__years_total__"):
+            saved, saved_n = saved_years(profile, label)
+            if saved is not None:
+                value = _years_option(f.options, saved.value or "", saved_n) if f.options else saved.value
+                answers.append(Answer(f.id, label, value, [saved.id], needs_input=value is None, reason=SAVED_ANSWER_REASON if value else f"option list lacks '{saved.value}'"))
+                continue
             years = exp.full_time_years_completed if key == "__years_full_time__" else exp.total_years_completed
             answers.append(
                 Answer(
@@ -381,7 +519,7 @@ def map_answers(
             answers.append(Answer(f.id, label, opt, [fact.id] if fact else [], needs_input=opt is None, reason="" if opt else "no matching option"))
             continue
         if f.options and value and value not in f.options:
-            match = next((o for o in f.options if o.lower() == value.lower() or value.lower() in o.lower()), None)
+            match = _option_for(f.options, value)
             if match is None:
                 answers.append(Answer(f.id, label, None, [fact.id] if fact else [], needs_input=True, reason=f"option list lacks '{value}'"))
                 continue

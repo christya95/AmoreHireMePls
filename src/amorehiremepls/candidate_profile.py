@@ -64,7 +64,7 @@ FACT_CATEGORIES: dict[str, str] = {
     "country": "address",
 }
 ELIGIBILITY_KEYS = ("work_authorization", "requires_sponsorship", "availability", "notice_period", "employment_preference")
-SENSITIVE_KEYS = ("gender", "disability_status", "sexual_orientation", "visible_minority", "ethnicity", "veteran_status", "race", "religion", "age")
+SENSITIVE_KEYS = ("gender", "disability_status", "sexual_orientation", "visible_minority", "ethnicity", "veteran_status", "indigenous_identity", "race", "religion", "age")
 
 
 class ProfileTomlError(ValueError):

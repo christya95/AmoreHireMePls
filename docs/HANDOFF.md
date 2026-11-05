@@ -1,6 +1,6 @@
 # Handoff
 
-Written 2026-11-05 12:40 Toronto at commit `45be592`. Read this first in every new session.
+Written 2026-11-05 12:40 Toronto at commit `45be592`, updated 13:00 after queue item 1. Read this first in every new session.
 No private values here: field names and counts only. Keep under 120 lines; finished items move to `docs/PROGRESS.md`.
 
 ## State now
@@ -17,7 +17,8 @@ No private values here: field names and counts only. Keep under 120 lines; finis
   edit), `AMORE_TIMEZONE` and tracker settings, profession neutral code with `candidate/profile.toml` as the one customization
   surface (`amore profile import --from … [--dry-run]`, `export --to …`, `fingerprint`, Profile page Load button). The
   owner's live preferences are exported to the gitignored Mac copy of `profile.toml`; the NAS Profile card says "not found"
-  because the file is only on the Mac. Suite: 300 passed, ruff clean.
+  because the file is only on the Mac. Suite: 336 passed, ruff clean.
+- On `main`, not yet deployed: form rules for every saved answer key (queue item 1); the NAS still runs `e57cd6de0ff4`.
 - Fixture tested only: Greenhouse, Lever and Ashby form filling including the hidden input upload fix and the pre fill form
   check; the salary skill; Workday posting refresh; owner notifications, the human check hold and the one later try.
 - Not verified: no live employer receipt exists yet for any ATS; nothing has ever been submitted by the app.
@@ -57,19 +58,16 @@ No private values here: field names and counts only. Keep under 120 lines; finis
 7. Copy `candidate/profile.toml` to the NAS `/candidate` so the Profile card finds it? It holds preferences, not secrets.
 8. The handoff notes file in `candidate/` is truncated at the 40,000 character cap; trim or split it so the important part
    sorts first.
+9. Should the saved `pronouns` and `citizenship_status` answers be typed on forms? If yes, add a `question_pattern`
+   (`pronouns?` and `citizenship`) to each on the Profile page; without one they stay blank by design.
 
 ## Queue
 
-1. Form rules for the newly saved answer keys. Size: M. Plan: `FIELD_RULES` in `applications.py` for `legal_middle_name`,
-   `pronouns`, `time_zone`, `citizenship_status`, `currently_employed`, `willing_to_relocate`, `willing_to_travel`,
-   `travel_percentage`, `overtime_willing`, `on_call_willing`, `languages`, `drivers_licence`, `security_clearance`,
-   `background_check_consent`, `former_employer_contact`, `references_policy`, `relatives_at_employer`,
-   `restrictive_agreements`, `outside_business_interests`, `reason_for_leaving_most_recent_role`,
-   `cover_letter_preference`, `career_goals`, `years_*`, `gpa`, `graduation_year`, `program`, `field_of_study`,
-   `certifications`; `veteran_status` and `indigenous_identity` into `SELF_ID_RULES`. `pronouns` and `citizenship_status`
-   match the `SENSITIVE` regex today and stay blank; the neutral way to allow a saved answer is a `Fact.question_pattern`.
-   Keep every rule field neutral; the years rule is `ats/rules.py: YEARS_RULE`. Waits for: an owner decision on the two
-   sensitive keys (the rest can start now).
+1. Done on `main` (see `docs/PROGRESS.md`, "Form rules for the saved answer keys"): `FIELD_RULES` for every saved answer
+   key, `years_*` saved answers, `veteran_status` and `indigenous_identity` in `SELF_ID_RULES`, `own_personal_answer`
+   shared by the mapper and the three adapters. Still waits for the owner: `pronouns` and `citizenship_status` stay blank
+   until each saved answer carries a `question_pattern` (Profile page or `profile.toml` `match`); see question 9.
+   Deploy pending (item 4).
 2. Directory reorganization into `core/ candidate/ jobs/ apply/ records/ outreach/ web/` with `git mv` and absolute imports.
    Size: M-L. Plan: first commit move only, from a clean tree; before moving, check `lg_checkpoint_writes` for stored class
    paths (LangGraph checkpoints pickle module paths). Then split web routes, docstring standard plus the 22 high value

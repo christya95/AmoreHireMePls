@@ -183,7 +183,7 @@ class AshbyAdapter:
         return ""
 
     def map_answers(self, fields: list[FormField], profile: Profile, job: dict, resume_path: str | None, band: BandEvidence | None, fit: str, salary_case=None) -> list[Answer]:
-        from ..applications import SENSITIVE, Answer, map_answers, self_identification_answer
+        from ..applications import SENSITIVE, Answer, map_answers, own_personal_answer, years_bucket_answer
         from ..profile import compute_experience
 
         out: list[Answer] = []
@@ -193,7 +193,7 @@ class AshbyAdapter:
             meta = f.meta or {}
             name, section, label = SYSTEM.get(meta.get("name", f.id), meta.get("name", f.id)), meta.get("section", "application"), f.label or f.id
             if section == "eeo" or SENSITIVE.search(label):
-                if own := self_identification_answer(f, profile, _decline_option(f.options)):
+                if own := own_personal_answer(f, profile, _decline_option(f.options)):
                     out.append(own)
                 elif f.required and f.options and (opt := _decline_option(f.options)):
                     out.append(Answer(f.id, label, opt, [], False, "personal question: the form requires an answer, so the decline option is chosen", sensitive=True))
@@ -222,9 +222,7 @@ class AshbyAdapter:
                 out.append(Answer(f.id, label, value, [p.id for p in (city, prov) if p], value is None and f.required, "" if value else "city unknown"))
                 continue
             if YEARS_RULE.search(label) and f.options:
-                years = exp.total_years_completed
-                opt = _pick_bucket(f.options, years)
-                out.append(Answer(f.id, label, opt, [e.id for e in profile.employment], opt is None, f"{years} completed years computed from dates"))
+                out.append(years_bucket_answer(f, profile, exp.total_years_completed, _pick_bucket))
                 continue
             generic.append(f)
         for a in map_answers(generic, profile, job, resume_path, band, fit, salary_case=salary_case):
