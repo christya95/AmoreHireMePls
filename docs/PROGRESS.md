@@ -1,5 +1,7 @@
 # Progress
 
+> Start here: [docs/HANDOFF.md](HANDOFF.md) has the current state, the open items for Joss and the queue in order. This file is the history.
+
 Keep this file current. A later session should be able to continue from the "Exact next step".
 
 ## Decisions
