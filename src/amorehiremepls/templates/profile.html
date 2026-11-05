@@ -40,7 +40,7 @@
   <div class="card-h"><h3>Facts about you</h3><span class="pill">version {{ p.version }}</span><span class="sub">Leave a value blank when you do not know it. The app will then ask you instead of guessing.</span></div>
   <div class="table-wrap"><table>
     <thead><tr><th>Fact</th><th>Value</th><th>Group</th><th>Confirmed</th></tr></thead>
-    <tbody>{% for f in p.facts + p.answers + p.education %}<tr><td class="mono">{{ f.key }}</td><td class="wrap">{% if f.value is not none %}{{ f.value }}{% else %}<span class="pill warn">unknown</span>{% endif %}</td><td>{{ f.category }}</td><td><small>{{ f.provenance.confirmed_on or '' }} <code class="raw">{{ f.provenance.source }}</code></small></td></tr>{% endfor %}</tbody>
+    <tbody>{% for f in p.facts + p.answers + p.education %}<tr><td class="mono">{{ f.key }}{% if f.sensitivity == 'sensitive' %} <span class="pill">personal</span>{% endif %}</td><td class="wrap">{% if f.value is not none %}{{ f.value }}{% else %}<span class="pill warn">unknown</span>{% endif %}</td><td>{{ f.category }}</td><td><small>{{ f.provenance.confirmed_on or '' }} <code class="raw">{{ f.provenance.source }}</code></small></td></tr>{% endfor %}</tbody>
   </table></div>
   <form method="post" action="/profile/facts" class="form-row pad mt"><input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="field"><label>Fact name</label><input name="key" placeholder="e.g. linkedin_url" required></div>

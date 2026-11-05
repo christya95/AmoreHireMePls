@@ -220,9 +220,9 @@ class GreenhouseAdapter:
         fields = questions_to_fields(schema)
         return QuestionSet(fields=fields, source="greenhouse_job_board_api", external_job_id=str(schema.get("id") or job_id), raw={"org": org, "job_id": job_id})
 
-    def map_answers(self, fields: list[FormField], profile: Profile, job: dict, resume_path: str | None, band: BandEvidence | None, fit: str) -> list[Answer]:
+    def map_answers(self, fields: list[FormField], profile: Profile, job: dict, resume_path: str | None, band: BandEvidence | None, fit: str, salary_case=None) -> list[Answer]:
         """Deterministic mapping by Greenhouse field name first, then the generic label rules. Nothing is inferred."""
-        from ..applications import SENSITIVE, Answer, map_answers
+        from ..applications import SENSITIVE, Answer, map_answers, self_identification_answer
         from ..profile import compute_experience
 
         out: list[Answer] = []
@@ -232,7 +232,9 @@ class GreenhouseAdapter:
             meta = f.meta or {}
             name, section, label = meta.get("name", f.id), meta.get("section", "questions"), f.label or f.id
             if section in ("compliance", "demographic") or SENSITIVE.search(label):
-                if f.required and f.options and (opt := _decline_option(f.options)):
+                if own := self_identification_answer(f, profile, _decline_option(f.options)):
+                    out.append(own)
+                elif f.required and f.options and (opt := _decline_option(f.options)):
                     out.append(
                         Answer(f.id, label, opt, [], needs_input=False, reason="personal question: the form requires an answer, so the decline option is chosen", sensitive=True)
                     )
@@ -277,7 +279,7 @@ class GreenhouseAdapter:
                 out.append(Answer(f.id, label, opt, [e.id for e in profile.employment], needs_input=opt is None, reason=f"{years} completed years computed from dates"))
                 continue
             generic.append(f)
-        for a in map_answers(generic, profile, job, resume_path, band, fit):
+        for a in map_answers(generic, profile, job, resume_path, band, fit, salary_case=salary_case):
             f = next(x for x in generic if x.id == a.field_id)
             if a.value is None and not a.sensitive and not f.required and a.reason.startswith("no confirmed fact"):
                 a.needs_input, a.reason = False, "optional question left blank; add an answer if you want one"
@@ -325,13 +327,22 @@ class GreenhouseAdapter:
                 steps.append(Step("autocomplete", "#country, [name=country]", a["value"], label="Country", optional=True))
             elif kind == "select":
                 vid = values.get(a["value"])
-                steps.append(Step("choose", sel, a["value"], label=label, option_selectors=[_css_id(f"{name}_{vid}")] if vid else []))
+                steps.append(Step("choose", sel, a["value"], label=label, option_selectors=[_css_id(f"{name}_{vid}")] if vid else [], sensitive=bool(a.get("sensitive"))))
             elif kind == "multiselect":
                 chosen = [v.strip() for v in str(a["value"]).split("|") if v.strip()] if isinstance(a["value"], str) else list(a["value"])
                 base = name[:-2] if name.endswith("[]") else name
-                steps.append(Step("choose_multi", sel, label=label, options=chosen, option_selectors=[_css_id(f"{base}[]_{values[c]}") if c in values else "" for c in chosen]))
+                steps.append(
+                    Step(
+                        "choose_multi",
+                        sel,
+                        label=label,
+                        options=chosen,
+                        option_selectors=[_css_id(f"{base}[]_{values[c]}") if c in values else "" for c in chosen],
+                        sensitive=bool(a.get("sensitive")),
+                    )
+                )
             else:
-                steps.append(Step("fill", sel, str(a["value"]), label=label))
+                steps.append(Step("fill", sel, str(a["value"]), label=label, sensitive=bool(a.get("sensitive"))))
         steps.append(
             Step("click", "#application-form button[type=submit], #submit_app, #application_form input[type=submit], form button[type=submit]", final=True, timeout_ms=30000)
         )

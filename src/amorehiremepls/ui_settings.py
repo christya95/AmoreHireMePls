@@ -748,6 +748,10 @@ def evidence_source(fact_id: Any) -> str:
         return "typed on this page"
     if fid == "artifact":
         return "your resume file"
+    if fid == "research:salary":
+        return "salary estimate (proposed)"
+    if fid == "compensation_rule":
+        return "your pay rules and the posted range"
     if fid.startswith("emp_"):
         return "your work history"
     if fid:

@@ -159,6 +159,38 @@ SOURCES = {"greenhouse": GreenhouseSource, "lever": LeverSource, "ashby": AshbyS
 # -- snapshots -------------------------------------------------------------------------
 
 
+_WORKDAY_URL = re.compile(r"^https://(?P<tenant>[a-z0-9-]+)\.(?P<dc>wd\d+)\.myworkdayjobs\.com/(?:[a-z]{2}-[A-Z]{2}/)?(?P<site>[^/]+)/job/(?P<path>.+)$")
+
+
+def workday_json_url(url: str) -> str | None:
+    """Public JSON endpoint behind a Workday posting page, or None when the URL is not a Workday job page."""
+    m = _WORKDAY_URL.match(url.split("?")[0].rstrip("/"))
+    if not m:
+        return None
+    return f"https://{m.group('tenant')}.{m.group('dc')}.myworkdayjobs.com/wday/cxs/{m.group('tenant')}/{m.group('site')}/job/{m.group('path')}"
+
+
+def fetch_posting_text(url: str, client: httpx.Client | None = None, timeout: float = 20.0) -> tuple[str, str, str | None]:
+    """(text, source, raw_html) for one posting URL with a single GET. No browser, no login, no model."""
+    own = client is None
+    client = client or httpx.Client(timeout=timeout, follow_redirects=True, headers={"User-Agent": "AmoreHireMePls/0.1 (posting reader)"})
+    try:
+        wd = workday_json_url(url)
+        if wd:
+            r = client.get(wd, headers={"Accept": "application/json"})
+            r.raise_for_status()
+            info = (r.json() or {}).get("jobPostingInfo") or {}
+            parts = [info.get("title"), info.get("location"), info.get("timeType"), info.get("jobDescription")]
+            return html_to_text(" ".join(str(p) for p in parts if p)), "workday_json", None
+        r = client.get(url)
+        r.raise_for_status()
+        body = re.sub(r"<(script|style|noscript)[^>]*>.*?</\1>", " ", r.text, flags=re.S | re.I)
+        return html_to_text(body), "url_refresh", r.text
+    finally:
+        if own:
+            client.close()
+
+
 def make_snapshot(url: str, text: str, raw_html: str | None = None, extracted: dict | None = None, source: str = "import") -> dict:
     text = text.strip()
     return {
@@ -225,6 +257,20 @@ class Qualification(BaseModel):
 
 def detect_injection(text: str) -> list[str]:
     return sorted({m.group(0).lower() for m in _INJECTION_RE.finditer(text or "")})
+
+
+def work_arrangement(policy: str | None) -> str | None:
+    """Normalise a stated remote policy to remote | hybrid | onsite; None when it is not stated or not a known kind."""
+    p = (policy or "").strip().lower().replace("_", " ").replace("-", " ")
+    if not p:
+        return None
+    if "hybrid" in p:
+        return "hybrid"
+    if "remote" in p:
+        return "remote"
+    if p in ("onsite", "on site", "in office", "in person", "office") or "on site" in p or "in office" in p:
+        return "onsite"
+    return None
 
 
 def qualify(job: dict, extracted: dict, profile: Profile, posting_text: str = "") -> Qualification:
@@ -301,6 +347,13 @@ def qualify(job: dict, extracted: dict, profile: Profile, posting_text: str = ""
     else:
         location_ok = False
         return Qualification(decision="excluded", reasons=[f"location '{loc}' is outside Ontario/Canada"], employment_type=etype, flags=flags, location_ok=False)
+
+    # work arrangement: only a review reason when the posting states a kind Joss has not accepted
+    arrangement = work_arrangement(extracted.get("remote_policy"))
+    if arrangement and arrangement not in prefs.work_arrangements:
+        decision = "needs_review"
+        flags.append("work_arrangement_not_accepted")
+        reasons.append(f"posting is {arrangement}; not in your accepted work arrangements")
 
     # salary
     comp = profile.compensation
@@ -753,6 +806,28 @@ class Discovery:
         if li:
             self.jobs.set_status(job["_id"], job.get("status", "new"), apply_route="linkedin_or_employer_site_handoff")
         return self.jobs.get(job["_id"])
+
+    def refresh_posting(self, job_id: str, client: httpx.Client | None = None) -> dict:
+        """Re-read the posting text behind a job's URL (GET only) and store a fresh snapshot. Nothing is re-ranked.
+
+        Workday sites are read through their public JSON endpoint (the HTML page is an empty shell); every other URL is
+        read as HTML and reduced to text. An empty read leaves the existing snapshot alone and says so."""
+        job = self.jobs.get(job_id)
+        if job is None:
+            raise KeyError(job_id)
+        url = job.get("posting_url") or job.get("apply_url")
+        if not url:
+            return {"job_id": job_id, "chars": 0, "stored": False, "reason": "job has no posting URL"}
+        try:
+            text, source, html_raw = fetch_posting_text(url, client)
+        except httpx.HTTPError as exc:
+            return {"job_id": job_id, "chars": 0, "stored": False, "reason": f"fetch failed ({type(exc).__name__})"}
+        if len(text) < 200:
+            return {"job_id": job_id, "chars": len(text), "stored": False, "reason": "page returned no posting text"}
+        old = job.get("latest_snapshot") or {}
+        snapshot = make_snapshot(url, text, raw_html=html_raw, extracted=dict(old.get("extracted") or {}), source=source)
+        self.jobs.set_status(job_id, job["status"], latest_snapshot=snapshot)
+        return {"job_id": job_id, "chars": len(snapshot["text"]), "stored": True, "source": source, "posting_hash": snapshot["posting_hash"]}
 
     def qualify_job(self, job_id: str, use_model_extraction: bool = True) -> dict:
         job = self.jobs.get(job_id)

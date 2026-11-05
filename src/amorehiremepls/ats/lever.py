@@ -245,8 +245,8 @@ class LeverAdapter:
                 return page.text
         return ""
 
-    def map_answers(self, fields: list[FormField], profile: Profile, job: dict, resume_path: str | None, band: BandEvidence | None, fit: str) -> list[Answer]:
-        from ..applications import SENSITIVE, Answer, map_answers
+    def map_answers(self, fields: list[FormField], profile: Profile, job: dict, resume_path: str | None, band: BandEvidence | None, fit: str, salary_case=None) -> list[Answer]:
+        from ..applications import SENSITIVE, Answer, map_answers, self_identification_answer
         from ..profile import compute_experience
 
         out: list[Answer] = []
@@ -257,7 +257,9 @@ class LeverAdapter:
             name, section, label = meta.get("name", f.id), meta.get("section", "custom"), f.label or f.id
             personal = section == "eeo" or bool(SENSITIVE.search(label))
             if personal:
-                if f.required and f.options and (opt := _decline_option(f.options)):
+                if own := self_identification_answer(f, profile, _decline_option(f.options)):
+                    out.append(own)
+                elif f.required and f.options and (opt := _decline_option(f.options)):
                     out.append(Answer(f.id, label, opt, [], False, "personal question: the form requires an answer, so the decline option is chosen", sensitive=True))
                 else:
                     out.append(Answer(f.id, label, None, [], f.required, "personal question: left blank unless you supply a preference", sensitive=True))
@@ -295,7 +297,7 @@ class LeverAdapter:
                 out.append(Answer(f.id, label, opt, [e.id for e in profile.employment], opt is None, f"{years} completed years computed from dates"))
                 continue
             generic.append(f)
-        for a in map_answers(generic, profile, job, resume_path, band, fit):
+        for a in map_answers(generic, profile, job, resume_path, band, fit, salary_case=salary_case):
             f = next(x for x in generic if x.id == a.field_id)
             if a.value is None and not a.sensitive and not f.required and a.reason.startswith("no confirmed fact"):
                 a.needs_input, a.reason = False, "optional question left blank; add an answer if you want one"
@@ -323,12 +325,12 @@ class LeverAdapter:
             if kind == "file":
                 steps.append(Step("upload", f'{sel}, input[type=file][name="{name}"]', a["value"], label=label))
             elif kind == "select":
-                steps.append(Step("choose", sel, a["value"], label=label))
+                steps.append(Step("choose", sel, a["value"], label=label, sensitive=bool(a.get("sensitive"))))
             elif kind == "multiselect":
                 chosen = [v.strip() for v in str(a["value"]).split("|") if v.strip()]
-                steps.append(Step("choose_multi", sel, label=label, options=chosen))
+                steps.append(Step("choose_multi", sel, label=label, options=chosen, sensitive=bool(a.get("sensitive"))))
             else:
-                steps.append(Step("fill", sel, str(a["value"]), label=label))
+                steps.append(Step("fill", sel, str(a["value"]), label=label, sensitive=bool(a.get("sensitive"))))
         steps.append(Step("click", "form#application-form button[type=submit], form button[type=submit]", final=True, timeout_ms=30000))
         parsed = self.parse(pkg.get("apply_url")) or self.parse(job.get("posting_url"))
         posting_id = parsed[1] if parsed else None

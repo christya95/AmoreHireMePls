@@ -32,6 +32,7 @@ FIELD_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\blast\s*name|surname|family name", re.I), "legal_last_name"),
     (re.compile(r"preferred name|nickname", re.I), "preferred_name"),
     (re.compile(r"\be-?mail", re.I), "email"),
+    (re.compile(r"country code|dial(ing)? code", re.I), "phone_country_code"),
     (re.compile(r"\bphone|mobile|telephone", re.I), "phone"),
     (re.compile(r"address line ?1|street|^address$", re.I), "address_line1"),
     (re.compile(r"\bcity\b|town", re.I), "city"),
@@ -39,6 +40,8 @@ FIELD_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"postal|zip", re.I), "postal_code"),
     (re.compile(r"\bcountry\b", re.I), "country"),
     (re.compile(r"linkedin", re.I), "linkedin_url"),
+    (re.compile(r"github", re.I), "github_url"),
+    (re.compile(r"portfolio|website|personal site|\burl\b", re.I), "website_url"),
     (re.compile(r"authoriz|eligible to work|legally (able|entitled) to work|work permit", re.I), "work_authorization"),
     (re.compile(r"sponsor", re.I), "requires_sponsorship"),
     (re.compile(r"salary|compensation|pay expectation|expected pay", re.I), "__salary__"),
@@ -49,9 +52,194 @@ FIELD_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"total years|years of experience", re.I), "__years_total__"),
     (re.compile(r"employment type|job type|looking for", re.I), "employment_preference"),
     (re.compile(r"ai (tools|workflow)|copilot", re.I), "ai_workflow"),
+    (re.compile(r"notice period", re.I), "notice_period"),
+    (re.compile(r"start date|available to start|availability|earliest start|when (can|could) you start", re.I), "availability"),
 ]
+# A question for one kind of link may be answered by another saved link when the first is not on file.
+LINK_FALLBACKS: dict[str, tuple[str, ...]] = {"website_url": ("website_url", "portfolio_url", "github_url"), "portfolio_url": ("portfolio_url", "website_url", "github_url")}
 YES_WORDS = ("yes", "authorized", "authorised", "eligible", "i am", "no sponsorship", "do not require")
 NO_WORDS = ("no", "not ", "require sponsorship", "need sponsorship")
+
+# -- self-identification (EEOC / employment equity) ----------------------------------------------------------------
+# Only the answers Joss gave explicitly, matched to the option text of the form's own question. Deterministic: when no
+# option clearly carries the saved answer, the question keeps the explicit decline (or stays blank). Veteran status,
+# Indigenous identity, pronouns, religion, age and the like have no saved fact and are never inferred.
+SELF_ID_REASON = "from your self-identification answers"
+_NEGATED = re.compile(r"\b(no|not|don't|do not|never|without|non)\b", re.I)
+
+
+def _opt_has(option: str, *phrases: str) -> bool:
+    low = option.lower()
+    return any(re.search(rf"(?<![a-z]){re.escape(p)}(?![a-z])", low) for p in phrases)
+
+
+def _match_gender(options: list[str], value: str) -> str | None:
+    v = value.strip().lower()
+    wanted = {"male": ("male", "man"), "female": ("female", "woman")}.get(v, (v,))
+    return next((o for o in options if _opt_has(o, *wanted) and not _opt_has(o, "non binary", "nonbinary", "transgender", "trans")), None)
+
+
+def _match_yes_no(options: list[str], value: str, topic_words: tuple[str, ...]) -> str | None:
+    """'Yes' -> an affirmative option about the topic ("Yes, I have a disability"); 'No' -> a plain negative one."""
+    want_yes = value.strip().lower() in ("yes", "true", "y")
+    for o in options:
+        low = o.strip().lower()
+        if want_yes and (low.startswith("yes") or (_opt_has(o, *topic_words) and not _NEGATED.search(low) and "wish" not in low and "prefer" not in low)):
+            return o
+        if not want_yes and (low.startswith("no") and "not wish" not in low and "prefer" not in low):
+            return o
+    return None
+
+
+def _match_ethnicity(options: list[str], value: str) -> str | None:
+    v = value.strip().lower()
+    exact = next((o for o in options if _opt_has(o, v)), None)
+    if exact:
+        return exact
+    if "asian" in v:  # South Asian on a form that only lists Asian
+        return next((o for o in options if _opt_has(o, "asian") and not _opt_has(o, "south east", "southeast", "east asian", "west asian")), None)
+    return None
+
+
+def _match_orientation(options: list[str], value: str) -> str | None:
+    v = value.strip().lower()
+    if "hetero" in v or "straight" in v:
+        return next((o for o in options if _opt_has(o, "heterosexual", "straight")), None)
+    return next((o for o in options if _opt_has(o, v)), None)
+
+
+# (question pattern, fact keys tried in order, matcher(options, fact value) -> option)
+SELF_ID_RULES: list[tuple[re.Pattern, tuple[str, ...], Callable[[list[str], str], str | None]]] = [
+    (re.compile(r"sexual orientation", re.I), ("sexual_orientation",), _match_orientation),
+    (re.compile(r"disab", re.I), ("disability_status",), lambda opts, v: _match_yes_no(opts, v, ("disability", "disabled"))),
+    # Canadian employment equity: a visible minority question may list groups (use the ethnicity fact) or ask yes/no
+    (re.compile(r"visible minority|racialized|racialised", re.I), ("ethnicity",), _match_ethnicity),
+    (re.compile(r"visible minority|racialized|racialised", re.I), ("visible_minority",), lambda opts, v: _match_yes_no(opts, v, ("visible minority", "racialized", "racialised"))),
+    (re.compile(r"\brace\b|racial|ethnic", re.I), ("ethnicity",), _match_ethnicity),
+    (re.compile(r"\bgender\b|\bsex\b", re.I), ("gender",), _match_gender),
+]
+
+
+def self_identification_answer(field: FormField, profile: Profile, decline: str | None = None) -> Answer | None:
+    """The option on this self-identification question that carries a saved sensitive fact, or None.
+
+    Returned answers are flagged sensitive with a fixed reason; they stay out of model inputs, logs and audit data and
+    appear only in the review package. A question without options (free text) is never answered this way."""
+    label = field.label or field.id
+    if not field.options:
+        return None
+    for pattern, keys, matcher in SELF_ID_RULES:
+        if not pattern.search(label):
+            continue
+        for key in keys:
+            fact = profile.fact(key)
+            if fact is None or not fact.value:
+                continue
+            opt = matcher(list(field.options), fact.value)
+            if opt is None or opt == decline or _opt_has(opt, "wish", "prefer", "decline", "rather not"):
+                continue
+            return Answer(field.id, label, opt, [fact.id], needs_input=False, reason=SELF_ID_REASON, sensitive=True)
+    return None
+
+
+# -- salary research ----------------------------------------------------------------------------------------------
+SALARY_RESEARCH_REASON = "proposed from salary research; approve or edit"
+SALARY_RESEARCH_FACT = "research:salary"
+_LEVEL_WORDS = re.compile(r"\b(junior|intermediate|senior|lead|staff|principal|associate|entry[- ]level|mid[- ]level|new grad|level \w+|II|III|IV)\b", re.I)
+_YEARS_PHRASE = re.compile(r"\b\d{1,2}\s*(?:\+|-\s*\d{1,2})?\s*(?:or more\s+)?years?(?: of)?(?: \w+){0,3}? experience", re.I)
+
+
+def seniority_hints(title: str, posting_text: str) -> list[str]:
+    """Short, deterministic phrases about level: title level words plus 'N+ years ... experience' mentions."""
+    hints: list[str] = []
+    for m in _LEVEL_WORDS.finditer(title or ""):
+        w = m.group(0).strip()
+        if w and w.lower() not in [h.lower() for h in hints]:
+            hints.append(w)
+    for m in _YEARS_PHRASE.finditer(posting_text or ""):
+        phrase = re.sub(r"\s+", " ", m.group(0)).strip()
+        if phrase.lower() not in [h.lower() for h in hints]:
+            hints.append(phrase[:60])
+        if len(hints) >= 6:
+            break
+    return hints[:6]
+
+
+@dataclass
+class SalaryProposal:
+    amount: int
+    rationale: str
+    confidence: str = "low"
+    source_kinds: list[str] = field(default_factory=list)
+    range_low: int | None = None
+    range_high: int | None = None
+    basis: str = "model_estimate"  # model_estimate | posted_range
+
+    def detail(self) -> dict:
+        return {
+            "rationale": self.rationale,
+            "confidence": self.confidence,
+            "source_kinds": list(self.source_kinds),
+            "range_low": self.range_low,
+            "range_high": self.range_high,
+            "basis": self.basis,
+        }
+
+
+class SalaryResearcher:
+    """One bounded `salary_case` call per job (cached by the runner on fact version + posting hash). No web access.
+
+    Deterministic rules run first in `map_answers`: a posted range decides without the model; a floor is always
+    enforced on whatever the model proposes. Provider or budget problems return None and the question stays a
+    needs_input item, exactly as before."""
+
+    def __init__(self, ai: Any | None, profile: Profile) -> None:
+        self.ai = ai
+        self.profile = profile
+
+    def propose(self, job: dict) -> SalaryProposal | None:
+        comp = self.profile.compensation
+        if self.ai is None or not comp.floor_base:
+            return None
+        from .ai import BudgetExhausted, ProviderUnavailable
+        from .skills import SalaryCaseInput
+
+        snapshot = job.get("latest_snapshot") or {}
+        ext = job.get("extracted") or snapshot.get("extracted") or {}
+        text = snapshot.get("text") or ""
+        inputs = SalaryCaseInput(
+            job_title=(job.get("title") or "")[:120],
+            location=(ext.get("location") or job.get("location") or "")[:120],
+            seniority_hints=seniority_hints(job.get("title") or "", text),
+            currency=comp.currency,
+            candidate_floor=comp.floor_base,
+            candidate_target=comp.target_base,
+        )
+        try:
+            res = self.ai.run(
+                "salary_case", inputs, fact_version=self.profile.version, posting_hash=snapshot.get("posting_hash"), untrusted_fields=("job_title", "location", "seniority_hints")
+            )
+        except (ProviderUnavailable, BudgetExhausted, ValueError) as exc:
+            log.info("salary case unavailable (%s)", type(exc).__name__)
+            return None
+        out = res.output
+        proposed = int(out.get("proposed_base") or 0)
+        amount = max(proposed, comp.floor_base)
+        if comp.target_base and comp.target_base >= comp.floor_base and proposed < comp.floor_base:
+            amount = comp.target_base  # the estimate fell under the minimum, so the floor-respecting target is the number stated
+        amount = int(round(amount / 1000) * 1000)
+        conf = str(out.get("confidence") or "low").lower()
+        return SalaryProposal(
+            amount=amount,
+            rationale=str(out.get("rationale") or "")[:400],
+            confidence=conf if conf in ("low", "medium", "high") else "low",
+            source_kinds=[str(s)[:60] for s in (out.get("source_kinds") or [])][:5],
+            range_low=out.get("range_low"),
+            range_high=out.get("range_high"),
+        )
+
+
+SalaryCase = Callable[[], SalaryProposal | None]
 
 
 @dataclass
@@ -76,6 +264,7 @@ class Answer:
     sensitive: bool = False
     required: bool = False
     options: list[str] = field(default_factory=list)
+    detail: dict = field(default_factory=dict)  # e.g. the salary rationale shown under the answer; never a fact value
 
     def as_dict(self) -> dict:
         return self.__dict__.copy()
@@ -91,15 +280,55 @@ def _pick_option(options: list[str], want_yes: bool) -> str | None:
     return None
 
 
+def salary_answer(f: FormField, profile: Profile, band: BandEvidence | None, fit: str, salary_case: SalaryCase | None) -> Answer:
+    """Expected pay: a posted base range decides in code (never under the floor); otherwise one researched proposal.
+
+    Order: (1) a published annual base band in the profile currency -> a figure inside it, raised to the floor when the
+    band straddles it; a band entirely under the floor is a needs_input item saying so. (2) No usable band -> the
+    `salary_case` proposal (one bounded model estimate, floor enforced), stored as a proposed answer Joss approves or
+    edits. (3) No floor or no model -> needs_input, as before."""
+    label = f.label or f.id
+    comp = profile.compensation
+    d = desired_salary(comp, band, fit)  # type: ignore[arg-type]
+    if d.outcome == "answer":
+        amount = max(int(d.amount or 0), comp.floor_base or 0)
+        reason = d.reason if amount == d.amount else f"{d.reason}; raised to your minimum"
+        return Answer(f.id, label, str(amount), ["compensation_rule"], needs_input=False, reason=reason)
+    if d.outcome == "below_floor":
+        return Answer(f.id, label, None, [], needs_input=True, reason="posted range is below your minimum")
+    proposal = salary_case() if (salary_case is not None and comp.floor_base) else None
+    if proposal is None:
+        return Answer(f.id, label, None, [], needs_input=True, reason=f"salary rule: {d.reason}")
+    amount = max(int(proposal.amount), comp.floor_base)
+    return Answer(f.id, label, str(amount), [SALARY_RESEARCH_FACT], needs_input=False, reason=SALARY_RESEARCH_REASON, detail=proposal.detail())
+
+
+def _link_value(profile: Profile, key: str):
+    for k in LINK_FALLBACKS.get(key, (key,)):
+        fact = profile.fact(k)
+        if fact is not None and fact.value:
+            return fact
+    return profile.fact(key)
+
+
 def map_answers(
-    fields: list[FormField], profile: Profile, job: dict, resume_path: str | None, band: BandEvidence | None = None, fit: str = "fair", as_of: date | None = None
+    fields: list[FormField],
+    profile: Profile,
+    job: dict,
+    resume_path: str | None,
+    band: BandEvidence | None = None,
+    fit: str = "fair",
+    as_of: date | None = None,
+    salary_case: SalaryCase | None = None,
 ) -> list[Answer]:
     answers: list[Answer] = []
     exp = compute_experience(profile.employment, as_of)
     for f in fields:
         label = f.label or f.id
         if SENSITIVE.search(label):
-            answers.append(Answer(f.id, label, None, [], needs_input=f.required, reason="sensitive disclosure: left blank unless Joss supplies a preference", sensitive=True))
+            own = self_identification_answer(f, profile)
+            blank = Answer(f.id, label, None, [], needs_input=f.required, reason="sensitive disclosure: left blank unless Joss supplies a preference", sensitive=True)
+            answers.append(own or blank)
             continue
         key = next((k for pat, k in FIELD_RULES if pat.search(label)), None)
         if key is None:
@@ -109,11 +338,7 @@ def map_answers(
             answers.append(Answer(f.id, label, resume_path, ["artifact"], needs_input=resume_path is None, reason="" if resume_path else "no tailored resume yet"))
             continue
         if key == "__salary__":
-            d = desired_salary(profile.compensation, band, fit)  # type: ignore[arg-type]
-            if d.outcome == "answer":
-                answers.append(Answer(f.id, label, str(d.amount), ["compensation_rule"], needs_input=False, reason=d.reason))
-            else:
-                answers.append(Answer(f.id, label, None, [], needs_input=True, reason=f"salary rule: {d.reason}"))
+            answers.append(salary_answer(f, profile, band, fit, salary_case))
             continue
         if key in ("__years_full_time__", "__years_total__"):
             years = exp.full_time_years_completed if key == "__years_full_time__" else exp.total_years_completed
@@ -128,7 +353,7 @@ def map_answers(
                 )
             )
             continue
-        fact = profile.fact(key)
+        fact = _link_value(profile, key) if key in LINK_FALLBACKS else profile.fact(key)
         value = fact.value if fact else (profile.preferences.work_authorization if key == "work_authorization" else None)
         if key in ("work_authorization", "requires_sponsorship") and f.options:
             want_yes = key == "work_authorization"
@@ -164,6 +389,7 @@ class ApplicationService:
         plan_builders: dict[str, PlanBuilder] | None = None,
         notifier: Any | None = None,
         challenge_retry_minutes: int = 0,
+        salary_research: SalaryResearcher | None = None,
     ) -> None:
         self.store = store
         self.profile = profile
@@ -174,6 +400,20 @@ class ApplicationService:
         self.plan_builders = plan_builders or {}
         self.notifier = notifier
         self.challenge_retry_minutes = challenge_retry_minutes
+        self.salary_research = salary_research
+
+    def _salary_case(self, job: dict) -> SalaryCase | None:
+        """Zero-argument, run-at-most-once hook for `map_answers`; only invoked when the form actually asks about pay."""
+        if self.salary_research is None:
+            return None
+        memo: dict[str, SalaryProposal | None] = {}
+
+        def run() -> SalaryProposal | None:
+            if "p" not in memo:
+                memo["p"] = self.salary_research.propose(job)
+            return memo["p"]
+
+        return run
 
     def get_or_create(self, job_id: str) -> dict:
         app = self.apps.find_one({"job_id": job_id, "provenance.origin": "local"})
@@ -258,7 +498,12 @@ class ApplicationService:
         from .ats import registry as ats_registry
 
         adapter = ats_registry.for_fields(fields)  # questions read through a site adapter's API are mapped by that adapter
-        answers = adapter.map_answers(fields, self.profile, job, resume_file, band, fit) if adapter else map_answers(fields, self.profile, job, resume_file, band, fit)
+        salary_case = self._salary_case(job)
+        answers = (
+            adapter.map_answers(fields, self.profile, job, resume_file, band, fit, salary_case=salary_case)
+            if adapter
+            else map_answers(fields, self.profile, job, resume_file, band, fit, salary_case=salary_case)
+        )
         if block:
             for a in answers:
                 if a.reason == "no tailored resume yet":
@@ -322,6 +567,7 @@ class ApplicationService:
             if new == old:
                 continue
             changed = True
+            a["detail"] = {}  # a proposal's rationale no longer describes an answer Joss typed
             if not new:
                 a["value"] = None
                 a["needs_input"] = bool(a.get("required"))

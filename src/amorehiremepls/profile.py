@@ -33,8 +33,15 @@ class Fact(BaseModel):
     category: str  # identity | contact | address | eligibility | education | answer | ai_workflow | other
     key: str
     value: str | None = None  # None = unknown
-    sensitivity: str = "personal"  # personal | sensitive (never auto-filled)
+    # personal | sensitive. Sensitive facts are the self-identification answers Joss gave explicitly (gender,
+    # disability, orientation, visible minority). They only ever fill a matching option on a form's own
+    # self-identification question, are shown in the review package, and never reach a model, a log or the audit trail.
+    sensitivity: str = "personal"
     provenance: Provenance
+
+
+# Self-identification fact keys (category `self_identification`, sensitivity `sensitive`).
+SELF_ID_KEYS = ("gender", "disability_status", "sexual_orientation", "visible_minority", "ethnicity")
 
 
 class Employment(BaseModel):
@@ -89,6 +96,9 @@ class Preferences(BaseModel):
     excluded_role_families: list[str] = Field(default_factory=list)
     locations: list[str] = Field(default_factory=list)  # e.g. "Toronto", "GTA", "Ontario", "Canada remote"
     remote_rule: str = "remote must be open to Ontario residents"
+    # Accepted work arrangements. All three by default (Joss, 2026-11-05): a posting's arrangement is only a review
+    # reason when it is a known kind that is missing from this list.
+    work_arrangements: list[str] = Field(default_factory=lambda: ["remote", "hybrid", "onsite"])
     excluded_employers: list[ExcludedEmployer] = Field(default_factory=list)
     recipient_exclusions: list[RecipientExclusion] = Field(default_factory=list)
     small_startup_rule: Literal["needs_review", "ignore"] = "needs_review"

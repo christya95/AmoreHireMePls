@@ -157,7 +157,8 @@ def _compact_package(app: dict) -> dict:
         "title": pkg.get("title"),
         "requisition_id": pkg.get("requisition_id"),
         "document": pkg.get("document"),
-        "answers": [{"label": a["label"], "value": a["value"]} for a in pkg.get("answers", []) if a.get("value")],
+        # self-identification answers stay in the review package only; the run record never carries them
+        "answers": [{"label": a["label"], "value": a["value"]} for a in pkg.get("answers", []) if a.get("value") and not a.get("sensitive")],
         "gaps": pkg.get("gaps"),
         "outstanding": pkg.get("outstanding"),
     }

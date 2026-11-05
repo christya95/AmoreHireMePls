@@ -10,7 +10,7 @@ from typing import Any
 
 from .actions import ActionStore
 from .ai import AIRunner, Budget, Pricing, Provider, build_provider
-from .applications import ApplicationService, FormField
+from .applications import ApplicationService, FormField, SalaryResearcher
 from .authorization import AuthorizationStore
 from .browser import BrowserAdapter, BrowserConfig, Plan, Step
 from .candidate_docs import CandidateDocs, load_candidate_docs
@@ -46,11 +46,11 @@ def generic_plan_builder(job: dict, pkg: dict, answers: list[dict]) -> Plan:
         if t == "file":
             steps.append(Step("upload", f["selector"], a["value"]))  # path is constrained to the artifact dir by the adapter
         elif t == "select":
-            steps.append(Step("select", f["selector"], a["value"]))
+            steps.append(Step("select", f["selector"], a["value"], sensitive=bool(a.get("sensitive"))))
         elif t in ("checkbox", "radio"):
             steps.append(Step("check", f["selector"]))
         else:
-            steps.append(Step("fill", f["selector"], a["value"]))
+            steps.append(Step("fill", f["selector"], a["value"], sensitive=bool(a.get("sensitive"))))
     for sel in fp.get("next_selectors", []):
         steps.append(Step("click", sel))
     steps.append(Step("click", fp["submit_selector"], final=True, timeout_ms=int(fp.get("receipt_timeout_ms", 20000))))
@@ -158,6 +158,7 @@ class Runtime:
             builders or {"generic_form": generic_plan_builder},
             notifier=self.notifier(),
             challenge_retry_minutes=self.settings.challenge_retry_minutes,
+            salary_research=SalaryResearcher(self.ai(run_id), self.profile),  # one bounded estimate when a form asks for pay and no range is posted
         )
 
     def outreach(self, run_id: str | None = None) -> OutreachService:

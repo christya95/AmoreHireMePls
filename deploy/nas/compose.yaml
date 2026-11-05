@@ -12,6 +12,7 @@
 #   AMORE_CANDIDATE_DIR        drop folder for the candidate's own resume DOCX and career notes (default /candidate,
 #                              bind mount of /volume1/docker/amorehiremepls/candidate; web writes it through the Profile
 #                              page upload form, the worker only reads it)
+#   AMORE_CANDIDATE_SUPPLEMENTAL_MAX_CHARS  character budget for the career notes sent as evidence (default 40000)
 #   AMORE_APP_PASSWORD         dashboard sign-in password          (vault: Dashboard Password / password)
 #   AMORE_APP_SECRET           session signing secret              (vault: App Session Secret / credential)
 #   AMORE_MONGODB_USERNAME     NAS MongoDB app user                (vault: NAS MongoDB App User / username)
@@ -68,6 +69,7 @@ x-app: &app
     AMORE_TRACKER_PUSH_ENABLED: "false"
     AMORE_PRICING_FILE: /app/config/pricing.json
     AMORE_CANDIDATE_DIR: ${AMORE_CANDIDATE_DIR:-/candidate}
+    AMORE_CANDIDATE_SUPPLEMENTAL_MAX_CHARS: ${AMORE_CANDIDATE_SUPPLEMENTAL_MAX_CHARS:-40000}
   working_dir: /
   # web and worker each list their own volumes below (YAML cannot merge lists): the three data mounts plus the
   # candidate folder, writable for web (Profile page upload form), read-only for the worker.

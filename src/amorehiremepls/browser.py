@@ -166,6 +166,7 @@ class Step:
     options: list[str] = field(default_factory=list)  # choose_multi: option labels to tick
     option_selectors: list[str] = field(default_factory=list)  # choose/choose_multi: per-option radio/checkbox selectors (same order as options)
     optional: bool = False  # skip silently when the control does not exist on this layout
+    sensitive: bool = False  # self-identification answer: error messages and evidence never quote the value
 
 
 @dataclass
@@ -647,7 +648,7 @@ class BrowserAdapter:
         if kind == "select":
             loc.select_option(label=step.value, timeout=step.timeout_ms)
         elif kind == "combobox":
-            self._pick_option(scope, loc, step.value, step.timeout_ms, exact=True)
+            self._pick_option(scope, loc, step.value, step.timeout_ms, exact=True, sensitive=step.sensitive)
         elif kind in ("radio", "checkbox"):
             scope.get_by_label(step.value, exact=True).first.check(timeout=step.timeout_ms)
         else:
@@ -672,7 +673,7 @@ class BrowserAdapter:
             loc.select_option(label=remaining, timeout=step.timeout_ms)
         elif kind == "combobox":
             for opt in remaining:
-                self._pick_option(scope, loc, opt, step.timeout_ms, exact=True)
+                self._pick_option(scope, loc, opt, step.timeout_ms, exact=True, sensitive=step.sensitive)
         else:
             for opt in remaining:
                 box = self._in_group(scope, step.label, opt) or scope.get_by_label(opt, exact=True).first
@@ -688,14 +689,15 @@ class BrowserAdapter:
             return
         self._pick_option(scope, loc, step.value, step.timeout_ms, exact=False)
 
-    def _pick_option(self, scope: _Scope, loc, value: str, timeout_ms: int, exact: bool) -> None:
+    def _pick_option(self, scope: _Scope, loc, value: str, timeout_ms: int, exact: bool, sensitive: bool = False) -> None:
+        shown = "the chosen personal answer" if sensitive else f"'{value}'"  # a self-identification value never lands in evidence
         loc.click(timeout=timeout_ms)
         loc.fill(value if exact else value.split(",")[0].strip(), timeout=timeout_ms)
         options = scope.locator('[role="option"]:visible, .select__option:visible')
         try:
             options.first.wait_for(state="visible", timeout=min(timeout_ms, 5000))
         except Exception as exc:
-            raise ActionFailed(f"no suggestions appeared for '{value}'", {"value": value}) from exc
+            raise ActionFailed(f"no suggestions appeared for {shown}", {} if sensitive else {"value": value}) from exc
         texts = [t.strip() for t in options.all_inner_texts()]
         want = value.strip().lower()
         idx = next((i for i, t in enumerate(texts) if t.lower() == want), None)
@@ -705,6 +707,8 @@ class BrowserAdapter:
                 head = want.split(",")[0].strip()
                 idx = next((i for i, t in enumerate(texts) if head and head in t.lower()), None)
         if idx is None:
+            if sensitive:
+                raise ActionFailed(f"option {shown} is not offered by the site", {"offered": texts[:20]})
             raise ActionFailed(f"option '{value}' is not offered; the site offers {texts[:8]}", {"value": value, "offered": texts[:20]})
         options.nth(idx).click(timeout=timeout_ms)
 

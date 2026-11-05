@@ -120,6 +120,16 @@ A failed attempt keeps its technical reason in the evidence; the page shows one 
 | The resume file was not where the app expected it. | `upload path outside artifact directory` / `upload file missing` |
 | The job site is not on the list of sites the app may open. | `host … not in allowed hosts` |
 
+## Answers on the application page (2026-11-05)
+
+| Shown | Meaning |
+|---|---|
+| personal (pill) · from your self-identification answers | The form's own self-identification question offered a choice that matches an answer Joss saved; it is sent only when the package is approved. |
+| personal (pill) · the decline option is chosen / left blank | No saved answer matches the choices; the explicit decline is used when the form insists, otherwise the question stays blank. |
+| salary estimate (proposed) · proposed from salary research; approve or edit | No pay range was posted. One bounded estimate (title, location, seniority hints, your floor) produced the figure; "Why this figure" shows the rationale, confidence and source kinds. Never below the saved minimum. |
+| your pay rules and the posted range · raised to your minimum | The posted range straddles the minimum, so the figure inside the range is at least the minimum. |
+| posted range is below your minimum | The whole posted range is under the floor; the answer is left for Joss. |
+
 ## Single words
 
 | Shown | Instead of |

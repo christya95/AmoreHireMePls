@@ -243,8 +243,8 @@ _HISTORY_LINE = {
 def saved_form_inputs(app: dict) -> dict[str, str]:
     out: dict[str, str] = {}
     for answer in (app.get("review_package") or {}).get("answers") or []:
-        if not answer.get("field_id") or "artifact" in (answer.get("fact_ids") or []):
-            continue
+        if not answer.get("field_id") or "artifact" in (answer.get("fact_ids") or []) or answer.get("sensitive"):
+            continue  # self-identification answers are not replayed into the run record; the package already holds them
         out[answer["field_id"]] = "" if answer.get("value") is None else str(answer["value"])
     return out
 

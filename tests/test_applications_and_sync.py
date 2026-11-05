@@ -49,7 +49,8 @@ def test_answers_are_grounded_and_unknowns_flagged(tmp_path):
     answers = {a.field_id: a for a in map_answers(FIELDS, p, {}, "/x/resume.pdf", band)}
     assert answers["fn"].value == "Alex" and answers["em"].value == "alex@example.com"
     assert answers["wa"].value == "Yes, I am authorized" and answers["sp"].value == "No"
-    assert answers["sal"].value == "120000"
+    # the band midpoint (120000) sits under the fictional floor (123000), so the figure is raised to the floor, never below it
+    assert answers["sal"].value == "123000" and "raised to your minimum" in answers["sal"].reason
     assert answers["gen"].value is None and answers["gen"].sensitive and not answers["gen"].needs_input
     assert answers["why"].needs_input
     assert answers["yrs"].value == "3"
