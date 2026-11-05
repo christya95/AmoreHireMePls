@@ -1,0 +1,12 @@
+{% if intro %}
+<section class="intro{{ ' folded' if intro_collapsed }}" aria-label="About this page">
+  <svg class="icon"><use href="#i-help"/></svg>
+  {% if intro_collapsed %}
+  <span class="intro-text"><small>Tips for this page are hidden.</small></span>
+  <form method="post" action="/settings/intro" class="intro-form" data-intro><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="page" value="{{ intro_key }}"><input type="hidden" name="collapsed" value="0"><input type="hidden" name="next" value="{{ request.url.path }}"><button class="ghost xs">Show tips</button></form>
+  {% else %}
+  <div class="intro-text"><strong>{{ intro[0] }}</strong> <span>{{ intro[1] }}</span> <a href="/help">Help</a></div>
+  <form method="post" action="/settings/intro" class="intro-form" data-intro><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="page" value="{{ intro_key }}"><input type="hidden" name="collapsed" value="1"><input type="hidden" name="next" value="{{ request.url.path }}"><button class="ghost xs" title="Hide these tips on this page">Hide</button></form>
+  {% endif %}
+</section>
+{% endif %}

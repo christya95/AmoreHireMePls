@@ -1,16 +1,18 @@
 <!doctype html>
-<html lang="en"{% if theme in ('light', 'dark') %} data-theme="{{ theme }}"{% endif %} data-accent="{{ accent }}">
+{% from "_brand.html" import mark %}
+<html lang="en"{% if theme in ('light', 'dark') %} data-theme="{{ theme }}"{% endif %} data-accent="{{ accent }}" data-tint="{{ tint }}">
 <head>
 <meta charset="utf-8">
 <title>Sign in · AmoreHireMePls</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
+<link rel="icon" type="image/svg+xml" href="/brand.svg">
 <link rel="stylesheet" href="/static/app.css">
-<script nonce="{{ nonce }}">(function(){var h=document.documentElement,a=h.getAttribute("data-accent");if(a)h.style.setProperty("--accent",a);if(!h.getAttribute("data-theme")){h.setAttribute("data-theme",window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}})();</script>
+<script nonce="{{ nonce }}">(function(){var h=document.documentElement,a=h.getAttribute("data-accent"),t=h.getAttribute("data-tint");if(a)h.style.setProperty("--accent",a);if(t&&t!=="accent")h.style.setProperty("--tint",t);if(!h.getAttribute("data-theme")){h.setAttribute("data-theme",window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}})();</script>
 </head>
 <body class="login-page">
 <div class="card login-card">
-  <div class="brand-mark">A</div>
+  <div class="brand-mark">{{ mark() }}</div>
   <h1>AmoreHireMePls</h1>
   <p class="muted">Private job search dashboard</p>
   {% if error %}<div class="flash bad mt">{{ error }}</div>{% endif %}

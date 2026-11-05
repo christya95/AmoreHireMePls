@@ -31,7 +31,11 @@ ACCENT_PRESETS: dict[str, str] = {
     "rose": "#d6517a",
 }
 DEFAULT_ACCENT = ACCENT_PRESETS["sage"]
-AVATAR_STYLES = ("soft", "solid", "ring", "gradient")
+# Background tint presets. "accent" means "derive the page background from the accent" (the original behaviour);
+# the others are fixed hues mixed into a neutral base, so the accent can stay green while the page does not.
+TINT_PRESETS: dict[str, str | None] = {"accent": None, "neutral": "#8c8f90", "warm": "#c9a06a", "cool": "#6a8fc9"}
+TINT_LABELS = {"accent": "Match accent", "neutral": "Neutral", "warm": "Warm", "cool": "Cool"}
+AVATAR_STYLES = ("soft", "solid", "ring", "gradient", "mark")
 AVATAR_MAX_BYTES = 1_048_576
 AVATAR_MAX_DIMENSION = 4096
 AVATAR_MIN_DIMENSION = 16
@@ -53,8 +57,11 @@ class AvatarInfo(BaseModel):
 class UISettings(BaseModel):
     theme: Theme = "system"
     accent: str = DEFAULT_ACCENT
+    bg_tint: str = "accent"  # "accent" | "neutral" | "warm" | "cool" | "#rrggbb"
     display_name: str | None = None
     avatar: AvatarInfo = Field(default_factory=AvatarInfo)
+    checklist_dismissed: bool = False
+    collapsed_intros: list[str] = Field(default_factory=list)  # page keys whose intro strip is folded
     updated_at: datetime | None = None
 
     @property
@@ -63,6 +70,17 @@ class UISettings(BaseModel):
             if hexv.lower() == self.accent.lower():
                 return name
         return None
+
+    @property
+    def tint_name(self) -> str | None:
+        return self.bg_tint if self.bg_tint in TINT_PRESETS else None
+
+    @property
+    def tint_css(self) -> str:
+        """Value for the --tint custom property: a hex colour, or "accent" meaning "follow --accent"."""
+        if self.bg_tint == "accent":
+            return "accent"
+        return TINT_PRESETS.get(self.bg_tint) or self.bg_tint
 
 
 def normalize_accent(value: str | None) -> str | None:
@@ -73,6 +91,21 @@ def normalize_accent(value: str | None) -> str | None:
     if HEX_RE.match(v):
         return v
     return None
+
+
+def normalize_tint(value: str | None) -> str | None:
+    """Tint preset name or #rrggbb -> canonical stored value; None when invalid."""
+    v = (value or "").strip().lower()
+    if v in TINT_PRESETS:
+        return v
+    if HEX_RE.match(v):
+        return v
+    return None
+
+
+def tint_css_from_cookie(value: str | None) -> str:
+    v = normalize_tint(value) or "accent"
+    return "accent" if v == "accent" else (TINT_PRESETS.get(v) or v)
 
 
 class UISettingsStore:
@@ -232,6 +265,183 @@ def status_tone(status: Any) -> str:
 
 def humanize(value: Any) -> str:
     return str(value or "").replace("_", " ")
+
+
+# -- plain-language labels ----------------------------------------------------------------------------------
+
+# Internal state -> what it means for Joss. The raw state stays visible in a muted chip next to the label.
+STATUS_LABELS: dict[str, str] = {
+    # applications
+    "queued": "Queued",
+    "preparing": "Preparing",
+    "ready_for_review": "Waiting for your approval",
+    "needs_input": "Needs your answers",
+    "authorized": "Approved, worker will submit",
+    "executing": "Submitting now",
+    "handoff": "Finish on the site",
+    "needs_verification": "Outcome unknown, check it",
+    "submitted": "Submitted",
+    "failed": "Failed",
+    "duplicate": "Already applied",
+    "blocked": "Blocked by your rules",
+    "denied": "Denied",
+    # jobs
+    "new": "New",
+    "needs_review": "Needs your review",
+    "qualified": "Qualified",
+    "applied": "Applied",
+    "applied_historical": "Applied (imported)",
+    "rejected": "Rejected",
+    "excluded": "Excluded",
+    "closed": "Closed",
+    # runs
+    "claimed": "Starting",
+    "running": "Running",
+    "waiting": "Waiting for you",
+    "paused": "Paused",
+    "cancelled": "Cancelled",
+    "succeeded": "Finished",
+    "completed": "Finished",
+    # run interrupt types
+    "awaiting_authorization": "Waiting for your approval",
+    "awaiting_input": "Needs your answers",
+    "emergency_stop": "Stopped by emergency stop",
+    # sync outbox
+    "sync_pending": "Not yet recorded on GitHub",
+    "committing": "Writing to the tracker",
+    "committed_local": "Committed locally, not pushed",
+    "local_only": "Not yet recorded on GitHub",
+    "synced": "Recorded on GitHub",
+    "conflict": "Conflict, needs you",
+    "not_applicable": "No sync needed",
+    # authorization scopes
+    "active": "Active",
+    "revoked": "Revoked",
+    "expired": "Expired",
+    "exhausted": "Used up",
+    # outreach
+    "draft": "Draft",
+    "sent": "Sent",
+    "recorded": "Recorded as sent",
+    # recipient exclusions
+    "unresolved": "Identity not bound yet",
+    "resolved": "Identity bound",
+}
+
+# The one obvious verb for an application in a given state.
+NEXT_ACTIONS: dict[str, str] = {
+    "ready_for_review": "Review package",
+    "needs_input": "Answer questions",
+    "handoff": "Finish on site",
+    "needs_verification": "Check outcome",
+    "authorized": "Open package",
+    "submitted": "Draft outreach",
+    "failed": "See what failed",
+}
+
+# Hover/inline explanations for the non-obvious concepts (also the Help glossary).
+GLOSSARY: dict[str, tuple[str, str]] = {
+    "authorization": (
+        "Authorization scope",
+        "Your explicit permission for one exact submission (this job, these answers, these document hashes) or a small bounded batch. Without it nothing leaves this machine.",
+    ),
+    "material_hash": (
+        "Material hash",
+        "A fingerprint of everything that would be sent: answers, document hashes, job and apply URL. If any of it changes, the fingerprint changes and the old approval no longer applies.",
+    ),
+    "batch": (
+        "Bounded batch",
+        "Prepares review packages for the best ranked qualified jobs, up to the count you set. It never submits anything by itself; each package still needs approval or a batch scope.",
+    ),
+    "needs_verification": (
+        "Outcome unknown",
+        "The submission was attempted but the receipt could not be confirmed. Check the employer site yourself and record what you saw; the app will not retry blindly.",
+    ),
+    "handoff": (
+        "Finish on the site",
+        "This site has no supported adapter (LinkedIn Easy Apply, Workday, logins, CAPTCHAs). The package is prepared for you; apply yourself, then record the confirmation text here.",
+    ),
+    "emergency_stop": (
+        "Emergency stop",
+        "Blocks every queued submission and message immediately. In-flight actions finish into a recorded outcome or 'outcome unknown'. Nothing is deleted; clear it when you are ready.",
+    ),
+    "sync_states": (
+        "Sync states",
+        "'Not yet recorded on GitHub' means the tracker clone has not been pushed yet. 'Recorded on GitHub' means the commit is on the remote. A sync problem never changes whether an application was submitted.",
+    ),
+    "outreach_scope": (
+        "Outreach approvals",
+        "Connection notes and messages are drafted by default. Each send is a separate approval; LinkedIn sends are a manual handoff that you record afterwards.",
+    ),
+    "fit_rank": ("Fit rank", "1 is a strong match, 5 a long shot. Computed from the posting against your profile; it orders batches and is never shown to employers."),
+    "grounding": (
+        "Grounding",
+        "Every tailored bullet must trace back to a bullet in your approved base resume. Ungrounded output is rejected and the deterministic version is used instead.",
+    ),
+    "regenerate": (
+        "Regenerate documents",
+        "Builds a fresh tailored DOCX (and PDF when LibreOffice is available). New files mean new hashes, so any approval for the old package is withdrawn and the package is rebuilt.",
+    ),
+}
+
+# One or two plain sentences per page: what it is for, what to do here.
+PAGE_INTROS: dict[str, tuple[str, str]] = {
+    "index.html": (
+        "Your home base. The tiles summarise the pipeline and the list below shows only the items that need you.",
+        "Work the 'Needs your attention' list top to bottom, then import or discover new jobs.",
+    ),
+    "jobs.html": (
+        "Every posting the app knows about, with the automatic qualification result.",
+        "Paste a posting URL to import it, or open a job to tailor a resume and start a run.",
+    ),
+    "job.html": (
+        "One posting, start to finish. The steps at the top show where it is and what comes next.",
+        "Use the button under the steps; everything else on this page is evidence you can read.",
+    ),
+    "applications.html": (
+        "Review packages the worker prepared: the resume, the answers and where they would go.",
+        "Open a package to answer questions, approve a submission, finish a handoff or check an unknown outcome.",
+    ),
+    "application.html": (
+        "Everything that would be sent for this job, exactly as it would be sent.",
+        "Read the document and answers; approve only when you are happy. Approval covers this exact content and nothing else.",
+    ),
+    "runs.html": (
+        "The worker's background jobs, one per application attempt. A run pauses whenever it needs you.",
+        "You rarely need this page; open a waiting run to jump to its package.",
+    ),
+    "run.html": ("One worker run with its events and cost.", "If it is waiting, the button opens the package it is waiting on."),
+    "documents.html": (
+        "Tailored resumes built from your approved base resume. The base itself is never changed.",
+        "Open a PDF to read exactly what would be uploaded, or download the DOCX.",
+    ),
+    "outreach.html": (
+        "Recruiter connection notes for employers where an application was confirmed.",
+        "Add recipients by LinkedIn URL, let the app draft notes, then send them yourself and record it.",
+    ),
+    "history.html": (
+        "Your imported application history from the private GitHub tracker.",
+        "Re-import after you edit the tracker by hand; imports are idempotent and keep provenance.",
+    ),
+    "sync.html": ("How confirmed applications get written back to the GitHub tracker.", "Nothing to do unless an item shows a conflict; then resolve it in the clone and retry."),
+    "usage.html": ("Measured model usage and cost per step.", "Fill in config/pricing.json so costs show as numbers instead of 'unknown'."),
+    "profile.html": (
+        "The approved facts every resume claim and form answer is grounded in.",
+        "Keep it accurate; add a fact with a blank value when you do not know it, and the app will ask instead of guessing.",
+    ),
+    "authorizations.html": ("Every approval you have granted, single or batch, and what it covered.", "Revoke anything you no longer want; grant batch scopes sparingly."),
+    "settings.html": ("How the dashboard looks and greets you.", "Nothing here affects resumes, answers or messages."),
+    "help.html": ("How the whole thing works, in two minutes.", "Come back here whenever a label is unclear."),
+}
+
+
+def status_label(status: Any) -> str:
+    s = str(status or "")
+    return STATUS_LABELS.get(s.lower(), humanize(s))
+
+
+def next_action_label(status: Any) -> str:
+    return NEXT_ACTIONS.get(str(status or "").lower(), "Open")
 
 
 # -- dependency-free SVG chart geometry ------------------------------------------------------------------

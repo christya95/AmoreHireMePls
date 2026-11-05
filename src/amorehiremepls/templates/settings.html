@@ -1,6 +1,7 @@
 {% extends "base.html" %}{% block content %}
+{% from "_brand.html" import mark %}
 <div class="stack">
-<div class="page-head"><div><h1>Settings</h1><p>How the dashboard looks and greets you. Candidate facts, preferences and exclusions live under <a href="/profile">Candidate profile</a>.</p></div></div>
+<div class="page-head"><div><h1>Settings</h1><p>Candidate facts, preferences and exclusions live under <a href="/profile">Candidate profile</a>, not here.</p></div></div>
 
 <div class="grid-2">
   <div class="card">
@@ -18,9 +19,19 @@
           <label class="swatch sw-custom" data-hex="{{ ui.accent }}"><input type="radio" name="accent" value="custom" {{ 'checked' if not accent_name }}><span><svg class="icon"><use href="#i-check"/></svg></span><small>custom</small></label>
         </div></div>
       <div class="form-row">
-        <div class="field narrow"><label>Pick</label><input type="color" name="accent_picker" value="{{ ui.accent }}" aria-label="colour picker"></div>
+        <div class="field narrow"><label>Pick</label><input type="color" name="accent_picker" value="{{ ui.accent }}" aria-label="accent colour picker"></div>
         <div class="field narrow"><label>Hex</label><input name="accent_hex" value="{{ ui.accent }}" pattern="#[0-9a-fA-F]{6}" placeholder="#6f8f73" maxlength="7"></div>
-        <span class="hint">Hover, soft tints and the page background are derived automatically.</span>
+        <span class="hint">Buttons, links, the active menu item and the chart use the accent.</span>
+      </div>
+      <div class="field"><label>Background tint</label>
+        <div class="choices tint-choices">
+          {% for key, label, hex in tints %}<label class="choice"><input type="radio" name="tint" value="{{ key }}" data-hex="{{ hex or '' }}" {{ 'checked' if tint_name == key }}><span><i class="tint-dot tint-{{ key }}"></i>{{ label }}</span></label>{% endfor %}
+          <label class="choice"><input type="radio" name="tint" value="custom" {{ 'checked' if not tint_name }}><span><i class="tint-dot tint-custom"></i>Custom</span></label>
+        </div></div>
+      <div class="form-row">
+        <div class="field narrow"><label>Pick</label><input type="color" name="tint_picker" value="{{ tint_hex }}" aria-label="background tint picker"></div>
+        <div class="field narrow"><label>Hex</label><input name="tint_hex" value="{{ tint_hex }}" pattern="#[0-9a-fA-F]{6}" placeholder="#8c8f90" maxlength="7"></div>
+        <span class="hint">The page background and soft surfaces take a little of this colour. "Match accent" is the original look; "Neutral" removes the colour cast entirely.</span>
       </div>
       <div class="form-actions"><button>Save appearance</button></div>
     </form>
@@ -42,7 +53,7 @@
         <button class="secondary"><svg class="icon"><use href="#i-upload"/></svg>Upload</button></form>
       <form method="post" action="/settings/avatar" class="mt"><input type="hidden" name="csrf" value="{{ csrf }}">
         <label>Or pick an initials style</label>
-        <div class="avatar-choices mt">{% for s in styles %}<label class="choice"><input type="radio" name="style" value="{{ s }}" {{ 'checked' if ui.avatar.style == s }}><span><span class="avatar sm style-{{ s }}">{{ initials }}</span>{{ s }}</span></label>{% endfor %}</div>
+        <div class="avatar-choices mt">{% for s in styles %}<label class="choice"><input type="radio" name="style" value="{{ s }}" {{ 'checked' if ui.avatar.style == s }}><span><span class="avatar sm style-{{ s }}">{% if s == 'mark' %}{{ mark() }}{% else %}{{ initials }}{% endif %}</span>{{ 'logo' if s == 'mark' else s }}</span></label>{% endfor %}</div>
         <div class="form-actions"><button class="secondary">Use initials</button></div>
       </form>
       {% if ui.avatar.kind == 'upload' %}<form method="post" action="/settings/avatar/remove" class="mt"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost"><svg class="icon"><use href="#i-trash"/></svg>Remove uploaded image</button></form>{% endif %}
@@ -50,13 +61,23 @@
   </div>
 </div>
 
-<div class="card">
-  <div class="card-h"><h3>Where this is stored</h3></div>
-  <table class="kv compact">
-    <tr><td>Theme, accent, name, avatar metadata</td><td>MongoDB <code>controls</code> collection, key <code>ui_settings</code> (application database only).</td></tr>
-    <tr><td>Avatar file</td><td><code>AMORE_PRIVATE_DIR/avatar/</code>, served through <code>/settings/avatar/image</code> after sign-in. Never part of the repository.</td></tr>
-    <tr><td>Cookie</td><td><code>amore_ui</code> mirrors theme and accent for the first paint and the sign-in page; it holds nothing else.</td></tr>
-  </table>
+<div class="grid-2">
+  <div class="card">
+    <div class="card-h"><h3>Guidance</h3><span class="sub">The getting-started card and the per-page tips remember when you hide them.</span></div>
+    <div class="stack gap-s">
+      <form method="post" action="/settings/checklist" class="flex between"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="dismissed" value="0"><input type="hidden" name="next" value="/"><span>Getting-started checklist on Overview: <strong>{{ 'hidden' if ui.checklist_dismissed else 'shown until complete' }}</strong></span>{% if ui.checklist_dismissed %}<button class="secondary sm">Show it again</button>{% endif %}</form>
+      <form method="post" action="/settings/intro" class="flex between"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="reset" value="1"><input type="hidden" name="next" value="/settings?ok=saved"><span>Page tips hidden on <strong>{{ intro_count }}</strong> page{{ 's' if intro_count != 1 }}</span>{% if intro_count %}<button class="secondary sm">Show all tips again</button>{% endif %}</form>
+      <p class="note">Everything else is explained on the <a href="/help">Help</a> page.</p>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-h"><h3>Where this is stored</h3></div>
+    <table class="kv compact">
+      <tr><td>Theme, accent, tint, name, avatar metadata, hidden tips</td><td>MongoDB <code>controls</code> collection, key <code>ui_settings</code> (application database only).</td></tr>
+      <tr><td>Avatar file</td><td><code>AMORE_PRIVATE_DIR/avatar/</code>, served through <code>/settings/avatar/image</code> after sign-in. Never part of the repository.</td></tr>
+      <tr><td>Cookie</td><td><code>amore_ui</code> mirrors theme, accent and tint for the first paint and the sign-in page; it holds nothing else.</td></tr>
+    </table>
+  </div>
 </div>
 </div>
 {% endblock %}

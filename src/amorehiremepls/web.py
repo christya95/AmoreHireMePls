@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import os
 import re
 import secrets
 from datetime import timedelta
@@ -27,6 +28,10 @@ from .ui_settings import (
     ACCENT_PRESETS,
     AVATAR_MAX_BYTES,
     AVATAR_STYLES,
+    GLOSSARY,
+    PAGE_INTROS,
+    TINT_LABELS,
+    TINT_PRESETS,
     AvatarError,
     UISettings,
     UISettingsStore,
@@ -36,11 +41,15 @@ from .ui_settings import (
     initials,
     line_chart,
     month_buckets,
+    next_action_label,
     normalize_accent,
+    normalize_tint,
     remove_avatar_files,
     resolve_display_name,
+    status_label,
     status_tone,
     store_avatar,
+    tint_css_from_cookie,
 )
 from .util import sha256_file, to_toronto, utcnow
 from .worker import next_slot_description, worker_healthy
@@ -53,11 +62,13 @@ TEMPLATES.env.filters["toronto_day"] = lambda dt: to_toronto(dt).strftime("%b %d
 TEMPLATES.env.filters["json"] = lambda v: json.dumps(v, indent=1, default=str)
 TEMPLATES.env.filters["tone"] = status_tone
 TEMPLATES.env.filters["human"] = humanize
+TEMPLATES.env.filters["label"] = status_label
+TEMPLATES.env.filters["verb"] = next_action_label
 TEMPLATES.env.filters["initials"] = initials
 STATIC_DIR = Path(__file__).parent / "static"
 SESSION_COOKIE = "amore_session"
 SESSION_MAX_AGE = 60 * 60 * 24 * 14
-UI_COOKIE = "amore_ui"  # theme|accent mirror of the saved setting, so the first paint (and the login page) match
+UI_COOKIE = "amore_ui"  # theme|accent|tint mirror of the saved setting, so the first paint (and the login page) match
 UI_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 
 PAGE_TITLES = {
@@ -66,7 +77,7 @@ PAGE_TITLES = {
     "job.html": "Job",
     "applications.html": "Applications",
     "application.html": "Review package",
-    "runs.html": "Runs",
+    "runs.html": "Applications · Runs",
     "run.html": "Run",
     "documents.html": "Documents",
     "outreach.html": "Outreach",
@@ -76,13 +87,13 @@ PAGE_TITLES = {
     "profile.html": "Candidate profile",
     "authorizations.html": "Authorizations",
     "settings.html": "Settings",
+    "help.html": "Help",
 }
 NAV = [
     ("Work", None, None),
     ("/", "Overview", "overview"),
     ("/jobs", "Jobs", "jobs"),
     ("/applications", "Applications", "applications"),
-    ("/runs", "Runs", "runs"),
     ("/documents", "Documents", "documents"),
     ("/outreach", "Outreach", "outreach"),
     ("Records", None, None),
@@ -93,30 +104,47 @@ NAV = [
     ("/authorizations", "Authorizations", "auth"),
     ("/profile", "Candidate profile", "profile"),
     ("/settings", "Settings", "settings"),
+    ("/help", "Help", "help"),
 ]
+NAV_ALIASES = {"/runs": "/applications"}  # Runs lives as a tab under Applications; the route itself is unchanged
 ATTENTION_STATUSES = ("ready_for_review", "needs_input", "handoff", "needs_verification")
 FLASHES = {
     "saved": ("Saved.", "ok"),
     "avatar_saved": ("Avatar updated.", "ok"),
     "avatar_removed": ("Avatar removed; showing initials.", "ok"),
     "bad_accent": ("Accent must be a preset or a #rrggbb colour.", "bad"),
+    "bad_tint": ("Background tint must be a preset or a #rrggbb colour.", "bad"),
     "bad_avatar": ("That file was not accepted.", "bad"),
+    "provider_ok": ("Model provider check passed.", "ok"),
+    "provider_failed": ("Model provider check failed; see the System card.", "bad"),
+    "regenerated": ("Documents regenerated. Hashes changed, so any earlier approval for this job was withdrawn.", "ok"),
+    "regenerated_doc_only": ("A fresh document was generated. The existing package was left as it is because of its state.", "ok"),
+    "no_base": ("Select the approved base resume under Candidate profile first.", "bad"),
+    "busy": ("A run is working on this job right now; wait for it to pause or finish.", "bad"),
+    "already_submitted": ("This application was submitted; documents are kept as they were sent.", "bad"),
 }
+HOSTS_ENV_EXAMPLE = "AMORE_BROWSER_ALLOWED_HOSTS=boards.greenhouse.io,jobs.lever.co"
 
 
-def _parse_ui_cookie(raw: str | None) -> tuple[str, str]:
-    theme, accent = "system", ACCENT_PRESETS["sage"]
+def _parse_ui_cookie(raw: str | None) -> tuple[str, str, str]:
+    """theme, accent hex, tint css value ("accent" or hex) from the mirror cookie; anything odd falls back to defaults."""
+    theme, accent, tint = "system", ACCENT_PRESETS["sage"], "accent"
     if raw and "|" in raw:
-        t, a = raw.split("|", 1)
-        if t in ("system", "light", "dark"):
-            theme = t
-        accent = normalize_accent(a) or accent
-    return theme, accent
+        parts = raw.split("|")
+        if parts[0] in ("system", "light", "dark"):
+            theme = parts[0]
+        accent = normalize_accent(parts[1]) or accent
+        if len(parts) > 2:
+            tint = tint_css_from_cookie(parts[2])
+    return theme, accent, tint
 
 
 def _nav(path: str, attention: int) -> list[dict]:
     items: list[dict] = []
     best = None
+    for alias, target in NAV_ALIASES.items():
+        if path == alias or path.startswith(alias + "/"):
+            path = target
     for href, _, icon in NAV:
         if icon and (path == href or (href != "/" and path.startswith(href + "/"))) and (best is None or len(href) > len(best)):
             best = href
@@ -164,7 +192,7 @@ def create_app(rt: Runtime) -> FastAPI:
             raise HTTPException(status_code=403, detail="cross-site request refused")
 
     def ui_cookie_value(ui: UISettings) -> str:
-        return f"{ui.theme}|{ui.accent}"
+        return f"{ui.theme}|{ui.accent}|{ui.bg_tint}"
 
     def set_ui_cookie(resp: Any, ui: UISettings) -> None:
         resp.set_cookie(UI_COOKIE, ui_cookie_value(ui), httponly=True, samesite="strict", secure=rt.settings.secure_cookies, max_age=UI_COOKIE_MAX_AGE)
@@ -183,6 +211,7 @@ def create_app(rt: Runtime) -> FastAPI:
         attention = rt.store.c("applications").count_documents({"status": {"$in": list(ATTENTION_STATUSES)}, "provenance.origin": "local"}) if health.get("ok") else 0
         flash_key = request.query_params.get("ok") or request.query_params.get("err")
         flash, flash_tone = FLASHES.get(flash_key or "", (None, None))
+        intro_key = template.rsplit(".", 1)[0]
         base = {
             "request": request,
             "csrf": (session or {}).get("csrf", ""),
@@ -202,6 +231,10 @@ def create_app(rt: Runtime) -> FastAPI:
             "nonce": secrets.token_urlsafe(12),
             "flash": flash,
             "flash_tone": flash_tone,
+            "intro": PAGE_INTROS.get(template),
+            "intro_key": intro_key,
+            "intro_collapsed": intro_key in ui.collapsed_intros,
+            "glossary": GLOSSARY,
         }
         resp = TEMPLATES.TemplateResponse(request, template, {**base, **ctx})
         if request.cookies.get(UI_COOKIE) != ui_cookie_value(ui):
@@ -236,9 +269,16 @@ def create_app(rt: Runtime) -> FastAPI:
         return JSONResponse(h)
 
     def render_login(request: Request, error: str | None, status_code: int = 200) -> HTMLResponse:
-        theme, accent = _parse_ui_cookie(request.cookies.get(UI_COOKIE))
-        ctx = {"request": request, "error": error, "theme": theme, "accent": accent, "nonce": secrets.token_urlsafe(12)}
+        theme, accent, tint = _parse_ui_cookie(request.cookies.get(UI_COOKIE))
+        ctx = {"request": request, "error": error, "theme": theme, "accent": accent, "tint": tint, "nonce": secrets.token_urlsafe(12)}
         return TEMPLATES.TemplateResponse(request, "login.html", ctx, status_code=status_code)
+
+    @app.get("/brand.svg")
+    def brand_svg(request: Request):
+        """The favicon: the same brand mark as the sidebar, drawn by templates/_brand.html (a static asset, no state)."""
+        _, accent, _ = _parse_ui_cookie(request.cookies.get(UI_COOKIE))
+        svg = TEMPLATES.env.from_string('{% from "_brand.html" import mark %}{{ mark(standalone=True, color=color) }}').render(color=accent)
+        return HTMLResponse(svg, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=3600", "X-Content-Type-Options": "nosniff"})
 
     @app.get("/login", response_class=HTMLResponse)
     def login_form(request: Request):
@@ -306,8 +346,83 @@ def create_app(rt: Runtime) -> FastAPI:
             recent_jobs=list(s.c("jobs").find().sort("updated_at", -1).limit(6)),
             schedule=next_slot_description(rt),
             provider=rt.settings.effective_model or "not configured (default provider: openai)",
+            provider_last=s.get_control("provider_last_check") or {},
             missing=rt.profile.missing_essentials(),
+            checklist=None if ui_store.load().checklist_dismissed else getting_started(),
         )
+
+    def getting_started() -> dict:
+        """Setup checklist computed from real state. Each item links to the one place where it can be completed."""
+        s, p, st = rt.store, rt.profile, rt.settings
+        last = s.get_control("provider_last_check") or {}
+        key_env = "OPENAI_API_KEY" if st.model_provider == "openai" else "ANTHROPIC_API_KEY"
+        key_present = bool(os.environ.get(key_env))
+        model = st.effective_model
+        priced = bool(model) and rt.pricing.cost(model, 1000, 1000) is not None
+        missing = p.missing_essentials()
+        local_apps = {"provenance.origin": "local"}
+        first_review = s.c("applications").find_one({**local_apps, "status": {"$in": ["ready_for_review", "needs_input"]}}, {"_id": 1})
+        if not (model and key_present):
+            provider_hint = "Set AMORE_MODEL and the API key in your environment, then run the check."
+        elif last and not last.get("ok"):
+            provider_hint = "Last check failed: " + str(last.get("error") or "")
+        else:
+            provider_hint = "Not checked yet."
+
+        def item(key: str, label: str, done: bool, href: str, action: str, hint: str = "", code: str = "", method: str = "get") -> dict:
+            return {"key": key, "label": label, "done": bool(done), "href": href, "action": action, "hint": hint, "code": code, "method": method}
+
+        items = [
+            item("profile", "Confirm your profile facts", bool(p.facts) and not missing, "/profile", "Open profile", ("Missing: " + ", ".join(missing)) if missing else ""),
+            item("base_resume", "Approve the base resume", p.base_resume is not None, "/profile", "Select the DOCX", "Paste the path of the approved base resume on this machine."),
+            item("history", "Import your application history", s.c("applications").count_documents({"provenance.origin": "tracker_import"}) > 0, "/history", "Import history"),
+            item(
+                "provider",
+                "Connect the model provider",
+                bool(model) and key_present and bool(last.get("ok")),
+                "/provider/check",
+                "Check provider now",
+                provider_hint,
+                "" if model else "AMORE_MODEL=gpt-5.4-mini",
+                "post",
+            ),
+            item(
+                "hosts",
+                "Allow the sites the browser may visit",
+                bool(st.allowed_hosts),
+                "/help#hosts",
+                "How to set it",
+                "Environment only: add this line to .env (comma separated hosts) and restart the web and worker processes.",
+                HOSTS_ENV_EXAMPLE,
+            ),
+            item(
+                "pricing",
+                "Fill in model pricing",
+                priced,
+                "/usage",
+                "Open usage",
+                "Add the configured model to config/pricing.json so costs are numbers, not 'unknown'." if model else "Set a model first.",
+            ),
+            item("job", "Import your first job", s.c("jobs").estimated_document_count() > 0, "/jobs", "Import a job"),
+            item(
+                "review",
+                "Open your first review package",
+                s.c("applications").count_documents({**local_apps, "review_package": {"$ne": None}}) > 0,
+                "/applications",
+                "Open applications",
+                "Start a run from a job; the worker prepares the package.",
+            ),
+            item(
+                "authorization",
+                "Grant your first approval",
+                s.c("authorizations").estimated_document_count() > 0,
+                f"/applications/{first_review['_id']}" if first_review else "/applications",
+                "Review and approve" if first_review else "Open applications",
+                "Approval is per exact package; nothing is submitted before it.",
+            ),
+        ]
+        done = sum(1 for i in items if i["done"])
+        return {"items": items, "done": done, "total": len(items), "complete": done == len(items)}
 
     def overview_kpis(counts: dict, usage_month: dict) -> list[dict]:
         jobs, apps, sync = counts["jobs"], counts["applications"], counts["sync"]
@@ -408,22 +523,24 @@ def create_app(rt: Runtime) -> FastAPI:
         for a in apps:
             t, d, tone, icon = titles[a["status"]]
             j = jobs.get(a["job_id"], {})
-            items.append(item(t, f"{j.get('employer', '?')} · {j.get('title', '')}", d, tone, icon, f"/applications/{a['_id']}", "Open"))
+            items.append(item(t, f"{j.get('employer', '?')} · {j.get('title', '')}", d, tone, icon, f"/applications/{a['_id']}", next_action_label(a["status"])))
         for r in s.c("runs").find({"status": {"$in": ["waiting", "paused", "failed"]}}).sort("updated_at", -1).limit(8):
             it = r.get("interrupt") or {}
             if it.get("application_id") and any(x["href"].endswith(it["application_id"]) for x in items):
                 continue
             label = {"waiting": f"Run waiting: {humanize(it.get('type') or 'interrupt')}", "paused": "Run paused", "failed": "Run failed"}[r["status"]]
             tone = "bad" if r["status"] == "failed" else "warn"
-            items.append(item(label, f"{r['kind']} {r.get('params', {}).get('job_id', '')}", r.get("error") or "", tone, "runs", f"/runs/{r['_id']}", "Open run"))
+            verb = {"waiting": "Open run", "paused": "Resume run", "failed": "See what failed"}[r["status"]]
+            items.append(item(label, f"{r['kind']} {r.get('params', {}).get('job_id', '')}", r.get("error") or "", tone, "runs", f"/runs/{r['_id']}", verb))
         review = s.c("jobs").count_documents({"status": "needs_review"})
         if review:
             detail = f"{review} job{'s' if review != 1 else ''} outside the automatic rules"
-            items.append(item("Qualification needs review", detail, "", "info", "jobs", "/jobs?status_filter=needs_review", "Review"))
+            items.append(item("Jobs need your review", detail, "Decide whether each one is worth a run.", "info", "jobs", "/jobs?status_filter=needs_review", "Review jobs"))
         held = s.c("recipients").count_documents({"history_reconciled_at": {"$exists": False}})
         if held:
             detail = f"{held} recipient{'s' if held != 1 else ''} held before first contact"
-            items.append(item("Recipients awaiting contact-history check", detail, "", "info", "outreach", "/outreach", "Reconcile"))
+            hint = "Confirm you have not messaged them before."
+            items.append(item("Recipients waiting for a contact-history check", detail, hint, "info", "outreach", "/outreach", "Check history"))
         return items
 
     # -- controls ---------------------------------------------------------------------------
@@ -448,7 +565,31 @@ def create_app(rt: Runtime) -> FastAPI:
 
     @app.get("/runs", response_class=HTMLResponse)
     def runs(request: Request, session: dict = Depends(require_session)):
-        return render(request, "runs.html", session, runs=list(rt.store.c("runs").find().sort("created_at", -1).limit(100)))
+        runs = list(rt.store.c("runs").find().sort("created_at", -1).limit(100))
+        jobs = {j["_id"]: j for j in rt.store.c("jobs").find({"_id": {"$in": [r.get("params", {}).get("job_id") for r in runs]}}, {"employer": 1, "title": 1})}
+        return render(request, "runs.html", session, runs=runs, jobs=jobs, tab="runs")
+
+    @app.get("/help", response_class=HTMLResponse)
+    def help_page(request: Request, session: dict = Depends(require_session)):
+        s = rt.settings
+        places = [
+            ("Tailored resumes and screenshots", str(s.artifact_dir.resolve())),
+            ("Private profile, base resume copy, avatar, browser sessions", str(s.private_dir.resolve())),
+            ("Tracker clone (GitHub ledger)", str(s.tracker_clone_dir.resolve())),
+            ("Logs and PID files", str(s.log_dir.resolve())),
+            ("Model pricing", str(s.pricing_file.resolve())),
+            ("Runtime state", f"MongoDB database '{s.mongodb_database}'"),
+        ]
+        order = ["authorization", "material_hash", "batch", "needs_verification", "handoff", "emergency_stop", "sync_states", "outreach_scope", "fit_rank", "grounding"]
+        order.append("regenerate")
+        statuses = {
+            "Applications": ["queued", "ready_for_review", "needs_input", "authorized", "executing", "handoff", "needs_verification", "submitted", "failed", "duplicate"],
+            "Jobs": ["new", "needs_review", "qualified", "applied", "applied_historical", "excluded"],
+            "Runs": ["queued", "running", "waiting", "paused", "failed", "succeeded"],
+            "Sync": ["sync_pending", "committed_local", "local_only", "synced", "conflict"],
+        }
+        concepts = [(k, *GLOSSARY[k]) for k in order]
+        return render(request, "help.html", session, places=places, concepts=concepts, statuses=statuses, hosts_example=HOSTS_ENV_EXAMPLE, allowed_hosts=sorted(s.allowed_hosts))
 
     @app.get("/runs/{run_id}", response_class=HTMLResponse)
     def run_detail(request: Request, run_id: str, session: dict = Depends(require_session)):
@@ -574,9 +715,28 @@ def create_app(rt: Runtime) -> FastAPI:
         rt.profiles.save(p, actor="user")
         return RedirectResponse("/profile", status_code=303)
 
+    def run_provider_check() -> dict:
+        try:
+            info = rt.provider_check()
+        except Exception as exc:  # the check itself must never take the dashboard down
+            info = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:200]}
+        rt.store.set_control(
+            "provider_last_check",
+            {"ok": bool(info.get("ok")), "error": info.get("error") or (None if info.get("ok") else info.get("detail")), "model": info.get("configured_model"), "at": utcnow()},
+        )
+        return info
+
     @app.get("/provider/check")
     def provider_check(session: dict = Depends(require_session)):
-        return JSONResponse(rt.provider_check())
+        return JSONResponse(run_provider_check())
+
+    @app.post("/provider/check")
+    def provider_check_post(request: Request, session: dict = Depends(require_session), csrf: str = Form(...), next: str = Form("/")):
+        require_csrf(request, session, csrf)
+        info = run_provider_check()
+        target = safe_next(next)
+        sep = "&" if "?" in target else "?"
+        return RedirectResponse(f"{target}{sep}{'ok=provider_ok' if info.get('ok') else 'err=provider_failed'}", status_code=303)
 
     # -- history -------------------------------------------------------------------------------
     @app.get("/history", response_class=HTMLResponse)
@@ -647,9 +807,115 @@ def create_app(rt: Runtime) -> FastAPI:
         if not job:
             raise HTTPException(404)
         apps = list(rt.store.c("applications").find({"job_id": job_id}))
-        arts = list(rt.store.c("artifacts").find({"owner_id": job_id}).sort("created_at", -1))
+        arts = list(rt.store.c("artifacts").find({"owner_id": job_id}, {"content": 0}).sort("created_at", -1))
         runs = list(rt.store.c("runs").find({"params.job_id": job_id}).sort("created_at", -1))
-        return render(request, "job.html", session, job=job, apps=apps, artifacts=arts, runs=runs)
+        local = next((a for a in apps if (a.get("provenance") or {}).get("origin") == "local"), None)
+        scopes = [s for s in rt.auth.active("application_submit") if s.binding.target_id == job_id]
+        active_run = next((r for r in runs if r["status"] in ("queued", "claimed", "running", "waiting", "paused")), None)
+        outreach_n = rt.store.c("outreach").count_documents({"employer_norm": job.get("employer_norm")}) if job.get("employer_norm") else 0
+        steps, next_step = job_steps(job, local, arts, bool(scopes), active_run, outreach_n)
+        ctx = {"job": job, "apps": apps, "artifacts": arts, "runs": runs, "local_app": local, "scopes": scopes, "steps": steps, "next_step": next_step, "active_run": active_run}
+        return render(request, "job.html", session, **ctx)
+
+    def job_steps(job: dict, app_doc: dict | None, arts: list, scope_active: bool, active_run: dict | None, outreach_n: int) -> tuple[list[dict], dict]:
+        """Linear workflow for one job with the current step and the single next action under it."""
+        st = (app_doc or {}).get("status")
+        pkg = (app_doc or {}).get("review_package")
+        after_approval = st in ("authorized", "executing", "handoff", "needs_verification", "submitted", "failed")
+        submitted = st == "submitted" or job.get("status") in ("applied", "applied_historical")
+        sync_state = ((app_doc or {}).get("sync") or {}).get("state")
+        recorded = submitted and (bool((app_doc or {}).get("tracker_record_id")) or sync_state in ("synced", "not_applicable") or job.get("status") == "applied_historical")
+        flags = [
+            ("Import", True),
+            ("Qualify", bool(job.get("qualification"))),
+            ("Tailor", bool(arts)),
+            ("Review", bool(pkg) and st not in ("needs_input", "queued", "preparing")),
+            ("Authorize", after_approval or scope_active),
+            ("Submit", submitted),
+            ("Record", recorded),
+            ("Outreach", outreach_n > 0),
+        ]
+        current = next((name for name, done in flags if not done), None)
+        steps = [{"name": n, "done": d, "current": n == current} for n, d in flags]
+        app_href = f"/applications/{app_doc['_id']}" if app_doc else None
+        run_href = f"/runs/{active_run['_id']}" if active_run else None
+        nxt: dict[str, Any] = {"label": "All done for this job", "href": None, "form": None, "note": ""}
+        if job.get("status") == "excluded":
+            nxt = {"label": "Excluded by your rules", "href": "/profile", "note": "Change the preferences under Candidate profile if this is wrong.", "verb": "Open preferences"}
+        elif current == "Qualify":
+            nxt = {"label": "Qualify this job", "form": f"/jobs/{job['_id']}/qualify", "verb": "Qualify and rank", "note": "Deterministic rules first, then the fit rank."}
+        elif current == "Tailor":
+            if active_run:
+                nxt = {"label": "The worker is tailoring the resume", "href": run_href, "verb": "Watch the run", "note": ""}
+            elif job.get("status") == "needs_review":
+                note = "Qualification landed outside the automatic rules; read the reasons below first."
+                nxt = {"label": "Decide whether this job is worth a run", "form": f"/jobs/{job['_id']}/run", "verb": "Start a run anyway", "note": note}
+            else:
+                note = "Nothing is submitted; the run pauses for your approval."
+                nxt = {"label": "Tailor the resume and prepare the package", "form": f"/jobs/{job['_id']}/run", "verb": "Tailor and prepare", "note": note}
+        elif current == "Review":
+            if st == "needs_input":
+                nxt = {"label": "The form asks questions the profile cannot answer", "href": app_href, "verb": "Answer questions", "note": ""}
+            elif st in ("duplicate", "blocked", "denied"):
+                nxt = {"label": status_label(st), "href": app_href, "verb": "See why", "note": (app_doc or {}).get("reason") or ""}
+            elif active_run:
+                nxt = {"label": "The worker is preparing the review package", "href": run_href, "verb": "Watch the run", "note": ""}
+            else:
+                nxt = {"label": "Prepare the review package", "form": f"/jobs/{job['_id']}/run", "verb": "Tailor and prepare", "note": ""}
+        elif current == "Authorize":
+            note = "Approval covers these answers and these document hashes only."
+            nxt = {"label": "Read the package and approve this exact submission", "href": f"{app_href}#authorize", "verb": "Approve submission", "note": note}
+        elif current == "Submit":
+            if st == "handoff":
+                nxt = {"label": "Apply on the employer site yourself, then record the confirmation", "href": app_href, "verb": "Finish on site", "note": "No supported adapter."}
+            elif st == "needs_verification":
+                nxt = {"label": "The outcome is unknown; check the employer site", "href": app_href, "verb": "Check outcome", "note": ""}
+            elif st == "failed":
+                nxt = {"label": "The submission failed", "href": app_href, "verb": "See what failed", "note": ""}
+            elif st == "executing":
+                nxt = {"label": "Submitting now", "href": run_href or app_href, "verb": "Watch", "note": ""}
+            else:
+                nxt = {"label": "Approved; the worker submits at the next tick", "href": run_href or app_href, "verb": "Watch the run", "note": ""}
+        elif current == "Record":
+            nxt = {"label": "Submitted; the tracker record is not on GitHub yet", "href": "/sync", "verb": "Open sync", "note": "A sync problem never changes the outcome."}
+        elif current == "Outreach":
+            nxt = {"label": "Submitted. Next: recruiter notes for this employer", "href": "/outreach", "verb": "Draft outreach", "note": "Drafts only; you send them yourself."}
+        return steps, nxt
+
+    @app.post("/jobs/{job_id}/regenerate")
+    def job_regenerate(request: Request, job_id: str, session: dict = Depends(require_session), csrf: str = Form(...)):
+        """Re-tailor the documents for this job now (for example to get a PDF once LibreOffice exists). New files mean
+        new hashes: single approvals for this job are revoked and a live review package is rebuilt."""
+        require_csrf(request, session, csrf)
+        job = rt.jobs.get(job_id)
+        if not job:
+            raise HTTPException(404)
+        p = rt.reload_profile()
+        base = p.base_resume
+        if base is None or not Path(base.path).is_file():
+            return RedirectResponse(f"/jobs/{job_id}?err=no_base", status_code=303)
+        local = rt.store.c("applications").find_one({"job_id": job_id, "provenance.origin": "local"})
+        st = (local or {}).get("status")
+        if st in ("submitted", "executing"):
+            return RedirectResponse(f"/jobs/{job_id}?err=already_submitted", status_code=303)
+        if rt.store.c("runs").find_one({"params.job_id": job_id, "status": {"$in": ["queued", "claimed", "running"]}}):
+            return RedirectResponse(f"/jobs/{job_id}?err=busy", status_code=303)
+        rt.store.c("artifacts").update_many({"owner_id": job_id, "kind": "resume_tailored"}, {"$set": {"superseded": True}})
+        art = rt.tailor().tailor_for_job(job, Path(base.path), base.sha256, p.version, display_name=p.fact_value("display_name") or "Resume")
+        for s in rt.auth.active("application_submit"):
+            if s.binding.target_id == job_id:
+                rt.auth.revoke(s.id, "documents regenerated from the dashboard")
+        rt.store.audit("documents_regenerated", job_id, artifact_id=art["_id"], sha256=art["sha256"], pdf=bool(art.get("pdf_path")))
+        if local and st in ("needs_input", "ready_for_review", "authorized"):
+            from .applications import FormField
+
+            fields = [
+                FormField(f.get("id", ""), f.get("label", ""), f.get("type", "text"), f.get("options", []), f.get("selector", ""), bool(f.get("required")))
+                for f in (job.get("form_plan") or {}).get("fields", [])
+            ]
+            rt.applications().prepare(job_id, fields)
+            return RedirectResponse(f"/jobs/{job_id}?ok=regenerated", status_code=303)
+        return RedirectResponse(f"/jobs/{job_id}?ok={'regenerated_doc_only' if local else 'regenerated'}", status_code=303)
 
     @app.post("/jobs/{job_id}/qualify")
     def job_qualify(request: Request, job_id: str, session: dict = Depends(require_session), csrf: str = Form(...)):
@@ -932,7 +1198,7 @@ def create_app(rt: Runtime) -> FastAPI:
         apps = list(rt.store.c("applications").find(q).sort("updated_at", -1).limit(200))
         jobs = {j["_id"]: j for j in rt.store.c("jobs").find({"_id": {"$in": [a["job_id"] for a in apps]}}, {"employer": 1, "title": 1, "location": 1})}
         counts = {r["_id"]: r["n"] for r in rt.store.c("applications").aggregate([{"$match": {"provenance.origin": "local"}}, {"$group": {"_id": "$status", "n": {"$sum": 1}}}])}
-        return render(request, "applications.html", session, apps=apps, jobs=jobs, counts=counts, status_filter=status_filter)
+        return render(request, "applications.html", session, apps=apps, jobs=jobs, counts=counts, status_filter=status_filter, tab="packages")
 
     @app.get("/documents", response_class=HTMLResponse)
     def documents(request: Request, session: dict = Depends(require_session)):
@@ -979,11 +1245,49 @@ def create_app(rt: Runtime) -> FastAPI:
             "settings.html",
             session,
             presets=ACCENT_PRESETS,
+            tints=[(k, TINT_LABELS[k], v) for k, v in TINT_PRESETS.items()],
+            tint_name=ui.tint_name,
+            tint_hex=ui.bg_tint if ui.tint_name is None else (TINT_PRESETS.get(ui.bg_tint) or ui.accent),
             styles=AVATAR_STYLES,
             accent_name=ui.accent_name,
             max_kb=AVATAR_MAX_BYTES // 1024,
             default_name=resolve_display_name(UISettings(), rt.profile),
+            intro_count=len(ui.collapsed_intros),
         )
+
+    @app.post("/settings/checklist")
+    def settings_checklist(request: Request, session: dict = Depends(require_session), csrf: str = Form(...), dismissed: str = Form("1"), next: str = Form("/")):
+        require_csrf(request, session, csrf)
+        ui = ui_store.load()
+        ui.checklist_dismissed = dismissed == "1"
+        ui_store.save(ui)
+        return RedirectResponse(safe_next(next), status_code=303)
+
+    @app.post("/settings/intro")
+    def settings_intro(
+        request: Request,
+        session: dict = Depends(require_session),
+        csrf: str = Form(...),
+        page: str = Form(""),
+        collapsed: str = Form("1"),
+        reset: str = Form(""),
+        next: str = Form("/"),
+    ):
+        require_csrf(request, session, csrf)
+        ui = ui_store.load()
+        if reset:
+            ui.collapsed_intros = []
+        else:
+            key = re.sub(r"[^a-z_]", "", page.lower())[:40]
+            if not key or f"{key}.html" not in PAGE_INTROS:
+                raise HTTPException(400, "unknown page")
+            folded = set(ui.collapsed_intros)
+            (folded.add if collapsed == "1" else folded.discard)(key)
+            ui.collapsed_intros = sorted(folded)
+        ui_store.save(ui)
+        if request.headers.get("x-requested-with") == "fetch":
+            return JSONResponse({"ok": True, "collapsed": ui.collapsed_intros})
+        return RedirectResponse(safe_next(next, "/settings"), status_code=303)
 
     @app.post("/settings/theme")
     def settings_theme(request: Request, session: dict = Depends(require_session), csrf: str = Form(...), theme: str = Form(...), next: str = Form("/")):
@@ -999,7 +1303,14 @@ def create_app(rt: Runtime) -> FastAPI:
 
     @app.post("/settings/appearance")
     def settings_appearance(
-        request: Request, session: dict = Depends(require_session), csrf: str = Form(...), theme: str = Form("system"), accent: str = Form(""), accent_hex: str = Form("")
+        request: Request,
+        session: dict = Depends(require_session),
+        csrf: str = Form(...),
+        theme: str = Form("system"),
+        accent: str = Form(""),
+        accent_hex: str = Form(""),
+        tint: str = Form("accent"),
+        tint_hex: str = Form(""),
     ):
         require_csrf(request, session, csrf)
         if theme not in ("system", "light", "dark"):
@@ -1007,8 +1318,11 @@ def create_app(rt: Runtime) -> FastAPI:
         chosen = normalize_accent(accent_hex if accent == "custom" or not accent else accent)
         if chosen is None:
             return RedirectResponse("/settings?err=bad_accent", status_code=303)
+        chosen_tint = normalize_tint(tint_hex if tint == "custom" else tint)
+        if chosen_tint is None:
+            return RedirectResponse("/settings?err=bad_tint", status_code=303)
         ui = ui_store.load()
-        ui.theme, ui.accent = theme, chosen  # type: ignore[assignment]
+        ui.theme, ui.accent, ui.bg_tint = theme, chosen, chosen_tint  # type: ignore[assignment]
         ui_store.save(ui)
         resp = RedirectResponse("/settings?ok=saved", status_code=303)
         set_ui_cookie(resp, ui)

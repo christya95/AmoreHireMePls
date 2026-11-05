@@ -1,17 +1,19 @@
 <!doctype html>
-<html lang="en"{% if ui.theme in ('light', 'dark') %} data-theme="{{ ui.theme }}"{% endif %} data-accent="{{ ui.accent }}">
+{% from "_brand.html" import mark %}{% from "_macros.html" import hint with context %}
+<html lang="en"{% if ui.theme in ('light', 'dark') %} data-theme="{{ ui.theme }}"{% endif %} data-accent="{{ ui.accent }}" data-tint="{{ ui.tint_css }}">
 <head>
 <meta charset="utf-8">
 <title>{{ title }} · AmoreHireMePls</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
+<link rel="icon" type="image/svg+xml" href="/brand.svg">
 <link rel="stylesheet" href="/static/app.css">
-<script nonce="{{ nonce }}">(function(){var h=document.documentElement,a=h.getAttribute("data-accent");if(a)h.style.setProperty("--accent",a);if(!h.getAttribute("data-theme")){h.setAttribute("data-theme",window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}})();</script>
+<script nonce="{{ nonce }}">(function(){var h=document.documentElement,a=h.getAttribute("data-accent"),t=h.getAttribute("data-tint");if(a)h.style.setProperty("--accent",a);if(t&&t!=="accent")h.style.setProperty("--tint",t);if(!h.getAttribute("data-theme")){h.setAttribute("data-theme",window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}})();</script>
 </head>
 <body class="app">
 {% include "_icons.html" %}
 <aside class="sidebar">
-  <a class="brand" href="/"><span class="brand-mark">A</span><span class="brand-text">AmoreHireMePls<small>job search assistant</small></span></a>
+  <a class="brand" href="/"><span class="brand-mark">{{ mark() }}</span><span class="brand-text">AmoreHireMePls<small>job search assistant</small></span></a>
   <nav class="nav" aria-label="Main">
     {% for item in nav %}{% if item.label_only %}<div class="nav-label">{{ item.label }}</div>{% else %}
     <a href="{{ item.href }}"{% if item.active %} class="active" aria-current="page"{% endif %}><svg class="icon"><use href="#i-{{ item.icon }}"/></svg>{{ item.label }}{% if item.count %}<span class="count">{{ item.count }}</span>{% endif %}</a>{% endif %}{% endfor %}
@@ -32,10 +34,10 @@
       <form method="post" action="/controls/emergency-stop"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="active" value="off"><button class="secondary sm">Clear emergency stop</button></form>
       {% else %}
       <details class="pop">
-        <summary class="btn stop-btn sm"><svg class="icon"><use href="#i-stop"/></svg>Emergency stop</summary>
+        <summary class="btn stop-btn sm" title="{{ glossary.emergency_stop[1] }}"><svg class="icon"><use href="#i-stop"/></svg>Emergency stop</summary>
         <div class="pop-body">
           <strong>Stop all external actions?</strong>
-          <p>Blocks every queued submission and message. In-flight actions finish into a recorded outcome or <code>needs_verification</code>. Nothing is deleted.</p>
+          <p>{{ glossary.emergency_stop[1] }}</p>
           <form method="post" action="/controls/emergency-stop" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="active" value="on">
             <input name="reason" placeholder="reason (optional)"><button class="danger">Confirm emergency stop</button></form>
         </div>
@@ -48,6 +50,7 @@
           <div class="stack gap-s">
             <a class="btn secondary sm" href="/settings"><svg class="icon"><use href="#i-settings"/></svg>Settings</a>
             <a class="btn secondary sm" href="/profile"><svg class="icon"><use href="#i-profile"/></svg>Candidate profile</a>
+            <a class="btn secondary sm" href="/help"><svg class="icon"><use href="#i-help"/></svg>Help</a>
             <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm w100">Sign out</button></form>
           </div>
         </div>
@@ -57,6 +60,7 @@
   {% if emergency %}<div class="banner stop"><svg class="icon"><use href="#i-stop"/></svg><span>Emergency stop active: queued external actions are blocked. In-flight actions are preserved for reconciliation.</span></div>{% endif %}
   {% if flash %}<div class="flash {{ flash_tone or '' }}">{{ flash }}</div>{% endif %}
   {% if open_questions %}<div class="banner questions"><svg class="icon"><use href="#i-help"/></svg><div><strong>Open questions for {{ display_name }}</strong><ul>{% for q in open_questions %}<li>{{ q }}</li>{% endfor %}</ul></div></div>{% endif %}
+  {% include "_intro.html" %}
   <main>{% block content %}{% endblock %}</main>
 </div>
 <script src="/static/app.js" defer></script>

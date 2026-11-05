@@ -1,0 +1,11 @@
+{#- The brand mark, drawn in exactly one place. Sidebar, sign-in page, favicon (/brand.svg) and the avatar
+    fallback all call mark(); replace the shapes inside <g> to change the logo everywhere.
+    Placeholder until the real logo (paper plane + briefcase + heart) is chosen. -#}
+{% macro mark(cls='', standalone=False, color=None) -%}
+<svg{% if standalone %} xmlns="http://www.w3.org/2000/svg" width="64" height="64"{% endif %} class="brand-svg {{ cls }}" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+<g>
+<rect width="32" height="32" rx="10" fill="{{ color or 'var(--accent)' }}"/>
+<text x="16" y="21.6" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="17" font-weight="800" fill="#ffffff">A</text>
+</g>
+</svg>
+{%- endmacro %}

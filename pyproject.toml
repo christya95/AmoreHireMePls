@@ -70,3 +70,5 @@ ignore = ["B008", "E701", "E702"]
 [tool.ruff.lint.per-file-ignores]
 # embedded HTML/JS fixture strings
 "tests/fixtures/*" = ["E501"]
+# user-facing copy tables (labels, glossary, page intros) read better as one sentence per line
+"src/amorehiremepls/ui_settings.py" = ["E501"]

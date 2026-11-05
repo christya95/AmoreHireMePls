@@ -54,6 +54,31 @@
     });
   });
 
+  // Settings: live background-tint preview. "accent" means follow --accent (the stylesheet default).
+  var tintHex = document.querySelector('input[name="tint_hex"]');
+  function applyTint(v) {
+    if (v === "accent" || v === "") root.style.removeProperty("--tint");
+    else if (/^#[0-9a-fA-F]{6}$/.test(v)) root.style.setProperty("--tint", v);
+  }
+  document.querySelectorAll('input[name="tint"]').forEach(function (r) {
+    r.addEventListener("change", function () {
+      if (r.value === "custom") { if (tintHex) applyTint(tintHex.value); return; }
+      applyTint(r.dataset.hex || "accent");
+      if (tintHex && r.dataset.hex) tintHex.value = r.dataset.hex;
+    });
+  });
+  if (tintHex) {
+    tintHex.addEventListener("input", function () {
+      applyTint(tintHex.value);
+      var custom = document.querySelector('input[name="tint"][value="custom"]');
+      if (custom) custom.checked = true;
+    });
+    var tintPicker = document.querySelector('input[name="tint_picker"]');
+    if (tintPicker) {
+      tintPicker.addEventListener("input", function () { tintHex.value = tintPicker.value; tintHex.dispatchEvent(new Event("input")); });
+    }
+  }
+
   // Close popovers (emergency stop, account menu) when clicking elsewhere or pressing Escape.
   function closePops(except) {
     document.querySelectorAll("details.pop[open]").forEach(function (d) { if (d !== except) d.removeAttribute("open"); });
