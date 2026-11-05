@@ -4,6 +4,11 @@ renderer exists), verify the page limit, and record artifacts with hashes.
 Grounding: every tailored bullet cites a base bullet id; skills must exist in the base; new text may
 not introduce technology tokens absent from the base. Violations are rejected, not silently kept.
 Without a model provider, a deterministic tailoring (reorder by posting relevance, no rewriting) is used.
+
+Output: the approved base DOCX is the template. It is opened as-is (header block, styles, fonts, margins,
+section layout, drawings, headers/footers all kept verbatim) and only the text of the tailorable parts
+(summary paragraph, skill lists, experience/project bullets) is replaced in place. Contact details are never
+model output and are never rewritten. A fresh document is only generated when the base file is unavailable.
 """
 
 from __future__ import annotations
@@ -14,13 +19,17 @@ import re
 import shutil
 import subprocess
 import tempfile
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from docx import Document
+from docx.enum.section import WD_SECTION
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
 from docx.shared import Inches, Pt
+from docx.text.paragraph import Paragraph
 
 from .ai import AIRunner, ProviderUnavailable
 from .db import Store
@@ -41,6 +50,12 @@ DATE_RE = re.compile(
     r"((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{4}|\d{4})\s*[-–—to]+\s*((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{4}|\d{4}|present|current)",
     re.I,
 )
+# A line that is contact information rather than prose: email, phone, URL, LinkedIn/GitHub handle or a "a | b | c" strip.
+CONTACT_RE = re.compile(r"@|https?://|www\.|linkedin\.com|github\.com|\(?\+?\d[\d\s().-]{7,}\d|\|.*\|", re.I)
+BULLET_GLYPH_RE = re.compile(r"^[•\-–·▪●]\s*")
+SKILL_SPLIT_RE = re.compile(r"[,|•;]|\s{2,}|\t")
+SKILL_LABEL_RE = re.compile(r"^[^:,|•;]{1,40}:\s*")
+TEXT_CHILD_TAGS = ("w:r", "w:hyperlink", "w:fldSimple", "w:smartTag", "w:ins", "w:del", "w:sdt")
 
 
 @dataclass
@@ -70,6 +85,7 @@ class BaseResume:
     education: list[str]
     certifications: list[str]
     all_text: str
+    source_path: Path | None = None
 
     def bullet_ids(self) -> set[str]:
         return {b.id for e in self.experience + self.projects for b in e.bullets}
@@ -99,9 +115,66 @@ def _heading_key(text: str) -> str | None:
     return None
 
 
-def parse_base_resume(path: Path) -> BaseResume:
-    doc = Document(str(path))
-    paras = [p for p in doc.paragraphs]
+@dataclass
+class SkillGroup:
+    """One "Label: a, b, c" run of a skills paragraph: the label runs (bold) and the runs holding the items."""
+
+    label_runs: list[Any]
+    item_runs: list[Any]
+
+    @property
+    def items_text(self) -> str:
+        return "".join(r.text for r in self.item_runs)
+
+
+def _split_skill_items(text: str) -> list[str]:
+    out: list[str] = []
+    for tok in SKILL_SPLIT_RE.split(text):
+        tok = SKILL_LABEL_RE.sub("", tok).strip(" •-")
+        if tok:
+            out.append(tok)
+    return out
+
+
+def _skill_groups(p: Paragraph) -> list[SkillGroup]:
+    """Group a skills paragraph's runs into (label, items) pairs by explicit bold formatting; a paragraph without
+    bold labels is a single unlabeled group."""
+    groups: list[SkillGroup] = []
+    runs = list(p.runs)
+    if not any(r.bold for r in runs):
+        return [SkillGroup([], runs)] if runs else []
+    prev_label = False
+    for r in runs:
+        if r.bold:
+            if not groups or not prev_label:
+                groups.append(SkillGroup([], []))
+            groups[-1].label_runs.append(r)
+            prev_label = True
+        else:
+            if not groups:
+                groups.append(SkillGroup([], []))
+            groups[-1].item_runs.append(r)
+            prev_label = False
+    return groups
+
+
+@dataclass
+class _Layout:
+    """Where the tailorable parts live in the base document (paragraph elements), for in-place replacement."""
+
+    contact: list[Paragraph] = field(default_factory=list)
+    summary: list[Paragraph] = field(default_factory=list)
+    skills: list[Paragraph] = field(default_factory=list)
+    bullets: dict[str, list[Paragraph]] = field(default_factory=dict)  # experience id -> bullet paragraphs
+
+
+def _is_contact_line(p: Paragraph, text: str) -> bool:
+    style = (p.style.name or "").lower()
+    return style.startswith(("title", "heading 1")) or bool(CONTACT_RE.search(text)) or p._p.find(qn("w:hyperlink")) is not None
+
+
+def _parse_document(doc) -> tuple[BaseResume, _Layout]:
+    layout = _Layout()
     section = "contact"
     contact: list[str] = []
     summary: list[str] = []
@@ -114,7 +187,7 @@ def parse_base_resume(path: Path) -> BaseResume:
     bucket: list[Experience] = exp
     all_text: list[str] = []
     counters = {"exp": 0, "b": 0}
-    for p in paras:
+    for p in doc.paragraphs:
         text = p.text.strip()
         if not text:
             continue
@@ -126,12 +199,18 @@ def parse_base_resume(path: Path) -> BaseResume:
             bucket = projects if key == "projects" else exp
             continue
         is_bullet = (p.style.name or "").lower().startswith("list") or text[:1] in "•-–·▪●" or (p.paragraph_format.left_indent or 0) > 0
-        if section == "contact":
+        if section == "contact" or (section == "summary" and not summary and _is_contact_line(p, text)):
+            # Name and contact strip. Some layouts (two-column first section with a column break) place the
+            # "Summary" label before the name in document order; those lines are still the header, not the summary.
             contact.append(text)
+            layout.contact.append(p)
         elif section == "summary":
             summary.append(text)
+            layout.summary.append(p)
         elif section == "skills":
-            skills.extend([s.strip(" •-") for s in re.split(r"[,|•;]|\s{2,}", text.split(":", 1)[-1]) if s.strip(" •-")])
+            groups = _skill_groups(p)
+            skills.extend(_split_skill_items(", ".join(g.items_text for g in groups) if groups else text))
+            layout.skills.append(p)
         elif section in ("experience", "projects"):
             if not is_bullet and (DATE_RE.search(text) or current is None or (len(text) < 90 and not text.endswith("."))):
                 if not is_bullet and current is not None and not DATE_RE.search(text) and len(current.bullets) == 0 and not current.dates:
@@ -164,11 +243,18 @@ def parse_base_resume(path: Path) -> BaseResume:
                     counters["exp"] += 1
                     bucket.append(current)
                 current.bullets.append(Bullet(id=f"b_{counters['b']}", text=text.lstrip("•-–·▪● ").strip()))
+                layout.bullets.setdefault(current.id, []).append(p)
         elif section == "education":
             education.append(text)
         elif section == "certifications":
             certs.append(text)
-    return BaseResume(contact, " ".join(summary), skills, exp, projects, education, certs, "\n".join(all_text))
+    return BaseResume(contact, " ".join(summary), skills, exp, projects, education, certs, "\n".join(all_text)), layout
+
+
+def parse_base_resume(path: Path) -> BaseResume:
+    base, _ = _parse_document(Document(str(path)))
+    base.source_path = Path(path)
+    return base
 
 
 # -- grounding -------------------------------------------------------------------------
@@ -263,10 +349,132 @@ def deterministic_tailor(base: BaseResume, posting_text: str, max_bullets_per_ro
     return {"summary": base.summary, "skills": skills, "experience": out_exp, "dropped_bullet_ids": [], "unsupported_requirements_note": ""}
 
 
-# -- DOCX build --------------------------------------------------------------------------
+# -- DOCX build: base document as template -------------------------------------------------
+
+
+def _set_paragraph_text(p: Paragraph, text: str) -> None:
+    """Replace the paragraph's text while keeping its paragraph properties and the formatting of its first text run."""
+    runs = p.runs
+    keep = next((r for r in runs if r.text.strip()), runs[0] if runs else None)
+    if keep is None:
+        keep = p.add_run()
+    for child in list(p._p):
+        if child is keep._r or child.tag == qn("w:pPr"):
+            continue
+        if child.tag in {qn(t) for t in TEXT_CHILD_TAGS}:
+            p._p.remove(child)
+    keep.text = text
+
+
+def _remove_paragraph(p: Paragraph) -> None:
+    """Drop a paragraph; a paragraph that carries a section break is blanked instead so the layout survives."""
+    if p._p.pPr is not None and p._p.pPr.find(qn("w:sectPr")) is not None:
+        _set_paragraph_text(p, "")
+        return
+    p._p.getparent().remove(p._p)
+
+
+def _rewrite_summary(paras: list[Paragraph], summary: str) -> None:
+    _set_paragraph_text(paras[0], summary)
+    for p in paras[1:]:
+        _remove_paragraph(p)
+
+
+def _skill_matches(item: str, wanted_norm: list[str], consumed: set[int]) -> bool:
+    n = normalize_text(item)
+    for i, w in enumerate(wanted_norm):
+        if w == n or (len(w) >= 3 and re.search(rf"(?<![a-z0-9]){re.escape(w)}(?![a-z0-9])", n)):
+            consumed.add(i)
+            return True
+    return False
+
+
+def _rewrite_skills(paras: list[Paragraph], skills: list[str]) -> None:
+    """Keep the base skills layout (category labels, separators, run formatting); drop items the tailoring left out
+    and append tailored skills that have no base item to the last group."""
+    wanted_norm = [normalize_text(s) for s in skills]
+    consumed: set[int] = set()
+    last: tuple[Any, str, str] | None = None  # (run, separator, trailing whitespace)
+    for p in paras:
+        groups = _skill_groups(p)
+        for g in groups:
+            if not g.item_runs:
+                continue
+            raw = g.items_text
+            sep = " | " if "|" in raw else "; " if ";" in raw else " • " if "•" in raw else ", "
+            lead, trail = raw[: len(raw) - len(raw.lstrip())], raw[len(raw.rstrip()) :]
+            label = SKILL_LABEL_RE.match(raw.strip())
+            prefix = label.group(0) if label and not g.label_runs else ""
+            kept = [it for it in _split_skill_items(raw) if _skill_matches(it, wanted_norm, consumed)]
+            if not kept:
+                for r in g.label_runs + g.item_runs:
+                    p._p.remove(r._r)
+                continue
+            for r in g.item_runs[1:]:
+                p._p.remove(r._r)
+            g.item_runs[0].text = lead + prefix + sep.join(kept) + trail
+            last = (g.item_runs[0], sep, trail)
+        if not p.text.strip():
+            _remove_paragraph(p)
+    extra = [s for i, s in enumerate(skills) if i not in consumed]
+    if extra and last is not None:
+        run, sep, trail = last
+        run.text = run.text.rstrip() + sep + sep.join(extra) + trail
+
+
+def _rewrite_bullets(paras: list[Paragraph], texts: list[str]) -> None:
+    """Rewrite one role's bullet paragraphs in place: first paragraph is the formatting template, extra bullets are
+    clones of it, leftover base bullets are removed."""
+    template = deepcopy(paras[0]._p)
+    glyph = BULLET_GLYPH_RE.match(paras[0].text)
+    prefix = glyph.group(0) if glyph else ""
+    anchor = paras[0]._p
+    for i, text in enumerate(texts):
+        if i < len(paras):
+            p = paras[i]
+        else:
+            el = deepcopy(template)
+            anchor.addnext(el)
+            p = Paragraph(el, paras[0]._parent)
+        _set_paragraph_text(p, prefix + text)
+        anchor = p._p
+    for p in paras[len(texts) :]:
+        _remove_paragraph(p)
 
 
 def build_docx(base: BaseResume, tailored: dict, out_path: Path, font: str = "Calibri", body_pt: float = 11) -> Path:
+    """Write the tailored resume. The base DOCX is the template whenever it is available: everything outside the
+    summary, skills and bullets stays byte-for-byte as approved (name/contact block included)."""
+    if base.source_path and Path(base.source_path).exists():
+        return _build_from_template(base, tailored, out_path)
+    log.warning("base resume file unavailable; generating a fresh document instead of using it as the template")
+    return _build_fresh(base, tailored, out_path, font, body_pt)
+
+
+def _build_from_template(base: BaseResume, tailored: dict, out_path: Path) -> Path:
+    doc = Document(str(base.source_path))
+    parsed, layout = _parse_document(doc)
+    if parsed.all_text != base.all_text or parsed.bullet_ids() != base.bullet_ids():
+        raise ValueError("base resume file no longer matches the parsed base resume; refusing to tailor against a changed template")
+    if tailored.get("summary") and layout.summary:
+        _rewrite_summary(layout.summary, tailored["summary"])
+    if tailored.get("skills") and layout.skills:
+        _rewrite_skills(layout.skills, list(tailored["skills"]))
+    for item in tailored.get("experience", []):
+        paras = layout.bullets.get(item["experience_id"])
+        if paras:
+            _rewrite_bullets(paras, [b["text"] for b in item.get("bullets", [])])
+    # A later section that starts on a new page pins the base's page boundary; with shorter or longer tailored text
+    # that leaves a gap or pushes onto a third page, so let the body flow (the first section's layout is untouched).
+    for section in list(doc.sections)[1:]:
+        if section.start_type == WD_SECTION.NEW_PAGE:
+            section.start_type = WD_SECTION.CONTINUOUS
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(str(out_path))
+    return out_path
+
+
+def _build_fresh(base: BaseResume, tailored: dict, out_path: Path, font: str, body_pt: float) -> Path:
     doc = Document()
     for s in doc.sections:
         s.left_margin = s.right_margin = Inches(0.7)

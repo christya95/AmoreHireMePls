@@ -1,6 +1,8 @@
 from pathlib import Path
 
 import pytest
+from docx import Document
+from docx.enum.section import WD_SECTION
 
 from amorehiremepls.ai import AIRunner, FakeProvider, Pricing
 from amorehiremepls.skills import catalog
@@ -16,7 +18,7 @@ from amorehiremepls.tailoring import (
     verify_docx_structure,
 )
 from amorehiremepls.util import sha256_file
-from tests.fixtures.make_resume import make_base_resume
+from tests.fixtures.make_resume import FIXTURE_CONTACT, FIXTURE_NAME, make_base_resume, make_column_header_resume
 
 
 def test_parse_base_resume_sections(tmp_path):
@@ -27,6 +29,129 @@ def test_parse_base_resume_sections(tmp_path):
     assert len(base.experience[0].bullets) == 4
     assert base.projects and base.projects[0].bullets
     assert base.education and base.certifications
+    assert base.source_path == tmp_path / "base.docx"
+
+
+def test_parse_column_header_layout_keeps_name_and_contact_out_of_summary(tmp_path):
+    # the "SUMMARY" label precedes the name in document order; the name and contact strip are still the header
+    base = parse_base_resume(make_column_header_resume(tmp_path / "base.docx"))
+    assert base.contact_lines == [FIXTURE_NAME, FIXTURE_CONTACT]
+    assert base.summary.startswith("Backend developer") and FIXTURE_NAME not in base.summary and "alex@example.com" not in base.summary
+    # category labels are not skills; items behind "Label:<tab>" are
+    assert "Languages" not in base.skills and "Languages:" not in base.skills
+    assert {"Java", "Python", "SQL", "Spring Boot", "Kafka", "Git"} <= set(base.skills)
+    assert sum(len(e.bullets) for e in base.experience) == 5 and base.projects[0].bullets
+
+
+def _paragraph_xml(docx_path: Path) -> list[str]:
+    from lxml import etree
+
+    return [etree.tostring(p._p) for p in Document(str(docx_path)).paragraphs]
+
+
+def _texts(docx_path: Path) -> list[str]:
+    return [p.text.strip() for p in Document(str(docx_path)).paragraphs if p.text.strip()]
+
+
+MODEL_LIKE = {
+    "summary": "Backend developer who builds Java and Spring Boot services for banks.",
+    "skills": ["Spring Boot", "Java", "Kafka", "GitHub Actions"],
+    "experience": [
+        {
+            "experience_id": "exp_1",
+            "bullets": [
+                {"source_id": "b_2", "text": "Tuned PostgreSQL queries and cut batch processing time by 40%."},
+                {"source_id": "b_1", "text": "Built REST APIs in Java and Spring Boot serving 2 million daily requests."},
+            ],
+        },
+        {"experience_id": "exp_2", "bullets": [{"source_id": "b_5", "text": "Wrote Python scripts to process Kafka events for analytics."}]},
+    ],
+}
+
+
+def test_template_build_keeps_header_block_verbatim_before_first_heading(tmp_path):
+    base_path = make_base_resume(tmp_path / "base.docx")
+    base_sha = sha256_file(base_path)
+    base = parse_base_resume(base_path)
+    out = build_docx(base, MODEL_LIKE, tmp_path / "out.docx")
+    texts = _texts(out)
+    # the header block (name + contact strip) is first, untouched, and precedes the first section heading
+    assert texts[:3] == [FIXTURE_NAME, FIXTURE_CONTACT, "Summary"]
+    assert _paragraph_xml(out)[:2] == _paragraph_xml(base_path)[:2]
+    # tailorable parts were replaced in place; everything else is the base verbatim
+    assert texts[3] == MODEL_LIKE["summary"]
+    assert texts[5] == "Java, Spring Boot, Kafka, GitHub Actions"  # base order kept, dropped items gone, new grounded skill appended
+    assert texts[7:11] == [
+        "Software Developer at Big Bank | May 2021 – March 2025",
+        "Tuned PostgreSQL queries and cut batch processing time by 40%.",
+        "Built REST APIs in Java and Spring Boot serving 2 million daily requests.",
+        "Software Developer Intern at Startup Co | May 2022 – August 2022",
+    ]
+    assert "Led a hackathon health monitoring project that expanded into a working group." not in texts
+    assert texts[-4:] == ["Education", "Honours Associates, Computer Programming, Example College", "Certifications", "AWS Certified Cloud Practitioner"]
+    styles = {p.text.strip(): p.style.name for p in Document(str(out)).paragraphs if p.text.strip()}
+    assert styles["Tuned PostgreSQL queries and cut batch processing time by 40%."] == "List Bullet"
+    assert sha256_file(base_path) == base_sha  # the base file itself is never written
+    assert verify_docx_structure(out)["first_line"] == FIXTURE_NAME
+
+
+def test_template_build_preserves_two_column_header_layout(tmp_path):
+    from docx.oxml.ns import qn
+
+    base_path = make_column_header_resume(tmp_path / "base.docx")
+    base = parse_base_resume(base_path)
+    out = build_docx(base, {**MODEL_LIKE, "experience": [{"experience_id": "exp_2", "bullets": MODEL_LIKE["experience"][0]["bullets"]}]}, tmp_path / "out.docx")
+    doc = Document(str(out))
+    base_doc = Document(str(base_path))
+    # section 1 keeps its two unequal columns; the header paragraphs are byte-identical to the base
+    cols = doc.sections[0]._sectPr.find(qn("w:cols"))
+    assert cols.get(qn("w:num")) == "2" and [c.get(qn("w:w")) for c in cols.findall(qn("w:col"))] == ["1368", "8515"]
+    assert _paragraph_xml(out)[:6] == _paragraph_xml(base_path)[:6]
+    name_p = next(p for p in doc.paragraphs if p.text.strip() == FIXTURE_NAME)
+    assert name_p.style.name == "Heading 1" and name_p._p.find(".//" + qn("w:br")).get(qn("w:type")) == "column"
+    contact_p = next(p for p in doc.paragraphs if p.text.strip() == FIXTURE_CONTACT)
+    assert contact_p._p.find(qn("w:hyperlink")) is not None
+    texts = _texts(out)
+    assert texts[:4] == ["SUMMARY", FIXTURE_NAME, FIXTURE_CONTACT, MODEL_LIKE["summary"]]
+    # skills keep their "Label:<tab>items" groups and bold labels; a group left empty disappears, extras join the last surviving group
+    assert texts[5:8] == ["Languages:\tJava", "Frameworks:\tSpring Boot, Kafka, GitHub Actions", "PROFESSIONAL EXPERIENCE"]
+    skills_p = next(p for p in doc.paragraphs if p.text.startswith("Frameworks:"))
+    assert [r.bold for r in skills_p.runs][:2] == [True, True] and skills_p.runs[-1].bold is None
+    # role header lines untouched, bullets rewritten in place with the list style, leftovers removed
+    assert texts[8:12] == [
+        "Software Developer\tMay 2021 – March 2025",
+        "Big Bank, Toronto, Ontario",
+        "Tuned PostgreSQL queries and cut batch processing time by 40%.",
+        "Built REST APIs in Java and Spring Boot serving 2 million daily requests.",
+    ]
+    assert texts[12] == "Software Developer Intern\tMay 2022 – August 2022" and len(doc.paragraphs) == len(base_doc.paragraphs) - 3
+    # the page-2 section now flows instead of forcing a page break; the two-column first section is unchanged
+    assert [s.start_type for s in doc.sections][1:] == [WD_SECTION.CONTINUOUS, WD_SECTION.CONTINUOUS]
+    assert verify_docx_structure(out)["has_summary"]
+
+
+def test_template_build_refuses_when_base_file_changed_and_falls_back_when_missing(tmp_path):
+    base = parse_base_resume(make_base_resume(tmp_path / "base.docx"))
+    make_column_header_resume(tmp_path / "base.docx")  # same path, different document
+    with pytest.raises(ValueError, match="no longer matches"):
+        build_docx(base, deterministic_tailor(base, "Java"), tmp_path / "out.docx")
+    base.source_path = tmp_path / "gone.docx"
+    out = build_docx(base, deterministic_tailor(base, "Java"), tmp_path / "fresh.docx")
+    assert _texts(out)[:2] == [FIXTURE_NAME, FIXTURE_CONTACT]
+
+
+@pytest.mark.skipif(not find_soffice(), reason="LibreOffice not installed")
+def test_rendered_pdf_starts_with_header_for_column_layout(tmp_path):
+    from pypdf import PdfReader
+
+    base = parse_base_resume(make_column_header_resume(tmp_path / "base.docx"))
+    out = build_docx(base, MODEL_LIKE, tmp_path / "artifacts" / "out.docx")
+    res = render_pdf(out)
+    assert res["reason"] == "" and res["pages"] <= 2
+    page1 = "".join((PdfReader(res["pdf_path"]).pages[0].extract_text() or "").split())
+    head = page1[: len("".join((FIXTURE_NAME + FIXTURE_CONTACT + "SUMMARY").split())) + 40]
+    assert "".join(FIXTURE_NAME.split()) in head and "".join(FIXTURE_CONTACT.split()) in head
+    assert head.index("AlexExample") < page1.index("".join(MODEL_LIKE["summary"].split())[:30])
 
 
 def test_grounding_rejects_invented_tech_years_and_unknown_sources(tmp_path):
