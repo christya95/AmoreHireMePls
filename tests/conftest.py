@@ -12,6 +12,9 @@ from pymongo.errors import PyMongoError
 from amorehiremepls.db import Store
 
 TEST_MONGO_URI = os.environ.get("AMORE_TEST_MONGODB_URI", "mongodb://127.0.0.1:27027")
+# A fixed throwaway database name lets the suite run with a least-privilege user (readWrite on that one
+# database, no dropDatabase); collections are dropped after each test instead of the database.
+TEST_MONGO_DATABASE = os.environ.get("AMORE_TEST_MONGODB_DATABASE", "")
 
 
 def _mongo_available() -> bool:
@@ -35,13 +38,20 @@ def pytest_collection_modifyitems(config, items):
 @pytest.fixture
 def store():
     client = MongoClient(TEST_MONGO_URI, serverSelectionTimeoutMS=3000)
-    name = f"amore_test_{uuid.uuid4().hex[:10]}"
+    name = TEST_MONGO_DATABASE or f"amore_test_{uuid.uuid4().hex[:10]}"
     s = Store(client, name)
+    if TEST_MONGO_DATABASE:
+        for coll in client[name].list_collection_names():
+            client[name].drop_collection(coll)
     s.ensure_indexes()
     try:
         yield s
     finally:
-        client.drop_database(name)
+        if TEST_MONGO_DATABASE:
+            for coll in client[name].list_collection_names():
+                client[name].drop_collection(coll)
+        else:
+            client.drop_database(name)
         client.close()
 
 

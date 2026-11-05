@@ -38,7 +38,8 @@ def test_backup_and_restore_round_trip_with_artifacts(store, tmp_path):
         assert (tmp_path / "r_art" / "jobs" / "job_1" / "resume.docx").read_bytes() == b"docx-bytes"
         assert any(v.get("unique") for k, v in target.c("jobs").index_information().items() if "dedup_keys" in k)
     finally:
-        client.drop_database(target.db.name)
+        for coll in target.db.list_collection_names():  # readWrite-only test users cannot dropDatabase
+            target.db.drop_collection(coll)
         client.close()
 
 
