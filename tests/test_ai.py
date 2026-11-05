@@ -3,8 +3,8 @@ import threading
 
 import pytest
 
-from amorehiremepls.ai import AIRunner, Budget, BudgetExhausted, FakeProvider, Pricing, invalidate_cache
-from amorehiremepls.skills import FitInput, catalog
+from amorehiremepls.core.ai import AIRunner, Budget, BudgetExhausted, FakeProvider, Pricing, invalidate_cache
+from amorehiremepls.core.skills import FitInput, catalog
 
 
 def fit_response(user: str) -> dict:

@@ -10,13 +10,13 @@ from pathlib import Path
 import pytest
 from docx import Document
 
-from amorehiremepls.ai import AIRunner, FakeProvider, Pricing
-from amorehiremepls.candidate_docs import TRUNCATION_NOTE, CandidateUploadError, load_candidate_docs, pick_base_resume, safe_upload_name, save_upload
-from amorehiremepls.discovery import compact_facts
-from amorehiremepls.profile import BaseResume, Profile
-from amorehiremepls.skills import catalog
-from amorehiremepls.tailoring import Tailor, check_grounding, parse_base_resume
-from amorehiremepls.util import sha256_file
+from amorehiremepls.apply.tailoring import Tailor, check_grounding, parse_base_resume
+from amorehiremepls.candidate.candidate_docs import TRUNCATION_NOTE, CandidateUploadError, load_candidate_docs, pick_base_resume, safe_upload_name, save_upload
+from amorehiremepls.candidate.profile import BaseResume, Profile
+from amorehiremepls.core.ai import AIRunner, FakeProvider, Pricing
+from amorehiremepls.core.skills import catalog
+from amorehiremepls.core.util import sha256_file
+from amorehiremepls.jobs.discovery import compact_facts
 from tests.fixtures.make_resume import make_base_resume
 
 REPO = Path(__file__).resolve().parents[1]
@@ -228,9 +228,9 @@ def test_upload_names_are_sanitized_and_only_supported_files_are_written(tmp_pat
 def _dashboard(store, tmp_path: Path, folder: Path):
     from fastapi.testclient import TestClient
 
-    from amorehiremepls.config import Settings
-    from amorehiremepls.runtime import Runtime
-    from amorehiremepls.web import create_app
+    from amorehiremepls.core.config import Settings
+    from amorehiremepls.core.runtime import Runtime
+    from amorehiremepls.web.web import create_app
     from tests.conftest import TEST_MONGO_URI
 
     s = Settings(

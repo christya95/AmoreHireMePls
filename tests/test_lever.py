@@ -7,11 +7,11 @@ from dataclasses import asdict
 
 import pytest
 
-from amorehiremepls.ats import registry
-from amorehiremepls.ats.lever import LeverAdapter, parse_board_url, parse_form_questions
-from amorehiremepls.authorization import AuthorizationStore, ScopeBinding
-from amorehiremepls.browser import BrowserAdapter, BrowserConfig
-from amorehiremepls.jobs import JobStore
+from amorehiremepls.apply.ats import registry
+from amorehiremepls.apply.ats.lever import LeverAdapter, parse_board_url, parse_form_questions
+from amorehiremepls.apply.browser import BrowserAdapter, BrowserConfig
+from amorehiremepls.core.authorization import AuthorizationStore, ScopeBinding
+from amorehiremepls.jobs.jobs import JobStore
 from tests.fixtures import lever_site
 from tests.fixtures.fixture_site import FixtureServer
 from tests.fixtures.lever_site import POSTING_ID

@@ -10,14 +10,14 @@ from pathlib import Path
 
 import pytest
 
-from amorehiremepls.ai import AIRunner, Budget, FakeProvider, Pricing
-from amorehiremepls.ats import registry
-from amorehiremepls.ats.greenhouse import GreenhouseAdapter, parse_board_url, questions_to_fields
-from amorehiremepls.authorization import AuthorizationStore, ScopeBinding
-from amorehiremepls.browser import BrowserAdapter, BrowserConfig, HandoffRequired
-from amorehiremepls.captcha import CaptchaAnswer, ModelCaptchaSolver, NeverSolver
-from amorehiremepls.jobs import JobStore
-from amorehiremepls.skills import catalog
+from amorehiremepls.apply.ats import registry
+from amorehiremepls.apply.ats.greenhouse import GreenhouseAdapter, parse_board_url, questions_to_fields
+from amorehiremepls.apply.browser import BrowserAdapter, BrowserConfig, HandoffRequired
+from amorehiremepls.apply.captcha import CaptchaAnswer, ModelCaptchaSolver, NeverSolver
+from amorehiremepls.core.ai import AIRunner, Budget, FakeProvider, Pricing
+from amorehiremepls.core.authorization import AuthorizationStore, ScopeBinding
+from amorehiremepls.core.skills import catalog
+from amorehiremepls.jobs.jobs import JobStore
 from tests.fixtures import greenhouse_site
 from tests.fixtures.fixture_site import FixtureServer
 from tests.fixtures.greenhouse_site import GRID_CAPTCHA_CELLS, TEXT_CAPTCHA_ANSWER, board_schema
@@ -451,12 +451,12 @@ def test_solver_that_cannot_answer_falls_back_without_touching_the_form(tmp_path
 def test_captcha_answer_filters_cells_outside_the_grid():
     class _AI:
         def run(self, name, inputs, **kw):
-            from amorehiremepls.ai import SkillResult, Usage
+            from amorehiremepls.core.ai import SkillResult, Usage
 
             assert name == "solve_captcha" and kw["images"] and kw["untrusted_fields"] == ("instruction",)
             return SkillResult(output={"kind": "cells", "cells": [0, 8, 9, -1, "4"], "text": ""}, usage=Usage(), cache_key="k", skill="solve_captcha@x")
 
-    from amorehiremepls.captcha import ChallengeWidget
+    from amorehiremepls.apply.captcha import ChallengeWidget
 
     widget = ChallengeWidget("image_grid", "[x]", b"png", "pick", "[x] input", "[x] button", grid=(3, 3))
     ans = ModelCaptchaSolver(_AI()).solve(widget)
@@ -465,8 +465,8 @@ def test_captcha_answer_filters_cells_outside_the_grid():
 
 @pytest.mark.mongo
 def test_runtime_only_builds_a_solver_when_the_toggle_is_on(store, tmp_path):
-    from amorehiremepls.config import Settings
-    from amorehiremepls.runtime import Runtime
+    from amorehiremepls.core.config import Settings
+    from amorehiremepls.core.runtime import Runtime
     from tests.conftest import TEST_MONGO_URI
 
     s = Settings(
@@ -491,8 +491,8 @@ def test_runtime_only_builds_a_solver_when_the_toggle_is_on(store, tmp_path):
 
 @pytest.mark.mongo
 def test_scan_fields_prefers_the_board_api_and_marks_the_route(store, tmp_path, board):
-    from amorehiremepls.config import Settings
-    from amorehiremepls.runtime import RealServices, Runtime
+    from amorehiremepls.core.config import Settings
+    from amorehiremepls.core.runtime import RealServices, Runtime
     from tests.conftest import TEST_MONGO_URI
 
     srv, _ = board
@@ -515,8 +515,8 @@ def test_scan_fields_prefers_the_board_api_and_marks_the_route(store, tmp_path, 
 
 
 def _runtime(store, tmp_path, **over):
-    from amorehiremepls.config import Settings
-    from amorehiremepls.runtime import Runtime
+    from amorehiremepls.core.config import Settings
+    from amorehiremepls.core.runtime import Runtime
     from tests.conftest import TEST_MONGO_URI
 
     s = Settings(
@@ -535,7 +535,7 @@ def _runtime(store, tmp_path, **over):
 @pytest.mark.mongo
 def test_execute_passes_a_hold_only_when_the_wait_is_on(store, tmp_path, board):
     """The live path holds the same page. Turning the wait off leaves the immediate handoff."""
-    from amorehiremepls.runtime import RealServices
+    from amorehiremepls.core.runtime import RealServices
 
     svc, _job_doc, app = _prepared(store, tmp_path, board, variant="check")
     rt = _runtime(store, tmp_path, challenge_retry_minutes=0)
@@ -564,8 +564,8 @@ def test_execute_passes_a_hold_only_when_the_wait_is_on(store, tmp_path, board):
 @pytest.mark.browser
 @pytest.mark.mongo
 def test_human_check_hold_times_out_into_a_handoff_without_a_second_submit(store, tmp_path, board):
-    from amorehiremepls.config import Settings
-    from amorehiremepls.human_check import HumanHold
+    from amorehiremepls.core.config import Settings
+    from amorehiremepls.core.human_check import HumanHold
 
     svc, job, app = _prepared(store, tmp_path, board, variant="check")
     before = len(greenhouse_site.GH_SUBMISSIONS)
@@ -586,8 +586,8 @@ def test_continue_rechecks_the_same_page_and_does_not_submit(store, tmp_path, bo
     import threading
     import time
 
-    from amorehiremepls.config import Settings
-    from amorehiremepls.human_check import HumanHold, active_hold, request_continue
+    from amorehiremepls.core.config import Settings
+    from amorehiremepls.core.human_check import HumanHold, active_hold, request_continue
 
     svc, job, app = _prepared(store, tmp_path, board, variant="check")
     before = len(greenhouse_site.GH_SUBMISSIONS)

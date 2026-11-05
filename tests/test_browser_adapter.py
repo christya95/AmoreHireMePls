@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from amorehiremepls.actions import ActionFailed, AmbiguousOutcome
-from amorehiremepls.browser import BrowserAdapter, BrowserConfig, HandoffRequired, Plan, Step
-from amorehiremepls.util import sha256_file
+from amorehiremepls.apply.browser import BrowserAdapter, BrowserConfig, HandoffRequired, Plan, Step
+from amorehiremepls.core.actions import ActionFailed, AmbiguousOutcome
+from amorehiremepls.core.util import sha256_file
 from tests.fixtures import fixture_site
 from tests.fixtures.fixture_site import FixtureServer
 
@@ -67,7 +67,7 @@ def _by_label(ev: dict) -> dict[str, dict]:
 
 @skip_no_browser
 def test_resource_host_patterns_match_vendor_upload_buckets():
-    from amorehiremepls.browser import host_allowed
+    from amorehiremepls.apply.browser import host_allowed
 
     hosts = {"job-boards.cdn.greenhouse.io", "grnhse-*.s3.amazonaws.com", "grnhse-*.s3.*.amazonaws.com"}
     assert host_allowed("job-boards.cdn.greenhouse.io", hosts)
@@ -146,7 +146,7 @@ def test_fixture_submission_records_summary_and_receipt_screenshots_and_sync_arc
     """Full path: ApplicationService -> Playwright adapter on the fixture ATS -> application record -> tracker clone."""
     import json
 
-    from amorehiremepls.authorization import AuthorizationStore, ScopeBinding
+    from amorehiremepls.core.authorization import AuthorizationStore, ScopeBinding
     from tests.test_applications_and_sync import FIELDS, _coord, _job, _profile, _service
 
     req = "R77"

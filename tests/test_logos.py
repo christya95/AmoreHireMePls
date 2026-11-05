@@ -14,8 +14,10 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from amorehiremepls.config import Settings
-from amorehiremepls.logos import (
+from amorehiremepls.core.config import Settings
+from amorehiremepls.core.runtime import Runtime
+from amorehiremepls.core.worker import Worker
+from amorehiremepls.jobs.logos import (
     FETCH_STRATEGY,
     REQUEST_TIMEOUT,
     LogoCache,
@@ -28,10 +30,8 @@ from amorehiremepls.logos import (
     resolves_public,
     sniff_image,
 )
-from amorehiremepls.runtime import Runtime
-from amorehiremepls.ui_settings import UISettings, UISettingsStore
-from amorehiremepls.web import create_app
-from amorehiremepls.worker import Worker
+from amorehiremepls.web.ui_settings import UISettings, UISettingsStore
+from amorehiremepls.web.web import create_app
 from tests.conftest import TEST_MONGO_URI
 from tests.test_ui_settings import png_bytes
 
@@ -281,7 +281,7 @@ def _cache(tmp_path: Path, fetcher, start: datetime | None = None) -> tuple[Logo
 
 
 def test_cache_stores_bytes_and_sidecar_and_hits_without_refetch(tmp_path):
-    from amorehiremepls.logos import Fetched
+    from amorehiremepls.jobs.logos import Fetched
 
     fetcher = FakeFetcher(Fetched(png_bytes(), "png", "image/png", "https://acme.example/favicon.ico"))
     cache, _ = _cache(tmp_path, fetcher)
@@ -315,7 +315,7 @@ def test_negative_cache_expires_after_seven_days(tmp_path):
 
 
 def test_old_negative_cache_without_the_current_strategy_is_retried(tmp_path):
-    from amorehiremepls.logos import Fetched
+    from amorehiremepls.jobs.logos import Fetched
 
     fetcher = FakeFetcher(Fetched(png_bytes(), "png", "image/png", "https://robinhood.com/favicon.ico"))
     cache, _ = _cache(tmp_path, fetcher)
@@ -339,7 +339,7 @@ def test_network_errors_are_negative_cached_but_short_budget_timeouts_are_not(tm
 
 
 def test_refresh_fetches_wanted_and_derivable_jobs_within_limit(tmp_path):
-    from amorehiremepls.logos import Fetched
+    from amorehiremepls.jobs.logos import Fetched
 
     fetcher = FakeFetcher(Fetched(ICO, "ico", "image/x-icon", "x"))
     cache, _ = _cache(tmp_path, fetcher)
@@ -374,7 +374,7 @@ def client(store, tmp_path):
         _env_file=None,
     )
     rt = Runtime(s, store=store)
-    from amorehiremepls.logos import Fetched
+    from amorehiremepls.jobs.logos import Fetched
 
     rt.logos.fetcher = FakeFetcher(Fetched(png_bytes(), "png", "image/png", "https://acme.example/favicon.ico"))
     return TestClient(create_app(rt), follow_redirects=False)

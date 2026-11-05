@@ -4,11 +4,11 @@ from zoneinfo import ZoneInfo
 import pytest
 from pymongo import MongoClient
 
-from amorehiremepls.backup import backup, restore
-from amorehiremepls.config import Settings
-from amorehiremepls.db import Store
-from amorehiremepls.runtime import Runtime
-from amorehiremepls.worker import Worker, worker_healthy
+from amorehiremepls.core.backup import backup, restore
+from amorehiremepls.core.config import Settings
+from amorehiremepls.core.db import Store
+from amorehiremepls.core.runtime import Runtime
+from amorehiremepls.core.worker import Worker, worker_healthy
 from tests.conftest import TEST_MONGO_URI
 
 TORONTO = ZoneInfo("America/Toronto")  # the fictional candidate's zone; the app reads AMORE_TIMEZONE (set in conftest)

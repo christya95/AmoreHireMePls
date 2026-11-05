@@ -7,11 +7,11 @@ from dataclasses import asdict
 
 import pytest
 
-from amorehiremepls.ats import registry
-from amorehiremepls.ats.ashby import AshbyAdapter, parse_board_url
-from amorehiremepls.authorization import AuthorizationStore, ScopeBinding
-from amorehiremepls.browser import BrowserAdapter, BrowserConfig
-from amorehiremepls.jobs import JobStore
+from amorehiremepls.apply.ats import registry
+from amorehiremepls.apply.ats.ashby import AshbyAdapter, parse_board_url
+from amorehiremepls.apply.browser import BrowserAdapter, BrowserConfig
+from amorehiremepls.core.authorization import AuthorizationStore, ScopeBinding
+from amorehiremepls.jobs.jobs import JobStore
 from tests.fixtures import ashby_site
 from tests.fixtures.ashby_site import POSTING_ID
 from tests.fixtures.fixture_site import FixtureServer

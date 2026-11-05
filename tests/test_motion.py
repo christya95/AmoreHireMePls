@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-STATIC = Path("src/amorehiremepls/static")
+STATIC = Path("src/amorehiremepls/web/static")
 
 
 def test_motion_is_first_party_and_reduced_motion_snaps_movement():

@@ -7,7 +7,7 @@ here and emitted as compact paths.
 
 Tuning workflow: edit the geometry below, run `python tools/brand/gen.py /tmp/amore_logo`, render PNGs with
 `tools/brand/render.sh /tmp/amore_logo` (needs rsvg-convert), inspect, then copy mark.svg, mark-tile.svg,
-favicon.svg, favicon-32.png and favicon-180.png into src/amorehiremepls/static/brand/. The app reads the
+favicon.svg, favicon-32.png and favicon-180.png into src/amorehiremepls/web/static/brand/. The app reads the
 paths from static/brand/mark.svg at startup, so the sidebar, sign-in page, favicon and avatar follow.
 """
 from __future__ import annotations

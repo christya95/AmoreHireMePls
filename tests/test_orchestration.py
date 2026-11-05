@@ -1,6 +1,6 @@
 import pytest
 
-from amorehiremepls.orchestration import Runner, build_application_graph, make_checkpointer
+from amorehiremepls.core.orchestration import Runner, build_application_graph, make_checkpointer
 
 pytestmark = pytest.mark.mongo
 

@@ -3,9 +3,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from amorehiremepls.config import Settings
-from amorehiremepls.runtime import Runtime
-from amorehiremepls.web import create_app
+from amorehiremepls.core.config import Settings
+from amorehiremepls.core.runtime import Runtime
+from amorehiremepls.web.web import create_app
 from tests.conftest import TEST_MONGO_URI
 
 pytestmark = pytest.mark.mongo
@@ -89,7 +89,7 @@ def test_import_job_authorize_flow_and_pages_render(client):
 
 
 def test_review_page_and_single_scope_authorization(client, tmp_path):
-    from amorehiremepls.worker import Worker
+    from amorehiremepls.core.worker import Worker
     from tests.fixtures.make_resume import make_base_resume
     from tests.fixtures.profile_fixture import build_test_profile
     from tests.test_profile import FAKE_APPLY, FAKE_FACTS, FAKE_SALARY
@@ -136,7 +136,7 @@ def test_review_page_and_single_scope_authorization(client, tmp_path):
 
 
 def test_regenerate_documents_supersedes_artifacts_and_invalidates_approval(client, tmp_path):
-    from amorehiremepls.worker import Worker
+    from amorehiremepls.core.worker import Worker
     from tests.fixtures.make_resume import make_base_resume
     from tests.fixtures.profile_fixture import build_test_profile
     from tests.test_profile import FAKE_APPLY, FAKE_FACTS, FAKE_SALARY

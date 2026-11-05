@@ -11,11 +11,11 @@ from pathlib import Path
 
 import pytest
 
-from amorehiremepls.actions import ActionFailed, ActionStore
-from amorehiremepls.authorization import AuthorizationStore, ScopeBinding, material_hash
-from amorehiremepls.browser import BrowserAdapter, BrowserConfig
-from amorehiremepls.runtime import generic_plan_builder
-from amorehiremepls.util import utcnow
+from amorehiremepls.apply.browser import BrowserAdapter, BrowserConfig
+from amorehiremepls.core.actions import ActionFailed, ActionStore
+from amorehiremepls.core.authorization import AuthorizationStore, ScopeBinding, material_hash
+from amorehiremepls.core.runtime import generic_plan_builder
+from amorehiremepls.core.util import utcnow
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -188,7 +188,7 @@ def test_generic_plan_requires_requisition_in_receipt_by_default_and_evidence_re
 
 
 def test_normalize_screenshots_widens_legacy_paths_and_keeps_structured_entries():
-    from amorehiremepls.browser import normalize_screenshots
+    from amorehiremepls.apply.browser import normalize_screenshots
 
     structured = {"label": "summary", "path": "/a/x_summary.png", "sha256": "ab", "captured_at": "t", "url": "u"}
     legacy = ["/old/20261101T120000_receipt.png", "/old/20261101T120001_receipt_mismatch.png"]
@@ -204,7 +204,7 @@ def test_normalize_screenshots_widens_legacy_paths_and_keeps_structured_entries(
 
 @pytest.mark.mongo
 def test_submission_evidence_lists_only_matched_identifiers(store, tmp_path):
-    from amorehiremepls.browser import Plan
+    from amorehiremepls.apply.browser import Plan
     from tests.test_applications_and_sync import FIELDS, _job, _profile, _service
 
     profile = _profile(tmp_path)
@@ -225,9 +225,9 @@ def test_submission_evidence_lists_only_matched_identifiers(store, tmp_path):
 # -- M4: hard crash while running is recoverable -----------------------------------------------------------------
 @pytest.mark.mongo
 def test_worker_startup_marks_orphaned_running_runs_interrupted_then_resumable(store, tmp_path):
-    from amorehiremepls.config import Settings
-    from amorehiremepls.runtime import Runtime
-    from amorehiremepls.worker import Worker
+    from amorehiremepls.core.config import Settings
+    from amorehiremepls.core.runtime import Runtime
+    from amorehiremepls.core.worker import Worker
     from tests.conftest import TEST_MONGO_URI
 
     s = Settings(mongodb_uri=TEST_MONGO_URI, mongodb_database=store.db.name, artifact_dir=tmp_path / "a", private_dir=tmp_path / "p", log_dir=tmp_path / "l", _env_file=None)
@@ -252,7 +252,7 @@ def test_worker_startup_marks_orphaned_running_runs_interrupted_then_resumable(s
 def test_rebase_conflict_aborts_cleanly_and_marks_outbox_conflict(store, tmp_path):
     import json
 
-    from amorehiremepls.sync import git
+    from amorehiremepls.records.sync import git
     from tests.test_applications_and_sync import _coord, _profile, _submitted_app
 
     _submitted_app(store, tmp_path, _profile(tmp_path))
@@ -298,7 +298,7 @@ def test_upload_paths_must_be_under_artifact_dir(tmp_path):
 # -- L3: concurrent upserts of the same job identity never create duplicates --------------------------------------
 @pytest.mark.mongo
 def test_concurrent_upserts_of_same_identity_create_one_job(store):
-    from amorehiremepls.jobs import JobStore
+    from amorehiremepls.jobs.jobs import JobStore
 
     jobs = JobStore(store)
     results = []
@@ -317,9 +317,9 @@ def test_concurrent_upserts_of_same_identity_create_one_job(store):
 # -- cancel requested on an idle (waiting) run is settled by the worker tick --------------------------------------
 @pytest.mark.mongo
 def test_cancel_request_on_waiting_run_is_settled_by_worker_tick(store, tmp_path):
-    from amorehiremepls.config import Settings
-    from amorehiremepls.runtime import Runtime
-    from amorehiremepls.worker import Worker
+    from amorehiremepls.core.config import Settings
+    from amorehiremepls.core.runtime import Runtime
+    from amorehiremepls.core.worker import Worker
     from tests.conftest import TEST_MONGO_URI
 
     s = Settings(mongodb_uri=TEST_MONGO_URI, mongodb_database=store.db.name, artifact_dir=tmp_path / "a", private_dir=tmp_path / "p", log_dir=tmp_path / "l", _env_file=None)

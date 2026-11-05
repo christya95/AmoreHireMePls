@@ -8,9 +8,9 @@ from datetime import UTC, datetime
 import pytest
 from fastapi.testclient import TestClient
 
-from amorehiremepls.config import Settings
-from amorehiremepls.runtime import Runtime
-from amorehiremepls.web import create_app
+from amorehiremepls.core.config import Settings
+from amorehiremepls.core.runtime import Runtime
+from amorehiremepls.web.web import create_app
 from tests.conftest import TEST_MONGO_URI
 
 pytestmark = pytest.mark.mongo

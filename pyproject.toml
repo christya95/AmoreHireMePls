@@ -38,7 +38,7 @@ dev = [
 ]
 
 [project.scripts]
-amore = "amorehiremepls.cli:app"
+amore = "amorehiremepls.web.cli:app"
 
 [build-system]
 requires = ["hatchling"]
@@ -71,4 +71,4 @@ ignore = ["B008", "E701", "E702"]
 # embedded HTML/JS fixture strings
 "tests/fixtures/*" = ["E501"]
 # user-facing copy tables (labels, glossary, page intros) read better as one sentence per line
-"src/amorehiremepls/ui_settings.py" = ["E501"]
+"src/amorehiremepls/web/ui_settings.py" = ["E501"]

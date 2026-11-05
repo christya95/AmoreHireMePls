@@ -10,12 +10,12 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from amorehiremepls.config import Settings
-from amorehiremepls.runtime import Runtime
-from amorehiremepls.web import create_app
+from amorehiremepls.core.config import Settings
+from amorehiremepls.core.runtime import Runtime
+from amorehiremepls.web.web import create_app
 from tests.conftest import TEST_MONGO_URI
 
-CSS = Path("src/amorehiremepls/static/app.css").read_text()
+CSS = Path("src/amorehiremepls/web/static/app.css").read_text()
 TONES = ("ok", "warn", "bad", "info")
 
 
@@ -68,7 +68,7 @@ def test_tone_text_passes_aa_on_tinted_pills_and_cards(theme):
 
 
 def test_filled_controls_use_the_deepened_accent_and_presets_pass_aa():
-    from amorehiremepls.ui_settings import ACCENT_PRESETS
+    from amorehiremepls.web.ui_settings import ACCENT_PRESETS
 
     assert re.search(r"--accent-ui:\s*color-mix\(in srgb, var\(--accent\) (\d+)%, #000000\)", CSS)
     pct = int(re.search(r"--accent-ui:\s*color-mix\(in srgb, var\(--accent\) (\d+)%", CSS).group(1)) / 100
@@ -80,7 +80,7 @@ def test_filled_controls_use_the_deepened_accent_and_presets_pass_aa():
 
 def test_job_fit_and_rules_are_grid_siblings_not_absolute():
     """The fit ring and the rules card share one grid. Neither card is taken out of flow."""
-    job = Path("src/amorehiremepls/templates/job.html").read_text()
+    job = Path("src/amorehiremepls/web/templates/job.html").read_text()
     start = job.index('<div class="grid-main top job-lower">')
     body = job[start : job.index('<div class="card flush">', start)]
     assert body.count('class="card ') == 2

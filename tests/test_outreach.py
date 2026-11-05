@@ -1,9 +1,9 @@
 import pytest
 
-from amorehiremepls.ai import AIRunner, FakeProvider, Pricing
-from amorehiremepls.outreach import OutreachService, RecipientStore, template_connect_note, validate_connect_note
-from amorehiremepls.profile import Provenance, RecipientExclusion
-from amorehiremepls.skills import catalog
+from amorehiremepls.candidate.profile import Provenance, RecipientExclusion
+from amorehiremepls.core.ai import AIRunner, FakeProvider, Pricing
+from amorehiremepls.core.skills import catalog
+from amorehiremepls.outreach.outreach import OutreachService, RecipientStore, template_connect_note, validate_connect_note
 from tests.fixtures.profile_fixture import TECH_RULES, build_test_profile, sales_preferences
 from tests.test_profile import FAKE_APPLY, FAKE_FACTS, FAKE_SALARY
 

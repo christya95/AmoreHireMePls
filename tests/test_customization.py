@@ -14,23 +14,8 @@ from pathlib import Path
 import pytest
 from docx import Document
 
-from amorehiremepls.ai import AIRunner, FakeProvider, Pricing
-from amorehiremepls.applications import FormField, map_answers
-from amorehiremepls.candidate_profile import (
-    CONTROL_KEY,
-    ImportReport,
-    ProfileTomlError,
-    apply_profile_toml,
-    export_profile_toml,
-    load_profile_toml,
-    preference_fingerprint,
-    toml_status,
-)
-from amorehiremepls.discovery import qualify
-from amorehiremepls.outreach import template_connect_note, validate_connect_note
-from amorehiremepls.profile import Fact, Profile, Provenance, default_preferences
-from amorehiremepls.skills import catalog
-from amorehiremepls.tailoring import (
+from amorehiremepls.apply.applications import FormField, map_answers
+from amorehiremepls.apply.tailoring import (
     PAGE_LIMIT,
     Tailor,
     build_docx,
@@ -42,7 +27,22 @@ from amorehiremepls.tailoring import (
     parse_base_resume,
     render_pdf,
 )
-from amorehiremepls.util import sha256_file
+from amorehiremepls.candidate.candidate_profile import (
+    CONTROL_KEY,
+    ImportReport,
+    ProfileTomlError,
+    apply_profile_toml,
+    export_profile_toml,
+    load_profile_toml,
+    preference_fingerprint,
+    toml_status,
+)
+from amorehiremepls.candidate.profile import Fact, Profile, Provenance, default_preferences
+from amorehiremepls.core.ai import AIRunner, FakeProvider, Pricing
+from amorehiremepls.core.skills import catalog
+from amorehiremepls.core.util import sha256_file
+from amorehiremepls.jobs.discovery import qualify
+from amorehiremepls.outreach.outreach import template_connect_note, validate_connect_note
 from tests.fixtures.make_resume import make_base_resume, make_sales_resume
 from tests.fixtures.profile_fixture import build_test_profile, sales_preferences
 from tests.test_profile import FAKE_APPLY, FAKE_FACTS, FAKE_SALARY
@@ -313,8 +313,8 @@ def test_neutral_profile_never_drops_a_gap_and_asks_about_location_only_when_rul
 
 @pytest.mark.mongo
 def test_tracker_off_records_the_application_without_a_github_queue(store, monkeypatch):
-    from amorehiremepls.config import get_settings
-    from amorehiremepls.sync import SyncCoordinator, SyncOutbox
+    from amorehiremepls.core.config import get_settings
+    from amorehiremepls.records.sync import SyncCoordinator, SyncOutbox
 
     store.c("applications").insert_one({"_id": "app_t1", "job_id": "job_t1", "status": "submitted", "sync": {"state": "sync_pending"}})
     monkeypatch.setenv("AMORE_TRACKER_ENABLED", "false")
@@ -381,9 +381,9 @@ def test_profile_models_default_to_nothing_personal():
 def test_profile_page_shows_the_file_state_and_the_load_button_applies_it(store, tmp_path):
     from fastapi.testclient import TestClient
 
-    from amorehiremepls.config import Settings
-    from amorehiremepls.runtime import Runtime
-    from amorehiremepls.web import create_app
+    from amorehiremepls.core.config import Settings
+    from amorehiremepls.core.runtime import Runtime
+    from amorehiremepls.web.web import create_app
     from tests.test_ui_settings import TEST_MONGO_URI
 
     candidate_dir = tmp_path / "candidate"

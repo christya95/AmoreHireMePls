@@ -10,9 +10,9 @@ from datetime import UTC, datetime
 import pytest
 from fastapi.testclient import TestClient
 
-from amorehiremepls.config import Settings
-from amorehiremepls.runtime import Runtime
-from amorehiremepls.ui_settings import (
+from amorehiremepls.core.config import Settings
+from amorehiremepls.core.runtime import Runtime
+from amorehiremepls.web.ui_settings import (
     ACCENT_PRESETS,
     AVATAR_MAX_BYTES,
     AvatarError,
@@ -28,7 +28,7 @@ from amorehiremepls.ui_settings import (
     status_tone,
     validate_avatar,
 )
-from amorehiremepls.web import create_app
+from amorehiremepls.web.web import create_app
 from tests.conftest import TEST_MONGO_URI
 
 # -- fixtures: tiny valid images built in memory ------------------------------------------------------------
@@ -317,7 +317,7 @@ def test_overview_lists_and_new_pages_render_with_data(client):
 
 
 def test_tint_normalisation_presets_and_cookie_fallback():
-    from amorehiremepls.ui_settings import TINT_PRESETS, normalize_tint, tint_css_from_cookie
+    from amorehiremepls.web.ui_settings import TINT_PRESETS, normalize_tint, tint_css_from_cookie
 
     assert normalize_tint("accent") == "accent" and normalize_tint(" Neutral ") == "neutral"
     assert normalize_tint("#A1B2C3") == "#a1b2c3"
@@ -331,7 +331,7 @@ def test_tint_normalisation_presets_and_cookie_fallback():
 
 
 def test_status_labels_and_next_actions_are_plain_language():
-    from amorehiremepls.ui_settings import GLOSSARY, PAGE_INTROS, next_action_label, status_label
+    from amorehiremepls.web.ui_settings import GLOSSARY, PAGE_INTROS, next_action_label, status_label
 
     assert status_label("awaiting_authorization") == "Waiting for your approval"
     assert status_label("needs_input") == "Needs your answers" and status_label("handoff") == "Finish on the site yourself"
@@ -350,7 +350,7 @@ def test_status_labels_and_next_actions_are_plain_language():
 
 @pytest.mark.mongo
 def test_background_tint_persists_mirrors_in_cookie_and_validates(client):
-    from amorehiremepls.ui_settings import TINT_PRESETS
+    from amorehiremepls.web.ui_settings import TINT_PRESETS
 
     csrf = _login(client)
     home = client.get("/").text
@@ -445,7 +445,7 @@ def test_help_page_and_runs_tab(client):
 
 @pytest.mark.mongo
 def test_brand_mark_is_one_source_for_sidebar_login_favicon_and_avatar(client):
-    from amorehiremepls.web import BRAND_DIR, favicon_svg
+    from amorehiremepls.web.web import BRAND_DIR, favicon_svg
 
     source = (BRAND_DIR / "mark.svg").read_text()
     plane = re.search(r'<path fill-rule="evenodd" d="([^"]+)"', source).group(1)

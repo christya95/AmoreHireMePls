@@ -8,10 +8,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from amorehiremepls.config import Settings
-from amorehiremepls.runtime import Runtime
-from amorehiremepls.ui_settings import fit_score
-from amorehiremepls.web import create_app
+from amorehiremepls.core.config import Settings
+from amorehiremepls.core.runtime import Runtime
+from amorehiremepls.web.ui_settings import fit_score
+from amorehiremepls.web.web import create_app
 from tests.conftest import TEST_MONGO_URI
 
 
@@ -120,4 +120,4 @@ def test_job_page_shows_the_ring_and_hides_raw_json(client):
     empty, _ = rt.jobs.upsert(employer="Initech", title="Backend Engineer", posting_url="https://jobs.initech.example/1")
     quiet = client.get(f"/jobs/{empty['_id']}").text
     assert "No fit score yet" in quiet and "fit-ring" not in quiet
-    assert Path("src/amorehiremepls/static/app.css").read_text().count("cdn") == 0
+    assert Path("src/amorehiremepls/web/static/app.css").read_text().count("cdn") == 0

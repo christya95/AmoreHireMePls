@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from amorehiremepls.applications import (
+from amorehiremepls.apply.applications import (
     FIELD_RULES,
     SAVED_ANSWER_REASON,
     SELF_ID_REASON,
@@ -16,10 +16,10 @@ from amorehiremepls.applications import (
     saved_years,
     self_identification_answer,
 )
-from amorehiremepls.ats.greenhouse import GreenhouseAdapter, questions_to_fields
-from amorehiremepls.ats.lever import LeverAdapter
-from amorehiremepls.candidate_profile import SENSITIVE_KEYS
-from amorehiremepls.profile import Fact, Provenance
+from amorehiremepls.apply.ats.greenhouse import GreenhouseAdapter, questions_to_fields
+from amorehiremepls.apply.ats.lever import LeverAdapter
+from amorehiremepls.candidate.candidate_profile import SENSITIVE_KEYS
+from amorehiremepls.candidate.profile import Fact, Provenance
 from tests.fixtures.greenhouse_site import board_schema
 from tests.fixtures.profile_fixture import build_test_profile
 from tests.test_profile import FAKE_APPLY, FAKE_FACTS, FAKE_SALARY

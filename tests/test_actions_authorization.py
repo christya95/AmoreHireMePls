@@ -3,8 +3,8 @@ from datetime import timedelta
 
 import pytest
 
-from amorehiremepls.actions import ActionFailed, ActionStore, AmbiguousOutcome
-from amorehiremepls.authorization import AuthorizationStore, ScopeBinding, material_hash
+from amorehiremepls.core.actions import ActionFailed, ActionStore, AmbiguousOutcome
+from amorehiremepls.core.authorization import AuthorizationStore, ScopeBinding, material_hash
 
 pytestmark = pytest.mark.mongo
 

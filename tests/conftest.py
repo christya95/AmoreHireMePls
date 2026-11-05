@@ -9,7 +9,7 @@ import pytest
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 
-from amorehiremepls.db import Store
+from amorehiremepls.core.db import Store
 
 TEST_MONGO_URI = os.environ.get("AMORE_TEST_MONGODB_URI", "mongodb://127.0.0.1:27027")
 # A fixed throwaway database name lets the suite run with a least-privilege user (readWrite on that one
@@ -40,7 +40,7 @@ def _test_environment(tmp_path, monkeypatch):
     """Tests never read the real drop folder (candidate/): point every Settings() at an empty one. The suite's
     fictional candidate lives in Toronto with a GitHub tracker, so the process-wide settings say so explicitly
     (the code's own defaults are UTC and no tracker)."""
-    from amorehiremepls.config import get_settings
+    from amorehiremepls.core.config import get_settings
 
     monkeypatch.setenv("AMORE_CANDIDATE_DIR", str(tmp_path / "candidate-empty"))
     monkeypatch.setenv("AMORE_TIMEZONE", "America/Toronto")

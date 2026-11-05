@@ -8,10 +8,10 @@ from datetime import UTC, datetime
 import pytest
 from fastapi.testclient import TestClient
 
-from amorehiremepls.config import Settings
-from amorehiremepls.runtime import Runtime
-from amorehiremepls.util import sha256_bytes
-from amorehiremepls.web import DOCX_MEDIA_TYPE, create_app
+from amorehiremepls.core.config import Settings
+from amorehiremepls.core.runtime import Runtime
+from amorehiremepls.core.util import sha256_bytes
+from amorehiremepls.web.web import DOCX_MEDIA_TYPE, create_app
 from tests.conftest import TEST_MONGO_URI
 
 pytestmark = pytest.mark.mongo

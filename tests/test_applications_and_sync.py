@@ -4,15 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from amorehiremepls.actions import ActionStore, AmbiguousOutcome
-from amorehiremepls.applications import ApplicationService, FormField, map_answers
-from amorehiremepls.authorization import AuthorizationStore, ScopeBinding
-from amorehiremepls.browser import Plan, Step
-from amorehiremepls.jobs import JobStore
-from amorehiremepls.profile import BandEvidence, BaseResume
-from amorehiremepls.sync import SyncCoordinator, SyncOutbox, build_record, git
-from amorehiremepls.tailoring import Tailor
-from amorehiremepls.util import sha256_file
+from amorehiremepls.apply.applications import ApplicationService, FormField, map_answers
+from amorehiremepls.apply.browser import Plan, Step
+from amorehiremepls.apply.tailoring import Tailor
+from amorehiremepls.candidate.profile import BandEvidence, BaseResume
+from amorehiremepls.core.actions import ActionStore, AmbiguousOutcome
+from amorehiremepls.core.authorization import AuthorizationStore, ScopeBinding
+from amorehiremepls.core.util import sha256_file
+from amorehiremepls.jobs.jobs import JobStore
+from amorehiremepls.records.sync import SyncCoordinator, SyncOutbox, build_record, git
 from tests.fixtures.make_resume import make_base_resume
 from tests.fixtures.profile_fixture import build_test_profile
 from tests.fixtures.tracker_seed import build_bare_remote, build_tracker_clone

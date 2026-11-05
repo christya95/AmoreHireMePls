@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from amorehiremepls.jobs import JobStore, dedup_keys
-from amorehiremepls.tracker import TrackerClone, TrackerImporter
+from amorehiremepls.jobs.jobs import JobStore, dedup_keys
+from amorehiremepls.records.tracker import TrackerClone, TrackerImporter
 from tests.fixtures.tracker_seed import build_tracker_clone
 
 pytestmark = pytest.mark.mongo

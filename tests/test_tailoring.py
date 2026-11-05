@@ -5,9 +5,7 @@ import pytest
 from docx import Document
 from docx.enum.section import WD_SECTION
 
-from amorehiremepls.ai import AIRunner, FakeProvider, Pricing
-from amorehiremepls.skills import catalog
-from amorehiremepls.tailoring import (
+from amorehiremepls.apply.tailoring import (
     Tailor,
     _render_env,
     build_docx,
@@ -20,7 +18,9 @@ from amorehiremepls.tailoring import (
     render_pdf,
     verify_docx_structure,
 )
-from amorehiremepls.util import sha256_file
+from amorehiremepls.core.ai import AIRunner, FakeProvider, Pricing
+from amorehiremepls.core.skills import catalog
+from amorehiremepls.core.util import sha256_file
 from tests.fixtures.make_resume import FIXTURE_CONTACT, FIXTURE_NAME, make_base_resume, make_column_header_resume, make_long_resume
 
 
@@ -480,8 +480,8 @@ def test_trim_loop_brings_three_page_fixture_to_two(tmp_path):
 
 @pytest.mark.mongo
 def test_over_two_pages_is_not_approvable_or_submittable(store, tmp_path):
-    from amorehiremepls.actions import ActionStore
-    from amorehiremepls.applications import ApplicationService
+    from amorehiremepls.apply.applications import ApplicationService
+    from amorehiremepls.core.actions import ActionStore
     from tests.test_applications_and_sync import FIELDS, _job, _profile
 
     profile = _profile(tmp_path)
@@ -506,10 +506,10 @@ def test_over_two_pages_is_not_approvable_or_submittable(store, tmp_path):
 
 @pytest.mark.mongo
 def test_verified_two_page_pdf_still_proceeds(store, tmp_path):
-    from amorehiremepls.actions import ActionStore
-    from amorehiremepls.applications import ApplicationService
-    from amorehiremepls.authorization import AuthorizationStore, ScopeBinding
-    from amorehiremepls.browser import Plan
+    from amorehiremepls.apply.applications import ApplicationService
+    from amorehiremepls.apply.browser import Plan
+    from amorehiremepls.core.actions import ActionStore
+    from amorehiremepls.core.authorization import AuthorizationStore, ScopeBinding
     from tests.test_applications_and_sync import FIELDS, _job, _profile
 
     profile = _profile(tmp_path)

@@ -8,9 +8,9 @@ from datetime import UTC, datetime
 import pytest
 from fastapi.testclient import TestClient
 
-from amorehiremepls.config import Settings
-from amorehiremepls.runtime import Runtime
-from amorehiremepls.web import create_app
+from amorehiremepls.core.config import Settings
+from amorehiremepls.core.runtime import Runtime
+from amorehiremepls.web.web import create_app
 from tests.conftest import TEST_MONGO_URI
 
 pytestmark = pytest.mark.mongo
@@ -89,7 +89,7 @@ def _login(client) -> str:
 def _seed(client, tmp_path) -> dict[str, str]:
     """Real flow where it is cheap (import, run, worker tick, approval, recipient, draft) plus direct inserts for the
     rarer states so every page has at least one row of each kind."""
-    from amorehiremepls.worker import Worker
+    from amorehiremepls.core.worker import Worker
     from tests.fixtures.make_resume import make_base_resume
     from tests.fixtures.profile_fixture import build_test_profile
     from tests.test_profile import FAKE_APPLY, FAKE_FACTS, FAKE_SALARY
@@ -215,7 +215,7 @@ def test_every_page_is_free_of_jargon(client, tmp_path):
 
 
 def test_step_names_and_glossary_are_plain():
-    from amorehiremepls.ui_settings import GLOSSARY, NEXT_ACTIONS, PAGE_INTROS, STATUS_LABELS, STEP_HELP
+    from amorehiremepls.web.ui_settings import GLOSSARY, NEXT_ACTIONS, PAGE_INTROS, STATUS_LABELS, STEP_HELP
 
     assert list(STEP_HELP) == ["Import", "Check fit", "Tailor resume", "Read package", "Approve", "Apply", "Save to tracker", "Contact recruiters"]
     for name, (tip, tech) in STEP_HELP.items():
@@ -228,7 +228,7 @@ def test_step_names_and_glossary_are_plain():
 
 def test_failure_reasons_become_plain_sentences():
     """The technical stop reason stays in the evidence; the page shows one plain sentence that says nothing was sent."""
-    from amorehiremepls.ui_settings import plain_failure
+    from amorehiremepls.web.ui_settings import plain_failure
 
     raw = 'timeout before final action: Locator.evaluate: Timeout 15000ms exceeded.\nCall log:\n  - waiting for locator("#resume, input[type=file][name=resume]").first\n'
     assert plain_failure(raw) == "The job site did not respond in time. Nothing was sent."

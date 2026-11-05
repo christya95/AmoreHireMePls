@@ -10,14 +10,14 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
-from amorehiremepls.actions import ActionStore, AmbiguousOutcome
-from amorehiremepls.applications import ApplicationService
-from amorehiremepls.authorization import AuthorizationStore, ScopeBinding, material_hash
-from amorehiremepls.browser import HandoffRequired, Plan
-from amorehiremepls.config import Settings
-from amorehiremepls.notify import Notifier
-from amorehiremepls.runtime import Runtime
-from amorehiremepls.web import create_app
+from amorehiremepls.apply.applications import ApplicationService
+from amorehiremepls.apply.browser import HandoffRequired, Plan
+from amorehiremepls.core.actions import ActionStore, AmbiguousOutcome
+from amorehiremepls.core.authorization import AuthorizationStore, ScopeBinding, material_hash
+from amorehiremepls.core.config import Settings
+from amorehiremepls.core.notify import Notifier
+from amorehiremepls.core.runtime import Runtime
+from amorehiremepls.web.web import create_app
 from tests.conftest import TEST_MONGO_URI
 from tests.test_applications_and_sync import _job
 
@@ -140,7 +140,7 @@ def test_publish_host_is_used_when_publish_url_is_empty(store):
 
 
 def test_application_outcomes_notify_once_each(store, tmp_path):
-    from amorehiremepls.profile import Profile
+    from amorehiremepls.candidate.profile import Profile
 
     sent: list[EmailMessage] = []
     settings = _settings(store)

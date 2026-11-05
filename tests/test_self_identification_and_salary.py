@@ -6,8 +6,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from amorehiremepls.ai import AIRunner, Budget, FakeProvider, Pricing
-from amorehiremepls.applications import (
+from amorehiremepls.apply.applications import (
     SALARY_RESEARCH_FACT,
     SALARY_RESEARCH_REASON,
     SELF_ID_REASON,
@@ -18,12 +17,13 @@ from amorehiremepls.applications import (
     self_identification_answer,
     seniority_hints,
 )
-from amorehiremepls.ats.greenhouse import GreenhouseAdapter, questions_to_fields
-from amorehiremepls.discovery import compact_facts, fetch_posting_text, qualify, work_arrangement, workday_json_url
-from amorehiremepls.orchestration import _compact_package
-from amorehiremepls.profile import BandEvidence, Compensation, Fact, Provenance
-from amorehiremepls.skills import catalog
-from amorehiremepls.web import saved_form_inputs
+from amorehiremepls.apply.ats.greenhouse import GreenhouseAdapter, questions_to_fields
+from amorehiremepls.candidate.profile import BandEvidence, Compensation, Fact, Provenance
+from amorehiremepls.core.ai import AIRunner, Budget, FakeProvider, Pricing
+from amorehiremepls.core.orchestration import _compact_package
+from amorehiremepls.core.skills import catalog
+from amorehiremepls.jobs.discovery import compact_facts, fetch_posting_text, qualify, work_arrangement, workday_json_url
+from amorehiremepls.web.web import saved_form_inputs
 from tests.fixtures.greenhouse_site import board_schema
 from tests.fixtures.profile_fixture import build_test_profile
 from tests.test_profile import FAKE_APPLY, FAKE_FACTS, FAKE_SALARY
@@ -198,7 +198,7 @@ def test_salary_researcher_runs_the_skill_once_through_the_runner_and_enforces_t
     assert prop.confidence == "low" and prop.source_kinds == ["public salary surveys"] and prop.range_high == 105000
     assert "candidate_floor: 96000" in seen[0] and "<untrusted" in seen[0] and "5+ years of experience" in seen[0]
     assert "Alex" not in seen[0] and "alex@example.com" not in seen[0]  # nothing but title, location, hints and the pay rules
-    from amorehiremepls.ai import NoProvider
+    from amorehiremepls.core.ai import NoProvider
 
     assert SalaryResearcher(AIRunner(None, NoProvider(), catalog, Pricing(None)), p).propose(job) is None
     assert SalaryResearcher(None, p).propose(job) is None
@@ -275,8 +275,8 @@ def test_workday_postings_are_read_through_the_public_json_endpoint_and_others_a
 
 @pytest.mark.mongo
 def test_refresh_posting_stores_a_snapshot_only_when_text_came_back(store):
-    from amorehiremepls.discovery import Discovery
-    from amorehiremepls.jobs import JobStore
+    from amorehiremepls.jobs.discovery import Discovery
+    from amorehiremepls.jobs.jobs import JobStore
 
     jobs = JobStore(store)
     job, _ = jobs.upsert(employer="Acme", title="Backend Developer", posting_url="https://acme.wd3.myworkdayjobs.com/en-US/External/job/Backend-Developer_R1", source="url_import")

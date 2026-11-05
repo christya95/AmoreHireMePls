@@ -8,8 +8,8 @@ with) and a sales account executive (proves nothing in the code assumes software
 
 from __future__ import annotations
 
-from amorehiremepls.discovery import FitTerms, fit_terms
-from amorehiremepls.profile import ExcludedEmployer, FitRules, Preferences, Profile, ResumeRules, TermAlias, build_profile_from_skills
+from amorehiremepls.candidate.profile import ExcludedEmployer, FitRules, Preferences, Profile, ResumeRules, TermAlias, build_profile_from_skills
+from amorehiremepls.jobs.discovery import FitTerms, fit_terms
 
 TECH_FIT = FitRules(
     skill_terms=[

@@ -4,8 +4,10 @@ import httpx
 import pytest
 from docx import Document
 
-from amorehiremepls.ai import AIRunner, FakeProvider, Pricing
-from amorehiremepls.discovery import (
+from amorehiremepls.candidate.profile import BaseResume, Employment, Profile, Provenance
+from amorehiremepls.core.ai import AIRunner, FakeProvider, Pricing
+from amorehiremepls.core.skills import catalog
+from amorehiremepls.jobs.discovery import (
     _RESUME_EVIDENCE_CHARS,
     Discovery,
     GreenhouseSource,
@@ -17,8 +19,6 @@ from amorehiremepls.discovery import (
     make_snapshot,
     qualify,
 )
-from amorehiremepls.profile import BaseResume, Employment, Profile, Provenance
-from amorehiremepls.skills import catalog
 from tests.fixtures.make_resume import make_base_resume, make_long_resume
 from tests.fixtures.profile_fixture import build_test_profile, tech_fit_terms
 

@@ -9,12 +9,12 @@ from datetime import timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from amorehiremepls.actions import ActionStore
-from amorehiremepls.config import Settings
-from amorehiremepls.human_check import HumanHold, active_hold, launch_args, request_continue, run_hold
-from amorehiremepls.runtime import Runtime
-from amorehiremepls.util import utcnow
-from amorehiremepls.web import create_app
+from amorehiremepls.core.actions import ActionStore
+from amorehiremepls.core.config import Settings
+from amorehiremepls.core.human_check import HumanHold, active_hold, launch_args, request_continue, run_hold
+from amorehiremepls.core.runtime import Runtime
+from amorehiremepls.core.util import utcnow
+from amorehiremepls.web.web import create_app
 from tests.conftest import TEST_MONGO_URI
 from tests.test_applications_and_sync import _job
 

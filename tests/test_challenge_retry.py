@@ -7,14 +7,14 @@ from datetime import timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from amorehiremepls.applications import ApplicationService
-from amorehiremepls.authorization import AuthorizationStore, ScopeBinding
-from amorehiremepls.browser import HandoffRequired, Plan
-from amorehiremepls.profile import Profile
-from amorehiremepls.runtime import Runtime
-from amorehiremepls.util import utcnow
-from amorehiremepls.web import create_app
-from amorehiremepls.worker import Worker
+from amorehiremepls.apply.applications import ApplicationService
+from amorehiremepls.apply.browser import HandoffRequired, Plan
+from amorehiremepls.candidate.profile import Profile
+from amorehiremepls.core.authorization import AuthorizationStore, ScopeBinding
+from amorehiremepls.core.runtime import Runtime
+from amorehiremepls.core.util import utcnow
+from amorehiremepls.core.worker import Worker
+from amorehiremepls.web.web import create_app
 from tests.test_notify import _job_app, _notifier, _settings
 
 pytestmark = pytest.mark.mongo

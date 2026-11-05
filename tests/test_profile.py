@@ -1,6 +1,6 @@
 from datetime import date
 
-from amorehiremepls.profile import (
+from amorehiremepls.candidate.profile import (
     BandEvidence,
     Compensation,
     Employment,
@@ -107,8 +107,8 @@ def test_default_preferences_are_neutral_and_exclusions_come_from_the_candidate(
 def test_apply_skill_parsing_is_generic_and_private_defaults_are_gone():
     import inspect
 
-    from amorehiremepls import profile as profile_mod
-    from amorehiremepls.profile import apply_private_overrides, parse_apply_skill
+    from amorehiremepls.candidate import profile as profile_mod
+    from amorehiremepls.candidate.profile import apply_private_overrides, parse_apply_skill
 
     employment, answers = parse_apply_skill(FAKE_APPLY, "2026-01-01")
     assert len(employment) == 1 and employment[0].employer == "Globex" and employment[0].start == "2021-05" and employment[0].end == "2025-03"
@@ -137,7 +137,7 @@ def test_apply_skill_parsing_is_generic_and_private_defaults_are_gone():
 def test_merge_employment_does_not_double_count_the_same_job_written_differently():
     from datetime import date
 
-    from amorehiremepls.profile import Employment, Provenance, compute_experience, merge_employment
+    from amorehiremepls.candidate.profile import Employment, Provenance, compute_experience, merge_employment
 
     prov = Provenance(source="test", confirmed_on="2026-01-01")
     confirmed = [Employment(employer="Globex", title="(title from the approved base resume)", kind="full_time", start="2021-05", end="2025-03", end_known=True, provenance=prov)]

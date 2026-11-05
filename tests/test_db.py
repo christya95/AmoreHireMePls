@@ -2,7 +2,7 @@ import threading
 
 import pytest
 
-from amorehiremepls.util import extract_linkedin_job_id, normalize_employer, normalize_url, redact_free
+from amorehiremepls.core.util import extract_linkedin_job_id, normalize_employer, normalize_url, redact_free
 
 pytestmark = pytest.mark.mongo
 
