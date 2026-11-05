@@ -21,7 +21,7 @@ appears anywhere else.
 | Read package | `review` | You read the resume and the form answers exactly as they would be sent. |
 | Approve | `authorize` | You give the go ahead for this exact package. Change anything and you will be asked again. |
 | Apply | `submit` | The app applies on the job site, or hands it to you when the site needs a person. |
-| Save to tracker | `record` | The application is written to your private GitHub tracker. |
+| Save to tracker | `record` | The application is saved; with a tracker set up it is also written to your private GitHub tracker. |
 | Contact recruiters | `outreach` | You add recruiters at that employer and the app drafts short notes. You send them yourself. |
 
 ## Pages and navigation
@@ -168,6 +168,31 @@ A failed attempt keeps its technical reason in the evidence; the page shows one 
 - The grey technical chip next to a status is always rendered by the `status()` macro but, inside tables, is only
   shown when the row is hovered or focused. Detail pages (job, application, task) and Help show it all the time.
 - IDs and hashes live in muted sub-lines (`<span class="sub mono">`) or Technical details, never in a first column.
+
+## Profile page: the profile file and the rules form
+
+| Plain (shown) | Technical | Where |
+|---|---|---|
+| Your profile file | `candidate/profile.toml` | card title; the path stays in `<code>` |
+| not found / ready to load / changed since last load / loaded | `TomlStatus.state` = `missing` / `new` / `changed` / `loaded` | pill on the card |
+| Load profile file / Load again | `POST /profile/load-toml` | the only way the file is applied |
+| Your profile file was loaded. The counts are on the profile file card. | flash `toml_loaded` | after a load |
+| The profile file could not be read. Nothing was changed; the reason is on the profile file card. | flash `toml_invalid` | `ProfileTomlError` |
+| Last load: facts N, answers N, jobs N, education N, skills N; sections … | `ImportReport` (counts only, never values) | note under the pill |
+| Your profession | `candidate.profession` | rules form; fed to the AI as `candidate_profession` |
+| Kinds of role you want / Kinds of role you do not want / Exceptions to that | `role_families` / `excluded_role_families` / `excluded_role_family_exceptions` | rules form |
+| Places you want / Remote jobs must say they are open to / How to name your area in messages | `locations` / `remote_eligible_terms` / `region_label` | rules form |
+| Currency / Lowest base salary you accept / Salary you aim for | `compensation.currency` / `floor_base` / `target_base` | rules form |
+| Extra phrases that mean a very small company in your field | `startup_signals_extra` | rules form |
+| Roles to ask about / One line about what you do | `outreach_rules.role_phrase` / `one_liner` | rules form; used by `template_connect_note` and `draft_outreach` |
+| Page limit / Bullets per role, at most / Words the AI may use even if your resume lacks them | `resume.max_pages` / `max_bullets_per_role` / `allowed_terms` | rules form |
+| No hyphens or dashes in a rewritten summary | `style.no_dashes` | rules form |
+| Your rules were saved. | flash `preferences_saved` | after the form |
+
+The profession word is never hard coded anywhere in copy: where a sentence needs it, templates use `profile.profession()`
+and read well when it is "professional"; where a name is needed they use `display_name`/`first_name()` and read well when empty.
+Dates use the `local` and `local_day` filters (`AMORE_TIMEZONE`) and `tz_label()` for the zone name; the old `toronto`
+filter names remain only as aliases.
 
 ## Rules applied everywhere
 

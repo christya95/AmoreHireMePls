@@ -7,7 +7,7 @@
 <p align="center"><strong>A private job-search assistant that finds roles, tailors your resume from facts you approved, prepares every application for your review, and never sends anything without your say-so.</strong></p>
 
 <p align="center">
-  Built by Joss · Python 3.12 · LangChain + LangGraph · MongoDB · Playwright · Docker
+  Started by Joss; built so anyone can make it theirs · Python 3.12 · LangChain + LangGraph · MongoDB · Playwright · Docker
 </p>
 
 ---
@@ -16,12 +16,14 @@
 
 Job hunting is a lot of repetitive, careful work: reading postings, checking whether they fit, rewriting the resume for each one, filling the same forms, keeping a log, and following up with recruiters. AmoreHireMePls does the repetitive part and keeps **you** as the decision maker.
 
+It does not care what you do for a living. The first user was a software developer; a sales account executive, a clinical psychologist or a project manager runs the same app and changes one file, `candidate/profile.toml`, to describe their own profession, roles, places, pay, skip lists and resume. See [Make it yours](#-make-it-yours).
+
 - It **collects job postings** from public job boards or links you paste in.
 - It **checks the fit** against your real preferences (role, location, salary floor, employers you skip).
 - It **tailors your resume** for each posting using only facts and bullets from your approved base resume.
 - It **builds a review package**: the document, the form answers, and where each answer came from.
 - It **waits for your approval**, then applies on the employer site, and keeps screenshots of what it saw.
-- It **records the outcome** in your private GitHub application tracker.
+- It **records the outcome** in its database and, if you keep one, in your private GitHub application tracker.
 - It **drafts recruiter notes** you can send yourself.
 
 Everything runs on your own machine or your own NAS. The dashboard is a password-protected website that only you can see.
@@ -60,8 +62,9 @@ flowchart LR
 | 🧾 | **Review packages** | One page shows exactly what would be sent: the document, each answer, the fact it came from, and open questions. |
 | ✅ | **Approval bound to content** | Your approval covers one job and one exact version of the document and answers. Change anything and the approval is void. |
 | 🤖 | **Careful applying** | A headless browser fills forms on sites you allow, uploads the right file, verifies the receipt page and keeps a screenshot before the final click and after. |
-| 📒 | **Tracker sync** | Confirmed applications are written to your private GitHub tracker through a durable queue. Sync problems never change the application result. |
-| 💌 | **Recruiter outreach drafts** | Short LinkedIn Connect notes that mention the role you applied to, validated by code (under 300 characters, no dashes, no layoff talk). You send them. |
+| 📒 | **Tracker sync (optional)** | Confirmed applications can also be written to your own private GitHub tracker through a durable queue. Sync problems never change the application result. Off by default. |
+| 💌 | **Recruiter outreach drafts** | Short LinkedIn Connect notes in your words that mention the role you applied to and ask about the kind of roles you want, validated by code (length, no dashes, no layoff talk; all set by you). You send them. |
+| 🧑‍💼 | **Any profession** | Roles, places, currency, resume headings, the page limit, the words the AI may use, what a "gap" means in your field: all in `candidate/profile.toml` or on the Profile page, none in code. |
 | 📊 | **Usage and cost** | Every model call is measured; cost is shown only when the price is known, otherwise it says "unknown". |
 | 🛑 | **Emergency stop** | One button on every page blocks any new external action. |
 | 🎨 | **Your dashboard** | Light/dark theme, accent colour, background tint, display name and avatar. No third-party scripts, fonts or trackers. |
@@ -83,12 +86,12 @@ flowchart LR
 *The highlighted steps are the two places where only you can move things forward.*
 
 1. **Import** 📥: paste a posting URL on the Jobs page, or let a configured discovery source bring postings in on a schedule.
-2. **Check fit** 🎯: deterministic rules run first (role family, location, employment type, salary floor, excluded employers, startup signals). If a model is configured, it ranks the fit and lists gaps, citing your fact IDs.
-3. **Tailor resume** ✂️: a DOCX is built from your approved base resume, a PDF is rendered when LibreOffice is available, and the page count is checked against the two-page limit.
+2. **Check fit** 🎯: deterministic rules run first (your role words, places, employment type, pay floor, employers you skip, very small company signals). If a model is configured, it ranks the fit for your profession and lists gaps, citing your fact IDs.
+3. **Tailor resume** ✂️: a DOCX is built from your approved base resume, a PDF is rendered when LibreOffice is available, and the page count is checked against your page limit (two pages unless you say otherwise).
 4. **Read package** 👀: open the review package. Everything that would be sent is on one page. Unanswerable questions are listed as "needs your answers".
 5. **Approve** ✅: click *Approve this exact submission*. The approval is tied to the fingerprint (hash) of the document and answers and expires after a set number of hours.
 6. **Apply** 🚀: the worker fills the form on an allowed site, uploads the file, verifies the receipt and keeps screenshots. Sites it cannot handle become a *Finish on the site* handoff: you submit, then record the confirmation you saw.
-7. **Save to tracker** 📒: the confirmed application, the resume and the screenshots are queued for your private GitHub tracker.
+7. **Save to tracker** 📒: the confirmed application is saved; with the tracker on, the record, the resume and the screenshots are also queued for your private GitHub tracker.
 8. **Contact recruiters** 💌: add recruiters at that employer, let the app draft Connect notes, and send them yourself from LinkedIn.
 
 <p align="center">
@@ -128,8 +131,8 @@ sequenceDiagram
 - 🖥️ A **Mac** (Apple Silicon or Intel) for the first setup. Optionally a **NAS or home server with Docker** to keep it running 24/7.
 - 🔐 A **1Password** account. The app reads its secrets from a vault at start-up; you never paste keys into files.
 - 🧠 An **OpenAI API key** (the default model is `gpt-5.4-mini`). Without a key the app still runs, but only the rule-based parts: no fit ranking, no rewritten bullets, no drafted notes.
-- 📄 Your **base resume as a DOCX** file (Word format). This is the only resume the app will ever tailor from.
-- 📒 Optionally, your existing **GitHub application tracker** repository, if you have one.
+- 📄 Your **base resume as a DOCX** file (Word format). This is the only resume the app will ever tailor from. Any profession, any headings.
+- 📒 Optionally, your own private **GitHub application tracker** repository, if you keep one.
 
 ### Step 1: install the tools (macOS)
 
@@ -173,9 +176,9 @@ cp .env.example .env                       # non-secret settings
 cp config/op.env.example .env.references   # 1Password references (no secret values)
 ```
 
-Open `.env` and set at least `AMORE_MONGODB_URI` and `AMORE_MODEL=gpt-5.4-mini`. Leave password and key fields blank; they come from 1Password.
+Open `.env` and set at least `AMORE_MONGODB_URI`, `AMORE_MODEL=gpt-5.4-mini` and `AMORE_TIMEZONE` (your IANA zone, e.g. `Europe/London`). Leave password and key fields blank; they come from 1Password.
 
-In 1Password, create a vault called **`AmoreHireMePls`** with these items (names are case sensitive):
+In 1Password, create a vault called **`AmoreHireMePls`** (or any name; put it in `.env.references` and `OP_VAULT` for deployments) with these items (names are case sensitive):
 
 | Item | Field(s) | What it is |
 |---|---|---|
@@ -203,46 +206,130 @@ Open **http://127.0.0.1:8790**, sign in with your dashboard password, and you ar
   <img src="docs/img/login.png" alt="Sign-in page" width="560">
 </p>
 
-### Step 6: load your private data (once)
+### Step 6: describe yourself (once)
 
-<details>
-<summary>Profile facts, base resume and application history</summary>
+Everything personal lives in one folder, `candidate/`, which git ignores:
 
 ```bash
-# Approved facts from your private skill files (never committed to this repo)
-op run --env-file .env.references -- uv run amore profile import \
-    --facts-skill /path/to/your-application-facts/SKILL.md \
-    --salary-skill /path/to/your-desired-salary/SKILL.md
+cp candidate/profile.example.toml candidate/profile.toml    # a fictional sales account executive; replace every value
+open candidate/profile.toml                                  # or any editor
+cp /path/to/your_resume.docx candidate/                      # your approved base resume, any headings
+```
 
-# The one approved base resume (DOCX). It is copied into the private folder and hashed.
-# Easiest: drop it in candidate/ (with any extra career notes as .md/.txt/.docx; see candidate/README.md) and either
-# press "Use the resume from the candidate folder" on the Profile page or run the command without a path.
-op run --env-file .env.references -- uv run amore profile base-resume --approved-on 2026-10-15
-# Or point at the file directly:
-op run --env-file .env.references -- uv run amore profile base-resume /path/to/base_resume.docx --approved-on 2026-10-15
+Fill in the sections that apply to you (the example explains each one in comments): who you are and your profession, the facts forms ask for, eligibility, your jobs with dates, education, answers you always give, skills, the roles and places you want, pay, employers and people to skip, how your recruiter notes should sound, resume rules, and what counts as a "gap" in your field. Then load it:
 
-# Your GitHub tracker, if you keep one
+- in the dashboard: **Profile → Load profile file** (the card shows whether the file is new, loaded, or changed since the last load), or
+- from a terminal: `op run --env-file .env.references -- uv run amore profile import --from candidate/profile.toml`
+
+Then register the resume: press **Use the resume from the candidate folder** on the Profile page, or run `op run --env-file .env.references -- uv run amore profile base-resume --approved-on 2026-11-05`. The file is copied into the private folder and hashed; it is never edited.
+
+Nothing reloads on its own: the file is applied only when you press the button or run the command, sections present in the file replace the saved value, sections missing leave it alone, and every value shows on the Profile page where you can also edit it directly. `amore profile export --to candidate/profile.toml` writes your current settings back into the file.
+
+<details>
+<summary>Optional: your own GitHub application tracker</summary>
+
+If you keep a private repository of past applications (see [docs/workflow-sources.md](docs/workflow-sources.md) for the layout the sync expects), set `AMORE_TRACKER_ENABLED=true` and `AMORE_TRACKER_REMOTE_URL` in `.env`, then:
+
+```bash
 op run --env-file .env.references -- uv run amore tracker clone      # clone into the private folder
 op run --env-file .env.references -- uv run amore tracker preview    # counts, duplicates, conflicts; writes nothing
 op run --env-file .env.references -- uv run amore tracker import     # idempotent; re-run after new tracker commits
 ```
 
-Each command prints a JSON summary (counts of facts, answers, employment rows; the resume hash; records imported).
+With the tracker off (the default) confirmed applications are recorded in the database only and the History page still works from there.
 </details>
 
 ### ⏱️ Your first 10 minutes checklist
 
 The Overview page shows the same list and ticks items off automatically as you complete them.
 
-- [ ] **Confirm your profile facts** on the Candidate profile page.
+- [ ] **Load your profile file** and confirm the facts on the Profile page.
 - [ ] **Approve the base resume** (the DOCX you registered).
-- [ ] **Import your application history** so the app knows where you already applied.
+- [ ] **Import your application history** if you keep a tracker, so the app knows where you already applied.
 - [ ] **Connect the model provider**: set `AMORE_MODEL` and the key, then click *Check provider now*.
 - [ ] **Allow the sites the browser may visit** with `AMORE_BROWSER_ALLOWED_HOSTS` (empty means no live browsing at all).
 - [ ] **Fill in model pricing** in `config/pricing.json` so costs show in dollars instead of "unknown".
 - [ ] **Import your first job** on the Jobs page.
 - [ ] **Open your first review package** and read it.
 - [ ] **Grant your first approval** when, and only when, you are happy with it.
+
+---
+
+## 🧑‍💼 Make it yours
+
+The code knows nothing about any one person or profession. Everything below is a value in `candidate/profile.toml` (or a field on the Profile page); the app reads it at run time and the tests prove the same code works for a developer and for a sales account executive.
+
+| What you change | Where | What it drives |
+|---|---|---|
+| Profession and a headline | `[candidate] profession`, `headline` | told to the AI for every fit check, rewrite, answer and note; shown on the Profile page |
+| Roles you want and roles you do not | `[preferences] role_families`, `excluded_role_families`, `excluded_role_family_exceptions` | a title with none of your words is held for review; an excluded word drops it unless an exception phrase matches |
+| Places and remote rules | `locations`, `remote_eligible_terms`, `region_label`, `remote_rule`, `work_arrangements` | postings outside your places are excluded; remote postings must name your region; an empty list means anywhere |
+| Timezone | `AMORE_TIMEZONE` in `.env` | schedules and every date on the dashboard |
+| Pay | `[compensation] currency`, `floor_base`, `target_base`, `band_rule`, `unknown_rule` | bands under your floor are held for you; the figure typed into a pay question follows your rule or asks you |
+| Employers and people to skip | `[exclusions] employers`, `recipients` | never applied to, never contacted; aliases catch other names |
+| Very small companies | `small_startup_rule`, `startup_signals_extra` | phrases in your field that mean "first hire" send the posting to review, or are ignored |
+| Recruiter note | `[outreach] role_phrase`, `one_liner`, `connect_note_max_chars`, `no_dashes`, `no_layoff_mention`, `ask_other_roles`, `draft_by_default` | what every Connect note asks about, in your words, and the rules code checks before you send |
+| Resume template and page limit | `[resume] max_pages`, `max_bullets_per_role`, `allowed_terms`, `training_role_terms`, `[resume.section_aliases]` | your own headings map to the sections the app understands; unknown headings are kept word for word; the PDF must fit your page count |
+| What a "gap" means in your field | `[fit] skill_terms`, `[fit.term_aliases]`, `hold_back_terms` | a gap the model lists that your evidence already proves is removed; seniority, licence and duration gaps never are |
+| Writing style | `[style] no_dashes` | whether a rewritten summary may contain dashes |
+| Recurring form questions | `[[answers]]` with `match` (a pattern tested against the question text) | typed only when the question matches; everything else asks you |
+| Years of experience questions | `[[employment]]` dates and `kind` | "years of clinical experience" and "years of B2B sales experience" are both computed from your dates, training roles separated |
+
+Two excerpts, to show how different two files can be:
+
+```toml
+# an enterprise sales account executive in the UK
+[candidate]
+profession = "enterprise account executive"
+[preferences]
+role_families = ["account executive", "enterprise sales", "business development"]
+excluded_role_families = ["sdr", "bdr", "inside sales"]
+locations = ["London", "Manchester", "United Kingdom"]
+[compensation]
+currency = "GBP"
+floor_base = 70000
+[outreach]
+role_phrase = "permanent enterprise sales roles"
+one_liner = "I sell data platforms to mid market finance teams"
+```
+
+```toml
+# a clinical psychologist in Australia
+[candidate]
+profession = "clinical psychologist"
+[preferences]
+role_families = ["clinical psychologist", "senior psychologist", "psychologist"]
+excluded_role_families = ["provisional", "intern", "assistant"]
+locations = ["Melbourne", "Victoria", "Australia"]
+[compensation]
+currency = "AUD"
+floor_base = 110000
+[resume]
+max_pages = 3
+[resume.section_aliases]
+certifications = ["Registration and Memberships"]
+projects = ["Research and Publications"]
+[fit]
+skill_terms = ["cbt", "act", "emdr", "dbt", "assessment", "supervision"]
+[[answers]]
+key = "registration"
+match = "AHPRA|registration number"
+value = "General registration with endorsement, AHPRA"
+```
+
+### Config versus code
+
+| Belongs in `profile.toml` or `.env` | Belongs in code (and is deliberately not configurable) |
+|---|---|
+| Who you are, what you want, what you skip, how you sound | The approval gates: nothing is submitted or sent without a saved authorization for that exact content |
+| Your resume's headings, page limit and allowed words | Grounding: every claim must trace to your evidence; unknowns are asked, never invented |
+| Your region, currency, timezone | Sensitive questions (gender, disability, ethnicity) stay blank unless you saved an answer |
+| Job boards to watch | The CAPTCHA opt-in stays off by default and bounded |
+| Deployment hosts, vault name, image, data root | Private data never enters this repository |
+
+### What never goes in git
+
+`candidate/profile.toml`, your resume and notes in `candidate/`, everything under `runtime/` (database dumps, tailored documents, screenshots, browser sessions, the tracker clone), `.env`, `.env.references`. The `candidate/.gitignore` allows only its README and the fictional example, and a test fails the build if a known private token or the original owner's name shows up in tracked files.
 
 ---
 
@@ -256,7 +343,7 @@ The Overview page shows the same list and ticks items off automatically as you c
 | LibreOffice | DOCX to PDF, page count verification (optional on the Mac, included in the Docker image) | `brew install --cask libreoffice` |
 | Docker | local dev database, building the image, running on a NAS | `brew install --cask docker` |
 | 1Password CLI (`op`) | secret injection at run time | `brew install 1password-cli` |
-| `gh` | cloning/pushing the private tracker | `brew install gh` |
+| `gh` | cloning/pushing your optional private tracker | `brew install gh` |
 
 Tips: `uv sync` without `--all-extras` drops `pytest` and `ruff`. If a shell sets `PLAYWRIGHT_BROWSERS_PATH`, Chromium is looked up there; run the install from a normal Terminal once. More in [docs/troubleshooting.md](docs/troubleshooting.md).
 
@@ -273,11 +360,13 @@ curl -s http://127.0.0.1:8790/health
 For an always-on NAS with **Portainer**, `scripts/deploy_nas.sh` does the whole release from your Mac with no SSH: it builds a `linux/amd64` image from a clean export of the current commit, pushes it to a private Docker Hub repository, creates or updates the Portainer stack from [`deploy/nas/compose.yaml`](deploy/nas/compose.yaml), waits for both containers to be healthy, and checks `/health`. Secrets are read through `op` at run time and passed as stack variables, never written to files on the NAS.
 
 ```bash
-PORTAINER_URL=http://<your-nas>:9000 HEALTH_URL=http://<your-nas>:8790/health scripts/deploy_nas.sh
+OP_VAULT=AmoreHireMePls IMAGE_REPO=docker.io/<you>/amorehiremepls PORTAINER_URL=http://<your-nas>:9000 \
+  AMORE_PUBLISH_HOST=<your-nas> AMORE_DATA_ROOT=/volume1/docker/amorehiremepls scripts/deploy_nas.sh
 scripts/deploy_nas.sh --skip-build --tag <sha> --set AMORE_BROWSER_ALLOWED_HOSTS=host1,host2   # change a setting
+scripts/deploy_nas.sh --skip-build --set AMORE_TIMEZONE=Europe/London --set AMORE_TRACKER_ENABLED=false
 ```
 
-The stack joins the NAS MongoDB's Docker network, stores files under `/volume1/docker/amorehiremepls/{artifacts,private,logs}`, runs as a non-root user with all capabilities dropped, and publishes the dashboard on port 8790 of your NAS. Full walkthrough, including the vault items `Portainer API Token`, `Docker Hub Push Token` and `Docker Hub Pull Token`: [docs/nas-deployment.md](docs/nas-deployment.md).
+The stack joins the NAS MongoDB's Docker network, stores files under `AMORE_DATA_ROOT/{artifacts,private,logs,candidate}`, runs as a non-root user with all capabilities dropped, and publishes the dashboard on port 8790 of your NAS. The defaults in the script and compose file are the original operator's; every one of them is a variable. Full walkthrough, including the vault items `Portainer API Token`, `Docker Hub Push Token` and `Docker Hub Pull Token`: [docs/nas-deployment.md](docs/nas-deployment.md).
 
 ---
 
@@ -287,7 +376,8 @@ The stack joins the NAS MongoDB's Docker network, stores files under `/volume1/d
 |---|---|---|
 | `.env` | non-secret settings (database URI, ports, directories, model name, budgets, allowed hosts, schedule) | no (`.env.example` is) |
 | `.env.references` | `op://AmoreHireMePls/<item>/<field>` references only | no (`config/op.env.example` is) |
-| `candidate/` | your base resume `.docx` and extra career notes (`.md`, `.txt`, `.docx`); read for fit ranking and tailoring (`AMORE_CANDIDATE_DIR`, text capped by `AMORE_CANDIDATE_SUPPLEMENTAL_MAX_CHARS`) | only its `README.md` |
+| `candidate/profile.toml` | who you are, your facts, jobs, answers, roles, places, pay, skip lists, note wording, resume and fit rules (`AMORE_CANDIDATE_DIR`) | no (`candidate/profile.example.toml` is) |
+| `candidate/` | your base resume `.docx` and extra career notes (`.md`, `.txt`, `.docx`); read for fit ranking and tailoring (text capped by `AMORE_CANDIDATE_SUPPLEMENTAL_MAX_CHARS`) | only its `README.md` and the example |
 | `config/pricing.json` | dated USD prices per million tokens per model | yes |
 | MongoDB `controls` | dashboard settings (theme, accent, tint, name, avatar metadata, hidden tips) | runtime only |
 
@@ -296,8 +386,9 @@ Settings worth knowing:
 - 🌐 **`AMORE_BROWSER_ALLOWED_HOSTS`**: exact hostnames the worker may open, comma separated, no wildcards. Empty blocks all live browsing. Typical value: the public Greenhouse, Lever and Ashby board hosts. LinkedIn and Workday are not included; they are handoffs.
 - 💸 **`AMORE_BUDGET_*`**: per-run limits, by default 200 000 tokens, 2.00 USD, 60 tool steps, 1800 seconds. A run that hits a limit stops with `BudgetExhausted` and tells you.
 - 🧠 **`AMORE_MODEL`**: a bare model name uses `AMORE_MODEL_PROVIDER` (OpenAI by default); `anthropic:<model>` switches a run to Anthropic. No model means deterministic paths only.
-- 🗓️ **`AMORE_DISCOVERY_SCHEDULE`**: comma-separated `HH:MM` times in America/Toronto for scheduled discovery; empty disables it.
-- 📒 **`AMORE_TRACKER_PUSH_ENABLED`**: `false` keeps tracker commits local; `true` pushes to the real remote.
+- 🕰️ **`AMORE_TIMEZONE`**: the IANA zone for schedules and every date the dashboard shows (default `UTC`).
+- 🗓️ **`AMORE_DISCOVERY_SCHEDULE`**: comma-separated `HH:MM` times in `AMORE_TIMEZONE` for scheduled discovery; empty disables it.
+- 📒 **`AMORE_TRACKER_ENABLED`** / **`AMORE_TRACKER_REMOTE_URL`**: off by default; on, confirmed applications are also queued for your private GitHub records repository. **`AMORE_TRACKER_PUSH_ENABLED`** `false` keeps those commits local; `true` pushes to the real remote.
 - 🎨 **Appearance** is set in the dashboard under Settings: theme (system/light/dark), six accent presets or any hex, background tint, display name, avatar upload or initials style, and whether to show the guidance tips.
 - 🔔 **Notifications** (optional). `AMORE_NOTIFY_EMAIL_TO`, `AMORE_SMTP_HOST`, `AMORE_SMTP_PORT` (587), `AMORE_SMTP_USER`, and optional `AMORE_SMTP_FROM` go in `.env`. The mailbox password is only `AMORE_SMTP_PASSWORD=op://AmoreHireMePls/SMTP/password` in `.env.references` (item `SMTP`, fields `username` and `password`; both lines stay commented in `config/op.env.example` until that item exists). `AMORE_SMTP_USERNAME` is the older name for the login; `AMORE_SMTP_USER` wins. Optional `AMORE_NOTIFY_WEBHOOK_URL` posts JSON. `AMORE_PUBLISH_URL` (full origin) or `AMORE_PUBLISH_HOST` is the dashboard link in each note. Settings → Notifications shows which channels are set up and can send a test note. The note names the job and a fixed reason. It does not include answers or resume text.
 - 🧑 **Human check.** `AMORE_HUMAN_CHECK_HOLD_MINUTES` (default 30, `0` off) keeps the one browser page open so Continue can resume it. `AMORE_HUMAN_CHECK_CDP_PORT` (default 9222, `0` off) listens on `127.0.0.1` only while a hold is active. On the NAS that port is not published. `AMORE_CHALLENGE_RETRY_MINUTES` (default 180, `0` off) schedules one fresh session before a notification, and does not click submit again if the first try already did.
@@ -341,10 +432,10 @@ flowchart LR
 *Where it runs: the NAS holds the two containers, the database and the files; the Mac is only needed to deploy and to sign in to job sites in a visible browser.*
 
 - **Web** (`amore web`): FastAPI + Jinja server-rendered dashboard, password login with a signed cookie, CSRF token on every POST, a minimal unauthenticated `/health` and an authenticated `/status`. No raw browser-control routes.
-- **Worker** (`amore worker`): claims runs atomically, executes LangGraph workflows, runs the single tracker-sync coordinator, sweeps expired action leases, and claims America/Toronto discovery slots exactly once.
+- **Worker** (`amore worker`): claims runs atomically, executes LangGraph workflows, runs the single tracker-sync coordinator, sweeps expired action leases, and claims discovery slots (in `AMORE_TIMEZONE`) exactly once.
 - **MongoDB 8.0** (standalone, no replica set assumed): profile, jobs, applications, actions, authorizations, artifacts, usage, cache, runs, sync outbox, audit, plus the LangGraph checkpoint collections.
 - **Browser adapter**: Playwright Chromium executing deterministic step plans (fill, select, upload, click, expect text), with every request restricted to the allowed hosts.
-- **Tracker sync**: a local clone of the private GitHub ledger, written only through its own `records.py` script, committed on scoped paths, pushed without force.
+- **Tracker sync** (optional): a local clone of your private GitHub ledger, written only through its own `records.py` script, committed on scoped paths, pushed without force.
 - **1Password**: `op run` on the Mac, stack variables set at deploy time on the NAS.
 
 ### Stack
@@ -383,19 +474,20 @@ flowchart TD
 
 **The model may only cite IDs.** Fit points must cite fact IDs; points that cite nothing known are dropped and listed as `ungrounded_points_dropped`. Tailored bullets must each carry a `source_id` from the base resume. Form answers carry `fact_ids` or are marked `needs_input`; demographic, disability, relationship and salary questions are never answered by inference.
 
-**Deterministic grounding check.** After tailoring, code rejects: a bullet whose source ID is not in the base, a technology or proper-noun token absent from the base text, a "N years" claim absent from the base, a skill not present in the base, and a rewritten summary containing a dash. If the model output fails, the app falls back to a deterministic tailoring (your original bullets, reordered by overlap with the posting, weakest trimmed) and records the method as `deterministic_after_rejection`. A cached artifact that failed grounding is never reused.
+**Deterministic grounding check.** After tailoring, code rejects: a bullet whose source ID is not in the base, a capitalised or technical term absent from the base text and your `allowed_terms`, a "N years" claim absent from the base, a skill not present in the base, and (when your style rule says so) a rewritten summary containing a dash. Only grammar words are exempt; there is no built-in list of "normal" words for any one profession. If the model output fails, the app falls back to a deterministic tailoring (your original bullets, reordered by overlap with the posting, weakest trimmed) and records the method as `deterministic_after_rejection`. A cached artifact that failed grounding is never reused.
 
 ### LangChain: one structured call per skill
 
-Each model-backed step is a `SkillSpec` in a versioned catalog: a name, a prompt version (`2026-11-04.1`), a purpose, a system prompt, a Pydantic input model and a Pydantic output model. Five skills exist today:
+Each model-backed step is a `SkillSpec` in a versioned catalog: a name, a prompt version (`2026-11-05.3`), a purpose, a system prompt, a Pydantic input model and a Pydantic output model. The persona is neutral ("an assistant for one job seeker"); every skill receives `candidate_profession` from your profile so the model judges fit, rewrites bullets and drafts notes in your field, and prompts carry no technology words of their own. Six skills exist today:
 
 | Skill | Input → Output | Purpose |
 |---|---|---|
 | `extract_posting` | posting text → employer, title, requisition, location, remote policy, employment type, salary band, requirements | structured facts for the deterministic filters |
-| `assess_fit` | posting + compact facts + experience summary → rank 1..5, fit points with fact IDs, gaps, missing evidence, blockers | fit ranking |
-| `tailor_resume` | posting summary + base resume sections + allowed IDs → summary, skills, bullets with `source_id` | resume tailoring |
-| `map_form_answers` | form questions + facts + reusable answers → answers with `fact_ids` or `needs_input` | form answers |
-| `draft_outreach` | recipient, employer, applied role, candidate points, rules → note text | recruiter note drafts |
+| `assess_fit` | posting + `candidate_profession` + compact facts + experience summary → rank 1..5, fit points with fact IDs, gaps, missing evidence, blockers | fit ranking |
+| `tailor_resume` | posting summary + base resume sections + allowed IDs + `page_budget`, `max_bullets_per_role`, `role_families`, `candidate_profession` → summary, skills, bullets with `source_id` | resume tailoring |
+| `map_form_answers` | form questions + facts + reusable answers + `candidate_profession` → answers with `fact_ids` or `needs_input` | form answers |
+| `salary_case` | posting band + your floor/target + currency + `candidate_profession` → a stated figure or `needs_input` | pay questions |
+| `draft_outreach` | recipient, employer, applied role, `candidate_first_name`, `candidate_pitch`, your outreach rules → note text | recruiter note drafts |
 
 Calls go through `init_chat_model(...).with_structured_output(schema, include_raw=True)` so the parsed object and the provider's usage metadata come back together. A schema failure gets exactly one repair attempt. Tests use a deterministic `FakeProvider`; the real provider was checked once end to end.
 
@@ -516,15 +608,15 @@ uv run pytest -m browser                             # Playwright adapter agains
 uv run ruff check src tests && uv run ruff format --check src tests
 ```
 
-**106 tests** as of this commit (`uv run pytest -q` on a Mac with the dev MongoDB and Chromium present; Mongo- and browser-marked tests skip when those are missing). One test scans every tracked file against hashed private tokens, so a stray personal detail in the code or docs fails the build.
+**300 tests** as of this commit (`uv run pytest -q` on a Mac with the dev MongoDB and Chromium present; Mongo- and browser-marked tests skip when those are missing). One test scans every tracked file against hashed private tokens, so a stray personal detail in the code or docs fails the build; another fails if the original owner's name or city appears anywhere under `src/`.
 
-Tests use deterministic doubles only: a `FakeProvider` for the model, a local fixture ATS site for the browser, a local bare git repository for the tracker, and the dev MongoDB. No live application or message is part of any test.
+Tests use deterministic doubles only: a `FakeProvider` for the model, a local fixture ATS site for the browser, a local bare git repository for the tracker, and the dev MongoDB. Two fictional candidates run through the pipeline: a backend developer and an enterprise sales account executive whose resume uses its own headings (Core Competencies, Key Achievements, Sales Experience, Licences) and ends with Languages and Volunteer Work sections that must survive tailoring untouched. No live application or message is part of any test.
 
-Honest status, as of the latest increment ([docs/capability-map.md](docs/capability-map.md) has the full table):
+Honest status, as of the latest increment ([docs/capability-map.md](docs/capability-map.md) has the full table). "Live-verified" means verified in the original owner's setup (a software developer in Canada); your setup starts at fixture-tested until you run it:
 
-| Capability | Fixture-tested | Live-verified |
+| Capability | Fixture-tested | Live-verified in the original owner's setup |
 |---|---|---|
-| Profile import, experience arithmetic, base resume registration | ✅ | ✅ used with the real approved DOCX |
+| Profile import (`profile.toml`, Profile page), experience arithmetic, base resume registration | ✅ both fictional candidates | ✅ the owner's live preferences exported to `profile.toml` and re-imported with identical fingerprints |
 | Tracker preview/import | ✅ | ✅ imported for real, nothing pushed |
 | Discovery adapters (Greenhouse, Lever, Ashby), dedup, filters | ✅ | one real posting imported via URL; feed APIs not live-verified |
 | Model connectivity | ✅ (fake provider) | ✅ one real `gpt-5.4-mini` check through `op run` |
@@ -544,7 +636,7 @@ Honest status, as of the latest increment ([docs/capability-map.md](docs/capabil
 - **Site-specific adapters** for Workday and LinkedIn Easy Apply do not exist; those sites are handoffs today.
 - **LinkedIn** has no supported API for this account: jobs are imported by link, recruiters are added by hand, and Connect notes are sent by you.
 - **Email outreach** needs an SMTP configuration and its own approval scope; it is implemented but not configured.
-- **Open product question**: whether "Product Engineer" style titles should count as a preferred role family or stay `needs_review`.
+- **Your role words are yours to tune**: a title with none of your `role_families` words is held for review rather than dropped; add the title styles your field uses (the original owner's open question was whether "Product Engineer" counts) under `[preferences]`.
 - **Operations**: decide when to stop the Mac worker once the NAS stack has proven itself; tighten the Tailscale ACL for the database port; copy browser sessions to the NAS after signing in on the Mac.
 
 [docs/PROGRESS.md](docs/PROGRESS.md) keeps the live list and the exact next step.
@@ -562,7 +654,8 @@ Honest status, as of the latest increment ([docs/capability-map.md](docs/capabil
 | [docs/backup-restore.md](docs/backup-restore.md) | `amore backup` / `amore restore`, what is in the archive, schedule |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | symptom → cause → fix table |
 | [docs/ui-copy.md](docs/ui-copy.md) | the plain words the dashboard uses for every technical status, and where they are defined |
-| [AGENTS.md](AGENTS.md) | engineering rules for anyone (human or agent) changing this code |
+| [candidate/README.md](candidate/README.md) | what goes in the candidate folder and what never leaves it |
+| [AGENTS.md](AGENTS.md) | engineering rules for anyone (human or agent) changing this code, including the profession neutrality rules |
 | In-app **Help** page | the eight steps, every status in plain words, glossary, safety model, environment table, where files live |
 
 Operations cheat sheet:

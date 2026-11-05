@@ -1,8 +1,23 @@
-# NAS deployment (UGREEN DXP4800 Plus, Portainer, existing MongoDB)
+# NAS deployment (Portainer, existing MongoDB)
 
-The app runs on the NAS as the Portainer stack **`amorehiremepls`** (web + worker from one private image), deployed
-from the Mac with one command and no SSH. Nothing here changes other NAS stacks, rotates credentials, exposes ports
+The app runs on a NAS as the Portainer stack **`amorehiremepls`** (web + worker from one private image), deployed
+from a Mac with one command and no SSH. Nothing here changes other NAS stacks, rotates credentials, exposes ports
 publicly, or mounts the Docker socket into the app.
+
+The concrete values below (UGREEN DXP4800 Plus at `192.168.2.49`, Docker Hub account `lepia`, vault `AmoreHireMePls`,
+data under `/volume1/docker/amorehiremepls`, `America/Toronto`, the `christya95/job-application-records` tracker) are the
+original operator's and are the defaults of `scripts/deploy_nas.sh` and `deploy/nas/compose.yaml`. To deploy your own:
+
+| Your value | Where to set it |
+|---|---|
+| 1Password vault name | `OP_VAULT=<vault>` in the shell that runs the script, and in `.env.references` |
+| Portainer address and endpoint | `PORTAINER_URL`, `PORTAINER_ENDPOINT_ID` |
+| Docker Hub repository | `IMAGE_REPO=docker.io/<you>/amorehiremepls` (the script derives `HUB_USER`; override if different); the stack gets `AMORE_IMAGE` |
+| NAS address the dashboard listens on | `AMORE_PUBLISH_HOST` (first deploy) or `--set AMORE_PUBLISH_HOST=…`; `HEALTH_URL` follows it |
+| Bind mount root on the NAS | `AMORE_DATA_ROOT` (first deploy) or `--set AMORE_DATA_ROOT=/your/path`; create it and point the `init` chown at it by redeploying |
+| Timezone | `--set AMORE_TIMEZONE=Europe/London` (also sets `TZ` in the containers) |
+| Tracker | `--set AMORE_TRACKER_ENABLED=false`, or `true` plus `--set AMORE_TRACKER_REMOTE_URL=https://github.com/<you>/<records>.git` |
+| Database network and name | the compose file joins the existing `mongodb_default` network and database `amorehiremepls`; change those two lines if yours differ |
 
 ## 0. What was observed
 
@@ -90,7 +105,7 @@ scripts/deploy_nas.sh --skip-build --tag <sha> --set AMORE_BROWSER_ALLOWED_HOSTS
 scripts/deploy_nas.sh --skip-build --set AMORE_PUBLISH_HOST=0.0.0.0                              # change the publish address
 ```
 
-Non-secret stack variables not managed by the script (everything except `AMORE_IMAGE_TAG` and the five vault secrets) are
+Non-secret stack variables not managed by the script (everything except `AMORE_IMAGE`, `AMORE_IMAGE_TAG` and the five vault secrets) are
 carried over from the stack's current environment, so a `--set` value sticks until changed; secret names cannot be `--set`.
 The script prints the env names it applied (never values). `--skip-build` refuses a HEAD whose tag was never pushed; pass
 `--tag` with the running tag for config-only changes (`AMORE_IMAGE_TAG` in Portainer shows it).
