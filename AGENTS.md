@@ -34,7 +34,7 @@
 - Report implemented versus fixture-tested versus live-verified capabilities, failed syncs, and blockers accurately. Continue independent work when one integration is blocked.
 
 ## Repository commands and conventions (actual)
-- Layout: `src/amorehiremepls/` (config, db, profile, jobs, tracker, authorization, actions, ai, skills, discovery, tailoring, browser, applications, sync, outreach, orchestration, runtime, worker, backup, web + `templates/`, cli), `tests/` with `tests/fixtures/` (fixture ATS site, tracker seed, `records.py` snapshot, fictional resume), `docs/` (PROGRESS, workflow-sources, capability-map, backup-restore, troubleshooting, nas-deployment).
+- Layout: `src/amorehiremepls/` (config, db, profile, jobs, tracker, authorization, actions, ai, skills, discovery, tailoring, browser, applications, sync, outreach, orchestration, runtime, worker, backup, ui_settings, web + `templates/` + `static/` (local CSS/JS only, no CDN), cli), `tests/` with `tests/fixtures/` (fixture ATS site, tracker seed, `records.py` snapshot, fictional resume), `docs/` (PROGRESS, workflow-sources, capability-map, backup-restore, troubleshooting, nas-deployment).
 - Setup: `uv sync && uv run playwright install chromium`; dev database `docker compose --profile dev-mongo up -d dev-mongo`; `uv run amore setup-db`.
 - Run: `uv run amore web`, `uv run amore worker` (or `--once`); Docker `docker compose build && docker compose up -d web worker`.
 - Test: `uv run pytest` (mongo-marked tests need 127.0.0.1:27027, browser-marked tests need Chromium; both skip otherwise). Lint: `uv run ruff check src tests && uv run ruff format --check src tests` (line length 180).

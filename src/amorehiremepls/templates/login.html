@@ -1,5 +1,24 @@
-<!doctype html><html><head><meta charset="utf-8"><title>Sign in</title>
-<style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;background:#f6f7f9}form{background:#fff;padding:2rem;border-radius:8px;border:1px solid #e5e7eb}input,button{font:inherit;padding:.4rem;margin-top:.5rem;width:100%}</style></head>
-<body><form method="post" action="/login"><h2>AmoreHireMePls</h2>{% if error %}<p style="color:#b91c1c">{{ error }}</p>{% endif %}
-<label>Password<input type="password" name="password" autofocus required></label><button>Sign in</button>
-<p><small>Private dashboard. Keep it on localhost, LAN or VPN.</small></p></form></body></html>
+<!doctype html>
+<html lang="en"{% if theme in ('light', 'dark') %} data-theme="{{ theme }}"{% endif %} data-accent="{{ accent }}">
+<head>
+<meta charset="utf-8">
+<title>Sign in · AmoreHireMePls</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="/static/app.css">
+<script nonce="{{ nonce }}">(function(){var h=document.documentElement,a=h.getAttribute("data-accent");if(a)h.style.setProperty("--accent",a);if(!h.getAttribute("data-theme")){h.setAttribute("data-theme",window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}})();</script>
+</head>
+<body class="login-page">
+<div class="card login-card">
+  <div class="brand-mark">A</div>
+  <h1>AmoreHireMePls</h1>
+  <p class="muted">Private job search dashboard</p>
+  {% if error %}<div class="flash bad mt">{{ error }}</div>{% endif %}
+  <form method="post" action="/login">
+    <div class="field"><label for="password">Password</label><input id="password" type="password" name="password" autocomplete="current-password" autofocus required></div>
+    <button>Sign in</button>
+    <small>Keep it on localhost, LAN or VPN. Nothing here is public.</small>
+  </form>
+</div>
+</body>
+</html>

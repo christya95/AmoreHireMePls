@@ -11,8 +11,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
@@ -21,14 +22,107 @@ from .discovery import SOURCES
 from .profile import ExcludedEmployer, Provenance, RecipientExclusion
 from .runtime import Runtime
 from .tracker import TrackerClone, TrackerImporter
+from .ui_settings import (
+    ACCENT_PRESETS,
+    AVATAR_MAX_BYTES,
+    AVATAR_STYLES,
+    AvatarError,
+    UISettings,
+    UISettingsStore,
+    donut,
+    greeting,
+    humanize,
+    initials,
+    line_chart,
+    month_buckets,
+    normalize_accent,
+    remove_avatar_files,
+    resolve_display_name,
+    status_tone,
+    store_avatar,
+)
 from .util import to_toronto, utcnow
 from .worker import next_slot_description, worker_healthy
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 TEMPLATES.env.filters["toronto"] = lambda dt: to_toronto(dt).strftime("%Y-%m-%d %H:%M") if dt else ""
+TEMPLATES.env.filters["toronto_day"] = lambda dt: to_toronto(dt).strftime("%b %d") if dt else ""
 TEMPLATES.env.filters["json"] = lambda v: json.dumps(v, indent=1, default=str)
+TEMPLATES.env.filters["tone"] = status_tone
+TEMPLATES.env.filters["human"] = humanize
+TEMPLATES.env.filters["initials"] = initials
+STATIC_DIR = Path(__file__).parent / "static"
 SESSION_COOKIE = "amore_session"
 SESSION_MAX_AGE = 60 * 60 * 24 * 14
+UI_COOKIE = "amore_ui"  # theme|accent mirror of the saved setting, so the first paint (and the login page) match
+UI_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
+
+PAGE_TITLES = {
+    "index.html": "Overview",
+    "jobs.html": "Jobs",
+    "job.html": "Job",
+    "applications.html": "Applications",
+    "application.html": "Review package",
+    "runs.html": "Runs",
+    "run.html": "Run",
+    "documents.html": "Documents",
+    "outreach.html": "Outreach",
+    "history.html": "History",
+    "sync.html": "Sync",
+    "usage.html": "Usage",
+    "profile.html": "Candidate profile",
+    "authorizations.html": "Authorizations",
+    "settings.html": "Settings",
+}
+NAV = [
+    ("Work", None, None),
+    ("/", "Overview", "overview"),
+    ("/jobs", "Jobs", "jobs"),
+    ("/applications", "Applications", "applications"),
+    ("/runs", "Runs", "runs"),
+    ("/documents", "Documents", "documents"),
+    ("/outreach", "Outreach", "outreach"),
+    ("Records", None, None),
+    ("/history", "History", "history"),
+    ("/sync", "Sync", "sync"),
+    ("/usage", "Usage", "usage"),
+    ("Account", None, None),
+    ("/authorizations", "Authorizations", "auth"),
+    ("/profile", "Candidate profile", "profile"),
+    ("/settings", "Settings", "settings"),
+]
+ATTENTION_STATUSES = ("ready_for_review", "needs_input", "handoff", "needs_verification")
+FLASHES = {
+    "saved": ("Saved.", "ok"),
+    "avatar_saved": ("Avatar updated.", "ok"),
+    "avatar_removed": ("Avatar removed; showing initials.", "ok"),
+    "bad_accent": ("Accent must be a preset or a #rrggbb colour.", "bad"),
+    "bad_avatar": ("That file was not accepted.", "bad"),
+}
+
+
+def _parse_ui_cookie(raw: str | None) -> tuple[str, str]:
+    theme, accent = "system", ACCENT_PRESETS["sage"]
+    if raw and "|" in raw:
+        t, a = raw.split("|", 1)
+        if t in ("system", "light", "dark"):
+            theme = t
+        accent = normalize_accent(a) or accent
+    return theme, accent
+
+
+def _nav(path: str, attention: int) -> list[dict]:
+    items: list[dict] = []
+    best = None
+    for href, _, icon in NAV:
+        if icon and (path == href or (href != "/" and path.startswith(href + "/"))) and (best is None or len(href) > len(best)):
+            best = href
+    for href, label, icon in NAV:
+        if icon is None:
+            items.append({"label": href, "label_only": True})
+            continue
+        items.append({"href": href, "label": label, "icon": icon, "active": href == best, "count": attention if href == "/applications" else 0})
+    return items
 
 
 def create_app(rt: Runtime) -> FastAPI:
@@ -40,6 +134,8 @@ def create_app(rt: Runtime) -> FastAPI:
         app.state.ephemeral_secret = True
     serializer = URLSafeTimedSerializer(secret, salt="amore-session")
     app.state.rt = rt
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    ui_store = UISettingsStore(rt.store)
 
     # -- auth helpers ---------------------------------------------------------------------
     def read_session(request: Request) -> dict | None:
@@ -64,7 +160,26 @@ def create_app(rt: Runtime) -> FastAPI:
         if origin and request.headers.get("host") and urlsplit(origin).netloc.lower() != request.headers["host"].lower():
             raise HTTPException(status_code=403, detail="cross-site request refused")
 
+    def ui_cookie_value(ui: UISettings) -> str:
+        return f"{ui.theme}|{ui.accent}"
+
+    def set_ui_cookie(resp: Any, ui: UISettings) -> None:
+        resp.set_cookie(UI_COOKIE, ui_cookie_value(ui), httponly=True, samesite="strict", secure=rt.settings.secure_cookies, max_age=UI_COOKIE_MAX_AGE)
+
+    def avatar_url_for(ui: UISettings) -> str | None:
+        return f"/settings/avatar/image?v={ui.avatar.sha256[:16]}" if ui.avatar.kind == "upload" and ui.avatar.sha256 else None
+
+    def safe_next(value: str | None, default: str = "/") -> str:
+        v = (value or "").strip()
+        return v if v.startswith("/") and not v.startswith("//") and "\\" not in v else default
+
     def render(request: Request, template: str, session: dict | None = None, **ctx: Any) -> HTMLResponse:
+        ui = ui_store.load()
+        name = resolve_display_name(ui, rt.profile)
+        health = rt.health()
+        attention = rt.store.c("applications").count_documents({"status": {"$in": list(ATTENTION_STATUSES)}, "provenance.origin": "local"}) if health.get("ok") else 0
+        flash_key = request.query_params.get("ok") or request.query_params.get("err")
+        flash, flash_tone = FLASHES.get(flash_key or "", (None, None))
         base = {
             "request": request,
             "csrf": (session or {}).get("csrf", ""),
@@ -72,8 +187,23 @@ def create_app(rt: Runtime) -> FastAPI:
             "now": utcnow(),
             "base_resume": rt.profile.base_resume,
             "open_questions": open_questions(),
+            "title": PAGE_TITLES.get(template, "AmoreHireMePls"),
+            "nav": _nav(request.url.path, attention),
+            "health": health,
+            "worker_ok": worker_healthy(rt) if health.get("ok") else False,
+            "ui": ui,
+            "display_name": name,
+            "initials": initials(name),
+            "greeting": greeting(),
+            "avatar_url": avatar_url_for(ui),
+            "nonce": secrets.token_urlsafe(12),
+            "flash": flash,
+            "flash_tone": flash_tone,
         }
-        return TEMPLATES.TemplateResponse(request, template, {**base, **ctx})
+        resp = TEMPLATES.TemplateResponse(request, template, {**base, **ctx})
+        if request.cookies.get(UI_COOKIE) != ui_cookie_value(ui):
+            set_ui_cookie(resp, ui)
+        return resp
 
     def open_questions() -> list[str]:
         q = []
@@ -102,16 +232,21 @@ def create_app(rt: Runtime) -> FastAPI:
         h["emergency_stop"] = rt.store.emergency_stop_active()
         return JSONResponse(h)
 
+    def render_login(request: Request, error: str | None, status_code: int = 200) -> HTMLResponse:
+        theme, accent = _parse_ui_cookie(request.cookies.get(UI_COOKIE))
+        ctx = {"request": request, "error": error, "theme": theme, "accent": accent, "nonce": secrets.token_urlsafe(12)}
+        return TEMPLATES.TemplateResponse(request, "login.html", ctx, status_code=status_code)
+
     @app.get("/login", response_class=HTMLResponse)
     def login_form(request: Request):
-        return TEMPLATES.TemplateResponse(request, "login.html", {"request": request, "error": None})
+        return render_login(request, None)
 
     @app.post("/login")
     def login(request: Request, password: str = Form(...)):
         expected = rt.settings.app_password.get_secret_value()
         if len(expected) < 12 or not hmac.compare_digest(expected, password):
             rt.store.audit("login_failed", None, ip=request.client.host if request.client else None)
-            return TEMPLATES.TemplateResponse(request, "login.html", {"request": request, "error": "Invalid password"}, status_code=401)
+            return render_login(request, "Invalid password", status_code=401)
         token = serializer.dumps({"user": "joss", "csrf": secrets.token_urlsafe(24), "at": utcnow().isoformat()})
         resp = RedirectResponse("/", status_code=303)
         resp.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict", secure=rt.settings.secure_cookies, max_age=SESSION_MAX_AGE)
@@ -136,26 +271,22 @@ def create_app(rt: Runtime) -> FastAPI:
             "sync": rt.sync.outbox.summary(),
             "needs_verification": s.c("actions").count_documents({"status": "needs_verification"}),
         }
-        runs = list(s.c("runs").find().sort("created_at", -1).limit(10))
-        usage = next(
-            iter(
-                s.c("usage").aggregate(
-                    [
-                        {
-                            "$group": {
-                                "_id": None,
-                                "calls": {"$sum": 1},
-                                "in": {"$sum": "$input_tokens"},
-                                "out": {"$sum": "$output_tokens"},
-                                "cost": {"$sum": {"$ifNull": ["$cost_usd", 0]}},
-                                "unknown": {"$sum": {"$cond": [{"$eq": ["$cost_known", False]}, 1, 0]}},
-                            }
-                        }
-                    ]
-                )
-            ),
-            {},
-        )
+        runs = list(s.c("runs").find().sort("created_at", -1).limit(8))
+        month_start = to_toronto(utcnow()).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        usage_pipeline = [
+            {
+                "$group": {
+                    "_id": None,
+                    "calls": {"$sum": 1},
+                    "in": {"$sum": "$input_tokens"},
+                    "out": {"$sum": "$output_tokens"},
+                    "cost": {"$sum": {"$ifNull": ["$cost_usd", 0]}},
+                    "unknown": {"$sum": {"$cond": [{"$eq": ["$cost_known", False]}, 1, 0]}},
+                }
+            }
+        ]
+        usage = next(iter(s.c("usage").aggregate(usage_pipeline)), {})
+        usage_month = next(iter(s.c("usage").aggregate([{"$match": {"created_at": {"$gte": month_start}}}, *usage_pipeline])), {})
         return render(
             request,
             "index.html",
@@ -163,12 +294,134 @@ def create_app(rt: Runtime) -> FastAPI:
             counts=counts,
             runs=runs,
             usage=usage,
-            health=rt.health(),
-            worker_ok=worker_healthy(rt),
+            usage_month=usage_month,
+            kpis=overview_kpis(counts, usage_month),
+            chart=applications_chart(),
+            pipeline=jobs_donut(counts["jobs"]),
+            attention=attention_items(),
+            activity=list(s.c("audit").find({"event": {"$nin": ["login", "login_failed"]}}).sort("created_at", -1).limit(10)),
+            recent_jobs=list(s.c("jobs").find().sort("updated_at", -1).limit(6)),
             schedule=next_slot_description(rt),
             provider=rt.settings.effective_model or "not configured (default provider: openai)",
             missing=rt.profile.missing_essentials(),
         )
+
+    def overview_kpis(counts: dict, usage_month: dict) -> list[dict]:
+        jobs, apps, sync = counts["jobs"], counts["applications"], counts["sync"]
+        prepared = sum(apps.get(k, 0) for k in ("ready_for_review", "needs_input", "authorized", "handoff"))
+        submitted = apps.get("submitted", 0)
+        pending = sum(sync.get(k, 0) for k in ("sync_pending", "local_only", "committed_local"))
+        needs_ver = counts["needs_verification"] + apps.get("needs_verification", 0)
+        calls = usage_month.get("calls", 0) or 0
+        unknown = usage_month.get("unknown", 0) or 0
+        if not calls:
+            spend, spend_note = "$0.00", "no model calls this month"
+        elif unknown:
+            spend, spend_note = f"${usage_month.get('cost', 0):.2f}+", f"{unknown} of {calls} calls without known pricing"
+        else:
+            spend, spend_note = f"${usage_month.get('cost', 0):.2f}", f"{calls} model calls this month"
+        conflicts = sync.get("conflict", 0)
+
+        def kpi(label: str, value: Any, note: str, icon: str, tone: str, href: str, pill: str, pill_tone: str) -> dict:
+            return {"label": label, "value": value, "note": note, "icon": icon, "tone": tone, "href": href, "pill": pill, "pill_tone": pill_tone}
+
+        return [
+            kpi(
+                "Jobs to look at",
+                jobs.get("new", 0) + jobs.get("needs_review", 0),
+                f"{jobs.get('new', 0)} new · {jobs.get('needs_review', 0)} need review",
+                "jobs",
+                "",
+                "/jobs",
+                f"{jobs.get('qualified', 0)} qualified",
+                "ok",
+            ),
+            kpi(
+                "Applications submitted",
+                submitted,
+                f"{prepared} prepared and waiting on you",
+                "applications",
+                "ok",
+                "/applications",
+                f"{prepared} prepared",
+                "warn" if prepared else "neutral",
+            ),
+            kpi(
+                "Needs verification",
+                needs_ver,
+                "unknown outcomes to reconcile",
+                "alert",
+                "bad" if needs_ver else "",
+                "/applications?status_filter=needs_verification",
+                "action required" if needs_ver else "all clear",
+                "bad" if needs_ver else "ok",
+            ),
+            kpi(
+                "Sync pending",
+                pending,
+                f"{conflicts} conflicts · {sync.get('synced', 0)} synced",
+                "sync",
+                "warn" if pending else "",
+                "/sync",
+                "conflict" if conflicts else ("queued" if pending else "up to date"),
+                "bad" if conflicts else ("warn" if pending else "ok"),
+            ),
+            kpi("Spend this month", spend, spend_note, "dollar", "info", "/usage", "unknown pricing" if unknown else "measured", "warn" if unknown else "neutral"),
+        ]
+
+    def applications_chart() -> dict:
+        buckets = month_buckets(12)
+        keys = {k: 0 for k, _ in buckets}
+        for a in rt.store.c("applications").find({"status": "submitted"}, {"application_date": 1, "record.application_date": 1, "updated_at": 1}):
+            day = a.get("application_date") or (a.get("record") or {}).get("application_date")
+            key = str(day)[:7] if day else to_toronto(a.get("updated_at")).strftime("%Y-%m") if a.get("updated_at") else None
+            if key in keys:
+                keys[key] += 1
+        return line_chart([(label, keys[k]) for k, label in buckets])
+
+    def jobs_donut(by_status: dict) -> dict:
+        order = [("new", "c1"), ("needs_review", "c4"), ("qualified", "c8"), ("applied", "c2"), ("applied_historical", "c3"), ("rejected", "c5")]
+        items = [(k, by_status.get(k, 0), cls) for k, cls in order if by_status.get(k)]
+        other = sum(v for k, v in by_status.items() if k not in dict(order))
+        if other:
+            items.append(("other", other, "c6"))
+        return donut(items)
+
+    def attention_items() -> list[dict]:
+        s = rt.store
+        items: list[dict] = []
+        titles = {
+            "ready_for_review": ("Awaiting your authorization", "Review the package and authorize this exact submission.", "warn", "key"),
+            "needs_input": ("Needs your answers", "The form asks questions the profile cannot answer.", "warn", "help"),
+            "handoff": ("Manual handoff", "Finish on the employer site, then record the confirmation here.", "info", "hand"),
+            "needs_verification": ("Outcome unknown", "Check the employer site and reconcile what you observed.", "bad", "alert"),
+        }
+
+        def item(title: str, detail: str, hint: str, tone: str, icon: str, href: str, action: str) -> dict:
+            return {"title": title, "detail": detail, "hint": hint, "tone": tone, "icon": icon, "href": href, "action": action}
+
+        apps = list(s.c("applications").find({"status": {"$in": list(ATTENTION_STATUSES)}, "provenance.origin": "local"}).sort("updated_at", -1).limit(12))
+        jobs = {j["_id"]: j for j in s.c("jobs").find({"_id": {"$in": [a["job_id"] for a in apps]}}, {"employer": 1, "title": 1})}
+        for a in apps:
+            t, d, tone, icon = titles[a["status"]]
+            j = jobs.get(a["job_id"], {})
+            items.append(item(t, f"{j.get('employer', '?')} · {j.get('title', '')}", d, tone, icon, f"/applications/{a['_id']}", "Open"))
+        for r in s.c("runs").find({"status": {"$in": ["waiting", "paused", "failed"]}}).sort("updated_at", -1).limit(8):
+            it = r.get("interrupt") or {}
+            if it.get("application_id") and any(x["href"].endswith(it["application_id"]) for x in items):
+                continue
+            label = {"waiting": f"Run waiting: {humanize(it.get('type') or 'interrupt')}", "paused": "Run paused", "failed": "Run failed"}[r["status"]]
+            tone = "bad" if r["status"] == "failed" else "warn"
+            items.append(item(label, f"{r['kind']} {r.get('params', {}).get('job_id', '')}", r.get("error") or "", tone, "runs", f"/runs/{r['_id']}", "Open run"))
+        review = s.c("jobs").count_documents({"status": "needs_review"})
+        if review:
+            detail = f"{review} job{'s' if review != 1 else ''} outside the automatic rules"
+            items.append(item("Qualification needs review", detail, "", "info", "jobs", "/jobs?status_filter=needs_review", "Review"))
+        held = s.c("recipients").count_documents({"history_reconciled_at": {"$exists": False}})
+        if held:
+            detail = f"{held} recipient{'s' if held != 1 else ''} held before first contact"
+            items.append(item("Recipients awaiting contact-history check", detail, "", "info", "outreach", "/outreach", "Reconcile"))
+        return items
 
     # -- controls ---------------------------------------------------------------------------
     @app.post("/controls/emergency-stop")
@@ -664,5 +917,113 @@ def create_app(rt: Runtime) -> FastAPI:
             pricing=rt.pricing.loaded_from,
             catalog=rt.ai(None).catalog.describe() if rt.ai(None) else [],
         )
+
+    # -- applications list / documents ---------------------------------------------------------
+    @app.get("/applications", response_class=HTMLResponse)
+    def applications_list(request: Request, session: dict = Depends(require_session), status_filter: str = ""):
+        q: dict[str, Any] = {"provenance.origin": "local"}
+        if status_filter:
+            q["status"] = status_filter
+        apps = list(rt.store.c("applications").find(q).sort("updated_at", -1).limit(200))
+        jobs = {j["_id"]: j for j in rt.store.c("jobs").find({"_id": {"$in": [a["job_id"] for a in apps]}}, {"employer": 1, "title": 1, "location": 1})}
+        counts = {r["_id"]: r["n"] for r in rt.store.c("applications").aggregate([{"$match": {"provenance.origin": "local"}}, {"$group": {"_id": "$status", "n": {"$sum": 1}}}])}
+        return render(request, "applications.html", session, apps=apps, jobs=jobs, counts=counts, status_filter=status_filter)
+
+    @app.get("/documents", response_class=HTMLResponse)
+    def documents(request: Request, session: dict = Depends(require_session)):
+        arts = list(rt.store.c("artifacts").find({}, {"content": 0}).sort("created_at", -1).limit(200))
+        jobs = {j["_id"]: j for j in rt.store.c("jobs").find({"_id": {"$in": [a.get("owner_id") for a in arts]}}, {"employer": 1, "title": 1})}
+        return render(request, "documents.html", session, artifacts=arts, jobs=jobs)
+
+    # -- dashboard settings (theme, accent, name, avatar) ------------------------------------------
+    @app.get("/settings", response_class=HTMLResponse)
+    def settings_page(request: Request, session: dict = Depends(require_session)):
+        ui = ui_store.load()
+        return render(
+            request,
+            "settings.html",
+            session,
+            presets=ACCENT_PRESETS,
+            styles=AVATAR_STYLES,
+            accent_name=ui.accent_name,
+            max_kb=AVATAR_MAX_BYTES // 1024,
+            default_name=resolve_display_name(UISettings(), rt.profile),
+        )
+
+    @app.post("/settings/theme")
+    def settings_theme(request: Request, session: dict = Depends(require_session), csrf: str = Form(...), theme: str = Form(...), next: str = Form("/")):
+        require_csrf(request, session, csrf)
+        if theme not in ("system", "light", "dark"):
+            raise HTTPException(400, "unknown theme")
+        ui = ui_store.load()
+        ui.theme = theme  # type: ignore[assignment]
+        ui_store.save(ui)
+        resp = JSONResponse({"ok": True, "theme": theme}) if request.headers.get("x-requested-with") == "fetch" else RedirectResponse(safe_next(next), status_code=303)
+        set_ui_cookie(resp, ui)
+        return resp
+
+    @app.post("/settings/appearance")
+    def settings_appearance(
+        request: Request, session: dict = Depends(require_session), csrf: str = Form(...), theme: str = Form("system"), accent: str = Form(""), accent_hex: str = Form("")
+    ):
+        require_csrf(request, session, csrf)
+        if theme not in ("system", "light", "dark"):
+            raise HTTPException(400, "unknown theme")
+        chosen = normalize_accent(accent_hex if accent == "custom" or not accent else accent)
+        if chosen is None:
+            return RedirectResponse("/settings?err=bad_accent", status_code=303)
+        ui = ui_store.load()
+        ui.theme, ui.accent = theme, chosen  # type: ignore[assignment]
+        ui_store.save(ui)
+        resp = RedirectResponse("/settings?ok=saved", status_code=303)
+        set_ui_cookie(resp, ui)
+        return resp
+
+    @app.post("/settings/identity")
+    def settings_identity(request: Request, session: dict = Depends(require_session), csrf: str = Form(...), display_name: str = Form("")):
+        require_csrf(request, session, csrf)
+        name = " ".join(display_name.split())[:60]
+        ui = ui_store.load()
+        ui.display_name = name or None
+        ui_store.save(ui)
+        return RedirectResponse("/settings?ok=saved", status_code=303)
+
+    @app.post("/settings/avatar")
+    async def settings_avatar(request: Request, session: dict = Depends(require_session), csrf: str = Form(...), style: str = Form(""), file: UploadFile | None = File(None)):
+        require_csrf(request, session, csrf)
+        ui = ui_store.load()
+        if file is not None and file.filename:
+            data = await file.read(AVATAR_MAX_BYTES + 1)
+            try:
+                ui.avatar = store_avatar(rt.settings.private_dir, data, file.content_type)
+            except AvatarError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            ui_store.save(ui)
+            rt.store.audit("avatar_uploaded", None, sha256=ui.avatar.sha256, content_type=ui.avatar.content_type)
+            return RedirectResponse("/settings?ok=avatar_saved", status_code=303)
+        if style in AVATAR_STYLES:
+            ui.avatar.style = style
+            ui_store.save(ui)
+            return RedirectResponse("/settings?ok=saved", status_code=303)
+        raise HTTPException(400, "choose an image file or an initials style")
+
+    @app.post("/settings/avatar/remove")
+    def settings_avatar_remove(request: Request, session: dict = Depends(require_session), csrf: str = Form(...)):
+        require_csrf(request, session, csrf)
+        ui = ui_store.load()
+        remove_avatar_files(rt.settings.private_dir)
+        ui.avatar.kind, ui.avatar.sha256, ui.avatar.content_type, ui.avatar.ext = "initials", None, None, None
+        ui_store.save(ui)
+        return RedirectResponse("/settings?ok=avatar_removed", status_code=303)
+
+    @app.get("/settings/avatar/image")
+    def settings_avatar_image(session: dict = Depends(require_session)):
+        ui = ui_store.load()
+        if ui.avatar.kind != "upload" or not ui.avatar.ext or not ui.avatar.content_type:
+            raise HTTPException(404)
+        path = rt.settings.private_dir / "avatar" / f"avatar.{ui.avatar.ext}"
+        if not path.is_file():
+            raise HTTPException(404)
+        return FileResponse(path, media_type=ui.avatar.content_type, headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"})
 
     return app
