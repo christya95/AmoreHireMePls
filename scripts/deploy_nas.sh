@@ -12,7 +12,12 @@
 #   scripts/deploy_nas.sh                 # build HEAD, push, create or update the stack, wait for health
 #   scripts/deploy_nas.sh --skip-build    # only (re)apply the stack with the tag already pushed for HEAD
 #   scripts/deploy_nas.sh --tag <tag>     # deploy an existing tag instead of HEAD
-#   AMORE_PUBLISH_HOST=0.0.0.0 scripts/deploy_nas.sh   # publish the dashboard on all NAS interfaces (LAN + tailnet)
+#   scripts/deploy_nas.sh --skip-build --set AMORE_BROWSER_ALLOWED_HOSTS=boards.greenhouse.io,jobs.lever.co
+#                                         # set/override a non-secret stack variable (repeatable); values stick across runs
+#   scripts/deploy_nas.sh --skip-build --set AMORE_PUBLISH_HOST=0.0.0.0   # publish on all NAS interfaces (LAN + tailnet)
+#
+# Stack variables not managed here (anything other than AMORE_IMAGE_TAG and the vault secrets) are carried over from
+# the stack's current environment, so a value set once with --set stays until changed. Secret names cannot be --set.
 #
 # Requirements on the Mac: docker (buildx), op (signed in), curl, python3, git. Run from anywhere in the repo.
 set -euo pipefail
@@ -27,15 +32,20 @@ IMAGE_REPO="${IMAGE_REPO:-docker.io/lepia/amorehiremepls}"
 HUB_USER="${HUB_USER:-lepia}"
 COMPOSE_FILE="deploy/nas/compose.yaml"
 HEALTH_URL="${HEALTH_URL:-http://192.168.2.49:8790/health}"
-PUBLISH_HOST="${AMORE_PUBLISH_HOST:-192.168.2.49}"
+PUBLISH_HOST="${AMORE_PUBLISH_HOST:-}"   # empty = keep the stack's current value (first deploy: 192.168.2.49)
 
 SKIP_BUILD=0
 TAG=""
+SET_JSON="[]"
 while [ $# -gt 0 ]; do
   case "$1" in
     --skip-build) SKIP_BUILD=1 ;;
     --tag) TAG="$2"; shift ;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    --set)
+      case "$2" in *=*) ;; *) echo "--set expects KEY=VALUE" >&2; exit 2 ;; esac
+      SET_JSON="$(KV="$2" python3 -c 'import json,os,sys; k,v=os.environ["KV"].split("=",1); a=json.loads(sys.argv[1]); a.append([k,v]); print(json.dumps(a))' "$SET_JSON")"
+      shift ;;
+    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -83,7 +93,7 @@ AMORE_MONGODB_PASSWORD=op://AmoreHireMePls/NAS MongoDB App User/password
 OPENAI_API_KEY=op://AmoreHireMePls/OpenAI API Key/credential
 EOF
 
-export PORTAINER_URL PORTAINER_ENDPOINT_ID STACK_NAME COMPOSE_FILE TAG PUBLISH_HOST IMAGE_REPO
+export PORTAINER_URL PORTAINER_ENDPOINT_ID STACK_NAME COMPOSE_FILE TAG PUBLISH_HOST IMAGE_REPO SET_JSON
 op run --env-file "$REFS" -- python3 - <<'PY'
 import json, os, sys, time, urllib.error, urllib.request
 
@@ -92,15 +102,12 @@ endpoint = int(os.environ["PORTAINER_ENDPOINT_ID"])
 name = os.environ["STACK_NAME"]
 key = os.environ["PORTAINER_API_KEY"]
 compose = open(os.environ["COMPOSE_FILE"], encoding="utf-8").read()
-env = [
-    {"name": "AMORE_IMAGE_TAG", "value": os.environ["TAG"]},
-    {"name": "AMORE_PUBLISH_HOST", "value": os.environ["PUBLISH_HOST"]},
-    *({"name": k, "value": os.environ[k]} for k in ("AMORE_APP_PASSWORD", "AMORE_APP_SECRET", "AMORE_MONGODB_USERNAME", "AMORE_MONGODB_PASSWORD", "OPENAI_API_KEY")),
-]
-for e in env:
-    if not e["value"]:
-        print(f"refusing to deploy: {e['name']} resolved to an empty value", file=sys.stderr)
-        sys.exit(1)
+SECRET_NAMES = ("AMORE_APP_PASSWORD", "AMORE_APP_SECRET", "AMORE_MONGODB_USERNAME", "AMORE_MONGODB_PASSWORD", "OPENAI_API_KEY")
+MANAGED = set(SECRET_NAMES) | {"AMORE_IMAGE_TAG"}
+overrides = dict(json.loads(os.environ["SET_JSON"]))
+for k in overrides:
+    if k in MANAGED:
+        print(f"refusing --set {k}: managed by this script (secrets come from the vault)", file=sys.stderr); sys.exit(2)
 
 
 def call(method, path, body=None, timeout=600):
@@ -119,6 +126,25 @@ if st != 200:
     print("cannot list stacks:", st, stacks, file=sys.stderr); sys.exit(1)
 existing = [s for s in stacks if s["Name"] == name and s["EndpointId"] == endpoint]
 wanted_image = os.environ["IMAGE_REPO"] + ":" + os.environ["TAG"]
+
+# non-secret variables: carried over from the current stack, then --set overrides, then AMORE_PUBLISH_HOST from the shell
+carried = {}
+if existing:
+    st, cur = call("GET", f"/api/stacks/{existing[0]['Id']}")
+    if st == 200:
+        carried = {e["name"]: e["value"] for e in (cur.get("Env") or []) if e["name"] not in MANAGED}
+carried.update(overrides)
+if os.environ.get("PUBLISH_HOST"):
+    carried["AMORE_PUBLISH_HOST"] = os.environ["PUBLISH_HOST"]
+carried.setdefault("AMORE_PUBLISH_HOST", "192.168.2.49")
+env = [{"name": "AMORE_IMAGE_TAG", "value": os.environ["TAG"]}]
+env += [{"name": k, "value": v} for k, v in sorted(carried.items())]
+env += [{"name": k, "value": os.environ[k]} for k in SECRET_NAMES]
+for e in env:
+    if e["name"] in MANAGED and not e["value"]:
+        print(f"refusing to deploy: {e['name']} resolved to an empty value", file=sys.stderr)
+        sys.exit(1)
+
 if existing:
     sid = existing[0]["Id"]
     st, out = call("PUT", f"/api/stacks/{sid}?endpointId={endpoint}", {"stackFileContent": compose, "env": env, "prune": True, "pullImage": True})
@@ -130,6 +156,7 @@ else:
 if st != 200:
     print(f"stack {action[:-1]} failed:", st, out, file=sys.stderr); sys.exit(1)
 print(f"stack {action}: id={sid} name={name} image_tag={os.environ['TAG']}")
+print("  env applied (names only): " + ", ".join(e["name"] for e in env))
 
 # wait until web and worker run the requested image and are healthy (Portainer answers the create/update
 # request before compose has finished recreating containers; an unchanged stack is a no-op and passes at once)

@@ -81,8 +81,14 @@ tokens could be created through the Hub API without touching the password again.
 scripts/deploy_nas.sh                  # build HEAD for linux/amd64, push :sha and :latest, create/update stack 7, wait healthy, GET /health
 scripts/deploy_nas.sh --skip-build     # re-apply the compose file / env for the tag already pushed for HEAD
 scripts/deploy_nas.sh --tag <sha>      # roll back or forward to an already pushed tag
-AMORE_PUBLISH_HOST=0.0.0.0 scripts/deploy_nas.sh --skip-build   # change the publish address
+scripts/deploy_nas.sh --skip-build --tag <sha> --set AMORE_BROWSER_ALLOWED_HOSTS=host1,host2   # change a non-secret stack variable
+scripts/deploy_nas.sh --skip-build --set AMORE_PUBLISH_HOST=0.0.0.0                              # change the publish address
 ```
+
+Non-secret stack variables not managed by the script (everything except `AMORE_IMAGE_TAG` and the five vault secrets) are
+carried over from the stack's current environment, so a `--set` value sticks until changed; secret names cannot be `--set`.
+The script prints the env names it applied (never values). `--skip-build` refuses a HEAD whose tag was never pushed; pass
+`--tag` with the running tag for config-only changes (`AMORE_IMAGE_TAG` in Portainer shows it).
 
 The script builds from a clean `git archive HEAD` export (uncommitted edits are never shipped; it prints a note when the tree is
 dirty), reads every secret through `op` at run time (`docker login --password-stdin`; `op run` → Python builds the JSON body in
@@ -115,6 +121,10 @@ printf 'PORTAINER_API_KEY=op://AmoreHireMePls/Portainer API Token/credential\n' 
 op run --env-file /tmp/pk.env -- sh -c 'tar -C runtime/private -cf - --uid 10001 --gid 10001 sessions | curl -s -X PUT -H "X-API-Key: $PORTAINER_API_KEY" -H "Content-Type: application/x-tar" --data-binary @- "http://192.168.2.49:9000/api/endpoints/1/docker/containers/amorehiremepls-web-1/archive?path=/runtime/private"'
 rm /tmp/pk.env
 ```
+
+2026-11-05 02:47: `AMORE_BROWSER_ALLOWED_HOSTS` set on the stack to the same seven Greenhouse/Lever/Ashby board hosts as the
+Mac `.env` (`scripts/deploy_nas.sh --skip-build --tag 738f0fbb2d78 --set …`); both containers recreated healthy, `/status`
+`worker_healthy: true`, Help page shows the hosts as set. `AMORE_PUBLISH_HOST` unchanged (192.168.2.49).
 
 ## 6. Two instances, one database
 
