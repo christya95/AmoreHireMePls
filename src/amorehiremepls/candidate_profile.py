@@ -64,7 +64,7 @@ FACT_CATEGORIES: dict[str, str] = {
     "country": "address",
 }
 ELIGIBILITY_KEYS = ("work_authorization", "requires_sponsorship", "availability", "notice_period", "employment_preference")
-SENSITIVE_KEYS = ("gender", "disability_status", "sexual_orientation", "visible_minority", "ethnicity")
+SENSITIVE_KEYS = ("gender", "disability_status", "sexual_orientation", "visible_minority", "ethnicity", "veteran_status", "race", "religion", "age")
 
 
 class ProfileTomlError(ValueError):
@@ -290,9 +290,19 @@ def apply_profile_toml(profile: Profile, data: dict[str, Any], confirmed_on: str
         report.sections.append("facts")
         for k, v in facts.items():
             key = str(k).strip()
-            sensitive = key in SENSITIVE_KEYS
-            category = "self_identification" if sensitive else FACT_CATEGORIES.get(key, "other")
-            _upsert_fact(profile.facts, Fact(category=category, key=key, value=_str(v), sensitivity="sensitive" if sensitive else "personal", provenance=prov))
+            # a plain value, or an inline table { value, match, category, sensitive } for a fact with a question pattern
+            detail = v if isinstance(v, dict) else {"value": v}
+            sensitive = key in SENSITIVE_KEYS or bool(detail.get("sensitive"))
+            category = str(detail.get("category") or ("self_identification" if sensitive else FACT_CATEGORIES.get(key, "other")))
+            fact = Fact(
+                category=category,
+                key=key,
+                value=_str(detail.get("value")),
+                question_pattern=_str(detail.get("match")),
+                sensitivity="sensitive" if sensitive else "personal",
+                provenance=prov,
+            )
+            _upsert_fact(profile.facts, fact)
             report.facts += 1
     elig = data.get("eligibility") or {}
     if elig:
@@ -480,10 +490,35 @@ def _toml_key(k: str) -> str:
     return k if re.fullmatch(r"[A-Za-z0-9_-]+", k) else '"' + k.replace('"', '\\"') + '"'
 
 
+class _Inline(str):
+    """A pre-rendered TOML inline table; written as is by ``_table``."""
+
+
+def _fact_entry(f: Fact) -> Any:
+    """A plain string for an ordinary fact; an inline table when the fact carries a question pattern, a category the
+    key does not imply, or a sensitivity the key does not imply, so a reload restores exactly what was saved."""
+    implied_sensitive = f.key in SENSITIVE_KEYS
+    implied_category = "self_identification" if implied_sensitive else FACT_CATEGORIES.get(f.key, "other")
+    extras: dict[str, Any] = {}
+    if f.question_pattern:
+        extras["match"] = f.question_pattern
+    if f.category != implied_category:
+        extras["category"] = f.category
+    if (f.sensitivity == "sensitive") != implied_sensitive:
+        extras["sensitive"] = f.sensitivity == "sensitive"
+    if not extras:
+        return f.value if f.value else '""'
+    items = {"value": f.value or "", **extras}
+    return _Inline("{ " + ", ".join(f"{_toml_key(k)} = {_toml_value(v)}" for k, v in items.items()) + " }")
+
+
 def _table(name: str, items: dict[str, Any], array: bool = False, keep_empty: bool = False) -> str:
     head = f"[[{name}]]" if array else f"[{name}]"
     lines = [head]
     for k, v in items.items():
+        if isinstance(v, _Inline):
+            lines.append(f"{_toml_key(k)} = {v}")
+            continue
         if v == '""' and keep_empty:
             lines.append(f'{_toml_key(k)} = ""')
             continue
@@ -510,7 +545,7 @@ def export_profile_toml(profile: Profile, include_facts: bool = True) -> str:
     out.append(_table("candidate", cand))
     if include_facts:
         # unknown facts are written as "" so the file shows what is still missing and a reload keeps them unknown
-        facts = {f.key: (f.value if f.value else '""') for f in profile.facts if f.key not in ("legal_first_name", "preferred_name")}
+        facts = {f.key: _fact_entry(f) for f in profile.facts if f.key not in ("legal_first_name", "preferred_name")}
         out.append(_table("facts", facts, keep_empty=True))
         elig = {f.key: f.value for f in profile.answers if f.key in ELIGIBILITY_KEYS and f.value}
         if elig:

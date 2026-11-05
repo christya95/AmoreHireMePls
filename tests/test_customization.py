@@ -78,6 +78,7 @@ def test_example_toml_is_fictional_sales_profile_and_loads_every_section():
     assert set(report.sections) >= expected
     assert p.first_name() == "Jo" and p.profession() == "enterprise account executive"
     assert p.fact_value("legal_last_name") == "Sample" and p.fact_value("website_url") is None  # blank = unknown, not ""
+    assert p.fact("pronouns").question_pattern == "pronouns" and p.fact("pronouns").category == "identity"  # inline table form
     assert p.compensation.currency == "GBP" and p.compensation.floor_base == 70000 and p.compensation.target_base == 85000
     assert p.preferences.work_authorization.startswith("Right to work") and p.fact("requires_sponsorship").value == "No"
     assert [e.kind for e in p.employment] == ["full_time", "full_time", "internship"] and p.employment[0].end is None and p.employment[0].end_known
@@ -105,6 +106,12 @@ def test_toml_round_trip_through_export_keeps_every_preference_block():
     apply_profile_toml(again, tomllib.loads(text), confirmed_on="2026-11-05")
     assert preference_fingerprint(p) == preference_fingerprint(again)
     assert again.fact_value("website_url") is None and "website_url" in text  # unknown facts survive as ""
+    assert again.fact("pronouns").question_pattern == "pronouns" and "match = " in text  # patterns, categories and sensitivity survive
+    p.facts.append(Fact(category="other", key="veteran_status", value="No", sensitivity="sensitive", provenance=Provenance(source="t")))
+    p.facts.append(Fact(category="contact", key="signal_handle", value="@x", sensitivity="sensitive", provenance=Provenance(source="t")))
+    third = Profile()
+    apply_profile_toml(third, tomllib.loads(export_profile_toml(p)), confirmed_on="2026-11-05")
+    assert third.fact("veteran_status").sensitivity == "sensitive" and third.fact("signal_handle").sensitivity == "sensitive" and third.fact("signal_handle").category == "contact"
     only_rules = export_profile_toml(p, include_facts=False)
     assert "[facts]" not in only_rules and "[[employment]]" not in only_rules and "[preferences]" in only_rules
 

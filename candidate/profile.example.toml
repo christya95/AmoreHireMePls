@@ -34,6 +34,8 @@ postal_code = "EC1A 1AA"
 country = "United Kingdom"
 linkedin_url = "https://www.linkedin.com/in/josample/"
 website_url = ""                   # portfolio, personal site; blank = unknown
+# A fact that answers a recurring question can carry a pattern (and a group): the app types it only when the question matches.
+pronouns = { value = "they/them", match = "pronouns", category = "identity" }
 
 # Eligibility answers in your own words. "work_authorization" also becomes the yes/no the app picks on forms.
 [eligibility]
