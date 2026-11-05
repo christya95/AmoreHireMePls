@@ -36,7 +36,7 @@
       <form method="post" action="/controls/emergency-stop"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="active" value="off"><button class="secondary sm">Clear emergency stop</button></form>
       {% else %}
       <details class="pop">
-        <summary class="btn stop-btn sm" title="{{ glossary.emergency_stop[1] }}"><svg class="icon"><use href="#i-stop"/></svg>Emergency stop</summary>
+        <summary class="btn stop-btn sm" title="{{ glossary.emergency_stop[1] }}"><svg class="icon"><use href="#i-stop"/></svg><span class="label">Emergency stop</span></summary>
         <div class="pop-body">
           <strong>Stop all sending and applying?</strong>
           <p>{{ glossary.emergency_stop[1] }}</p>

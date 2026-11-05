@@ -11,9 +11,7 @@
       {% if job.possible_duplicates %}<p class="mt"><span class="pill warn">may be the same job as: {{ job.possible_duplicates|join(', ') }}</span></p>{% endif %}
     </div>
   </div>
-</div>
-
-<div class="card stepper-card">
+  <hr class="soft">
   <ol class="stepper" aria-label="Steps for this job">
     {% for s in steps %}<li class="{{ 'done' if s.done }}{{ ' current' if s.current }}" title="{{ s.name }}: {{ s.tip }}"><span class="dot">{% if s.done %}<svg class="icon"><use href="#i-check"/></svg>{% else %}{{ loop.index }}{% endif %}</span><span class="name">{{ s.name }}</span></li>{% endfor %}
   </ol>
@@ -34,8 +32,8 @@
   </div>
 </div>
 
-<div class="grid-2">
-  <div class="card"><div class="card-h"><h3>Does it fit your rules?</h3>{% if job.qualification %}{{ status(job.qualification.decision) }}{% endif %}<span class="sub">Checked against your preferences: role, location, employment type, lowest salary, employers to skip.</span></div>
+<div class="grid-main top">
+  <div class="card order-2"><div class="card-h"><h3>Does it fit your rules?</h3>{% if job.qualification %}{{ status(job.qualification.decision) }}{% endif %}<span class="sub">Checked against your preferences: role, location, employment type, lowest salary, employers to skip.</span></div>
     {% if job.qualification %}<ul>{% for r in job.qualification.reasons %}<li>{{ r }}</li>{% endfor %}</ul>
     <details class="disclosure"><summary>Technical details</summary><pre>{{ job.qualification|json }}</pre></details>{% else %}<div class="empty">Not checked yet.<div class="actions center mt"><form method="post" action="/jobs/{{ job._id }}/qualify" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary sm">Check fit</button></form></div></div>{% endif %}</div>
   <div class="card"><div class="card-h"><h3>How well you match</h3>{{ hint('fit_rank') }}</div>
@@ -61,10 +59,12 @@
           <li><i class="dot unknown"></i> {{ fit.unknown_n }} not sure</li>
         </ul>
         {% endif %}
-        {% if fit.matches %}<h4>Where you line up</h4><ul>{% for item in fit.matches %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
-        {% if fit.gaps %}<h4>Gaps</h4><ul>{% for item in fit.gaps %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
-        {% if fit.blockers %}<h4>Required and missing</h4><ul>{% for item in fit.blockers %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
-        {% if fit.unknown %}<h4>Not enough to say</h4><ul>{% for item in fit.unknown %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
+        <div class="fit-lists">
+        {% if fit.matches %}<section class="fit-sec"><h4>Where you line up</h4><ul>{% for item in fit.matches %}<li>{{ item }}</li>{% endfor %}</ul></section>{% endif %}
+        {% if fit.gaps %}<section class="fit-sec"><h4>Gaps</h4><ul>{% for item in fit.gaps %}<li>{{ item }}</li>{% endfor %}</ul></section>{% endif %}
+        {% if fit.blockers %}<section class="fit-sec"><h4>Required and missing</h4><ul>{% for item in fit.blockers %}<li>{{ item }}</li>{% endfor %}</ul></section>{% endif %}
+        {% if fit.unknown %}<section class="fit-sec"><h4>Not enough to say</h4><ul>{% for item in fit.unknown %}<li>{{ item }}</li>{% endfor %}</ul></section>{% endif %}
+        </div>
         {% if not fit.matches and not fit.gaps and not fit.blockers and not fit.unknown %}<p class="note">The score is from the overall match. There is no point-by-point breakdown.</p>{% endif %}
       </div>
     </div>
@@ -80,12 +80,12 @@
 
 <div class="grid-2">
   <div class="card flush"><div class="card-h"><h3>Applications</h3><span class="sub">The application prepared here, plus anything loaded from your tracker for this employer.</span></div>
-    <div class="table-wrap"><table><thead><tr><th>ID</th><th>Status</th><th>Came from</th><th class="right">Updated</th></tr></thead>
-    <tbody>{% for a in apps %}<tr><td><a class="mono" href="/applications/{{ a._id }}">{{ a._id }}</a></td><td>{{ status(a.status) }}</td><td>{{ a.provenance.origin|label }}</td><td class="right nowrap">{{ a.updated_at|toronto }}</td></tr>
-    {% else %}<tr><td colspan="4"><div class="empty">No application yet. "Tailor resume" prepares one.</div></td></tr>{% endfor %}</tbody></table></div></div>
+    <div class="table-wrap"><table><thead><tr><th>Application</th><th>Status</th><th class="right">Updated</th></tr></thead>
+    <tbody>{% for a in apps %}<tr><td><a href="/applications/{{ a._id }}"><strong>Open the application</strong></a><span class="sub">{{ a.provenance.origin|label }}</span></td><td>{{ status(a.status) }}</td><td class="right">{{ a.updated_at|toronto }}</td></tr>
+    {% else %}<tr><td colspan="3"><div class="empty">No application yet. "Tailor resume" prepares one.</div></td></tr>{% endfor %}</tbody></table></div></div>
   <div class="card flush"><div class="card-h"><h3>Background tasks</h3><span class="sub">Work the app did on its own for this job.</span></div>
     <div class="table-wrap"><table><thead><tr><th>Task</th><th>Status</th><th class="right">Started</th></tr></thead>
-    <tbody>{% for r in runs %}<tr><td><a class="mono" href="/runs/{{ r._id }}">{{ r._id }}</a></td><td>{{ status(r.status) }}</td><td class="right nowrap">{{ r.created_at|toronto }}</td></tr>
+    <tbody>{% for r in runs %}<tr><td><a href="/runs/{{ r._id }}"><strong>{{ r.kind|label }}</strong></a><span class="sub mono">{{ r._id }}</span></td><td>{{ status(r.status) }}</td><td class="right nowrap">{{ r.created_at|toronto }}</td></tr>
     {% else %}<tr><td colspan="3"><div class="empty">No tasks for this job yet.</div></td></tr>{% endfor %}</tbody></table></div></div>
 </div>
 

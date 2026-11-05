@@ -50,7 +50,7 @@
 
 <div class="kpis">
 {% for k in kpis %}
-  <div class="card kpi">
+  <div class="card kpi{% if k.tone %} tone-{{ k.tone }}{% endif %}">
     <div class="kpi-top"><span class="label">{{ k.label }}</span><span class="ico {{ k.tone }}"><svg><use href="#i-{{ k.icon }}"/></svg></span></div>
     <div class="value">{{ k.value }}</div>
     <div class="foot"><span class="pill {{ k.pill_tone }}">{{ k.pill }}</span><span>{{ k.note }}</span></div>
@@ -122,9 +122,9 @@
   <div class="card flush">
     <div class="card-h"><h3>Recent background tasks</h3><a class="btn ghost sm" href="/runs">All tasks</a><span class="sub">Work the app does on its own. A task pauses whenever it needs you.</span></div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Task</th><th>What</th><th>Status</th><th>Waiting for</th><th class="right">Started</th></tr></thead>
-      <tbody>{% for r in runs %}<tr><td><a href="/runs/{{ r._id }}" class="mono">{{ r._id }}</a></td><td>{{ r.kind|label }}</td><td>{{ status(r.status) }}</td><td>{{ (r.interrupt.type|label) if r.interrupt else '' }}</td><td class="right nowrap">{{ r.created_at|toronto }}</td></tr>
-      {% else %}<tr><td colspan="5"><div class="empty">No tasks yet. Open a job and press "Tailor resume" to start one.<div class="actions center mt"><a class="btn secondary sm" href="/jobs">Go to jobs</a></div></div></td></tr>{% endfor %}</tbody>
+      <thead><tr><th>Task</th><th>Status</th><th>Waiting for</th><th class="right">Started</th></tr></thead>
+      <tbody>{% for r in runs %}<tr class="{{ 'hot' if r.status in ('waiting', 'paused') }}{{ ' hot bad' if r.status == 'failed' }}"><td><a href="/runs/{{ r._id }}"><strong>{{ r.kind|label }}</strong></a><span class="sub mono">{{ r._id }}</span></td><td>{{ status(r.status) }}</td><td>{{ (r.interrupt.type|label) if r.interrupt else '' }}</td><td class="right nowrap">{{ r.created_at|toronto }}</td></tr>
+      {% else %}<tr><td colspan="4"><div class="empty">No tasks yet. Open a job and press "Tailor resume" to start one.<div class="actions center mt"><a class="btn secondary sm" href="/jobs">Go to jobs</a></div></div></td></tr>{% endfor %}</tbody>
     </table></div>
   </div>
   <div class="card">
@@ -144,7 +144,7 @@
       <td><a class="row-person" href="/jobs/{{ j._id }}">{{ company(j.employer, j) }}<span>{{ j.employer }}</span></a></td>
       <td>{{ j.title }}<span class="sub">{{ j.location or '' }}</span></td>
       <td>{{ status(j.status) }}</td>
-      <td>{% if j.fit %}fit {{ j.fit.rank }}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td>{% set fv = fit_score(j.fit) %}{% if fv %}<span class="pill {{ fv.tone }}" title="{{ fv.label }}">{{ fv.score }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
       <td class="right nowrap">{{ j.updated_at|toronto }}</td></tr>
     {% else %}<tr><td colspan="5"><div class="empty"><svg class="icon"><use href="#i-jobs"/></svg>No jobs yet. Paste a job link to add the first one.<div class="actions center mt"><a class="btn sm" href="/jobs">Add a job</a></div></div></td></tr>{% endfor %}</tbody>
   </table></div>

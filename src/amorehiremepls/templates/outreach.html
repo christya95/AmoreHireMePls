@@ -37,12 +37,13 @@
   </table></div>
 </div>
 
+{% set names = {} %}{% for r in recipients %}{% set _ = names.update({r._id: r}) %}{% endfor %}
 <div class="card flush">
   <div class="card-h"><h3>Step 4 · Drafts and sent notes</h3><span class="pill">{{ messages|length }}</span><span class="sub">LinkedIn notes you send yourself: copy the text, send it in LinkedIn, then press "I sent it". Each send is its own go ahead.</span></div>
   <div class="table-wrap"><table>
     <thead><tr><th>When</th><th>Person</th><th>Type</th><th>Status</th><th>Text</th><th>Checks</th><th>Actions</th></tr></thead>
     <tbody>{% for m in messages %}<tr>
-      <td class="nowrap">{{ m.created_at|toronto }}</td><td><small class="mono">{{ m.recipient_id }}</small></td><td>{{ m.kind|label }}</td>
+      <td class="nowrap">{{ m.created_at|toronto }}</td><td>{% set rp = names.get(m.recipient_id) %}{% if rp %}<strong>{{ rp.display_name }}</strong><span class="sub">{{ rp.employer }}</span>{% else %}<small class="mono">{{ m.recipient_id }}</small>{% endif %}</td><td>{{ m.kind|label }}</td>
       <td>{{ status(m.status) }}{% if m.last_send_result %}<span class="sub">{{ m.last_send_result.status|label }}: {{ m.last_send_result.reasons|join('; ') if m.last_send_result.reasons else m.last_send_result.reason or '' }}</span>{% endif %}</td>
       <td class="wrap msg-text">{{ m.text }}<span class="sub">{{ m.validation.length }} characters · {{ m.method|label }}</span></td>
       <td>{% if m.validation.ok %}<span class="pill ok">passes</span>{% else %}{% for p in m.validation.problems %}<span class="pill bad">{{ p }}</span>{% endfor %}{% endif %}</td>

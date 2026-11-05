@@ -8,7 +8,7 @@
   </div>
   <div class="table-wrap"><table>
     <thead><tr><th>Employer and role</th><th>Status</th><th>Resume</th><th>Next</th><th class="right">Updated</th></tr></thead>
-    <tbody>{% for a in apps %}{% set j = jobs.get(a.job_id, {}) %}{% set pkg = a.review_package or {} %}<tr>
+    <tbody>{% for a in apps %}{% set j = jobs.get(a.job_id, {}) %}{% set pkg = a.review_package or {} %}<tr class="{{ 'hot' if a.status in ['ready_for_review', 'needs_input', 'handoff', 'needs_verification'] }}{{ ' bad' if a.status == 'needs_verification' }}">
       <td><a class="row-person" href="/applications/{{ a._id }}">{{ company(j.employer, j) }}<span><strong>{{ j.employer or a.job_id }}</strong><span class="sub">{{ j.title or '' }}{% if j.location %} · {{ j.location }}{% endif %}</span></span></a></td>
       <td>{{ status(a.status) }}{% if a.reason %}<span class="sub">{{ a.reason }}</span>{% endif %}</td>
       <td>{% if pkg.document %}<small class="wrap">{{ pkg.document.filename }}</small>{% else %}<span class="muted">—</span>{% endif %}</td>

@@ -35,16 +35,15 @@
 <div class="card flush">
   <div class="card-h"><h3>Your past applications</h3><span class="pill">{{ apps|length }}</span></div>
   <div class="table-wrap"><table>
-    <thead><tr><th>Entry</th><th>Employer and role</th><th>Status</th><th>Date</th><th>How sure</th><th>Files</th><th>On GitHub</th></tr></thead>
+    <thead><tr><th>Employer and role</th><th>Status</th><th>Date</th><th>How sure</th><th>Files</th><th>On GitHub</th></tr></thead>
     <tbody>{% for a in apps %}<tr>
-      <td class="mono">{{ a.tracker_record_id }}</td>
-      <td><span class="row-person">{{ company(a.record.employer, jobs.get(a.job_id)) }}<span><strong>{{ a.record.employer }}</strong><span class="sub">{{ a.record.role }}</span></span></span></td>
+      <td><span class="row-person">{{ company(a.record.employer, jobs.get(a.job_id)) }}<span><strong>{{ a.record.employer }}</strong><span class="sub">{{ a.record.role }}</span><span class="sub mono">{{ a.tracker_record_id }}</span></span></span></td>
       <td>{{ status(a.status) }}</td>
       <td class="nowrap">{{ a.record.application_date }}<span class="sub">{{ a.record.date_basis }}</span></td>
       <td><small>{{ a.record.evidence_basis or '—' }}</small></td>
       <td>{% for s in a.artifact_status %}<span class="pill {{ 'ok' if s.hash_ok else 'bad' }}">{{ s.kind|label }}</span> {% endfor %}</td>
       <td>{{ status(a.sync.state) }}</td></tr>
-    {% else %}<tr><td colspan="7"><div class="empty"><svg class="icon"><use href="#i-history"/></svg>Nothing loaded yet. {% if sync.clone_present %}Press "Load past applications" above.{% else %}Download the tracker first (see above).{% endif %}</div></td></tr>{% endfor %}</tbody>
+    {% else %}<tr><td colspan="6"><div class="empty"><svg class="icon"><use href="#i-history"/></svg>Nothing loaded yet. {% if sync.clone_present %}Press "Load past applications" above.{% else %}Download the tracker first (see above).{% endif %}</div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>
 </div>

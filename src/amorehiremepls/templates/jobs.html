@@ -23,11 +23,13 @@
       <div class="card-h"><h3>Job boards the app watches</h3><form method="post" action="/jobs/discover" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary sm"><svg class="icon"><use href="#i-sync"/></svg>Search now</button></form></div>
       {% if sources %}<div class="table-wrap"><table class="compact"><thead><tr><th>Board</th><th>Company name on the board</th><th>Employer</th></tr></thead><tbody>{% for s in sources %}<tr><td>{{ s.type|label }}</td><td class="mono">{{ s.key }}</td><td>{{ s.employer or '' }}</td></tr>{% endfor %}</tbody></table></div>
       {% else %}<p class="note">No boards yet. Add a Greenhouse or Lever company name below and the app checks it on its schedule.</p>{% endif %}
-      <form method="post" action="/jobs/sources" class="form-row mt"><input type="hidden" name="csrf" value="{{ csrf }}">
-        <div class="field narrow"><label>Board</label><select name="type">{% for t in source_types %}<option value="{{ t }}">{{ t|label }}</option>{% endfor %}</select></div>
+      <form method="post" action="/jobs/sources" class="stack gap-s mt"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <div class="form-grid">
+          <div class="field"><label>Board</label><select name="type">{% for t in source_types %}<option value="{{ t }}">{{ t|label }}</option>{% endfor %}</select></div>
+          <div class="field"><label>Employer</label><input name="employer" placeholder="optional"></div>
+        </div>
         <div class="field"><label>Company name on the board</label><input name="key" required placeholder="as it appears in the board's web address"></div>
-        <div class="field"><label>Employer</label><input name="employer" placeholder="optional"></div>
-        <button class="secondary">Watch this board</button></form>
+        <div class="form-actions"><button class="secondary">Watch this board</button></div></form>
     </div>
     <div class="card">
       <div class="card-h"><h3>Prepare several at once</h3>{{ hint('batch') }}<span class="sub">Tailors resumes for your best matching jobs. Nothing is sent. Each one still waits for your approval.</span></div>
@@ -45,7 +47,7 @@
   </div>
   <div class="table-wrap"><table>
     <thead><tr><th>Employer and role</th><th>Status</th><th>Fit {{ hint('fit_rank') }}</th><th>Why</th><th>Application</th><th class="right">Updated</th></tr></thead>
-    <tbody>{% for j in jobs %}<tr>
+    <tbody>{% for j in jobs %}{% set app_hot = apps.get(j._id) and apps[j._id].status in ['ready_for_review', 'needs_input', 'handoff', 'needs_verification'] %}<tr class="{{ 'hot' if (j.status == 'needs_review' or j.needs_reconciliation or app_hot) }}{{ ' bad' if j.needs_reconciliation }}">
       <td><a class="row-person" href="/jobs/{{ j._id }}">{{ company(j.employer, j) }}<span><strong>{{ j.employer }}</strong><span class="sub">{{ j.title }}{% if j.location %} · {{ j.location }}{% endif %}{% if j.requisition_id or j.linkedin_job_id %} · {{ j.requisition_id or j.linkedin_job_id }}{% endif %}</span></span></a></td>
       <td>{{ status(j.status) }}{% if j.needs_reconciliation %} <span class="pill bad">check this one</span>{% endif %}</td>
       <td>{% set fv = fit_score(j.fit) %}{% if fv %}<span class="pill {{ fv.tone }}" title="{{ fv.label }}">{{ fv.score }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>

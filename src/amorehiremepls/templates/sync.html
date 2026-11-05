@@ -27,9 +27,9 @@
 <div class="card flush">
   <div class="card-h"><h3>Each application and its save</h3><span class="pill">{{ items|length }}</span></div>
   <div class="table-wrap"><table>
-    <thead><tr><th>Item</th><th>Application</th><th>Status</th><th>Tracker entry</th><th>GitHub version</th><th>Tries</th><th>Problem</th><th class="right">Next try</th></tr></thead>
-    <tbody>{% for i in items %}<tr><td class="mono"><small>{{ i._id }}</small></td><td><a class="mono" href="/applications/{{ i.application_id }}">{{ i.application_id }}</a></td><td>{{ status(i.status) }}</td><td>{{ i.record_id or '' }}</td><td><code>{{ (i.commit_sha or '')[:12] }}</code></td><td>{{ i.attempts }}</td><td><small>{{ i.error or '' }}</small></td><td class="right nowrap">{{ i.next_attempt_at|toronto }}</td></tr>
-    {% else %}<tr><td colspan="8"><div class="empty">Nothing here yet. The first confirmed application adds a row.</div></td></tr>{% endfor %}</tbody>
+    <thead><tr><th>Application</th><th>Status</th><th>Tracker entry</th><th>GitHub version</th><th>Tries</th><th>Problem</th><th class="right">Next try</th></tr></thead>
+    <tbody>{% for i in items %}<tr class="{{ 'hot bad' if i.status == 'conflict' }}"><td><a href="/applications/{{ i.application_id }}"><strong>Open the application</strong></a><span class="sub mono">{{ i.application_id }} · {{ i._id }}</span></td><td>{{ status(i.status) }}</td><td>{{ i.record_id or '' }}</td><td><code>{{ (i.commit_sha or '')[:12] }}</code></td><td>{{ i.attempts }}</td><td><small>{{ i.error or '' }}</small></td><td class="right nowrap">{{ i.next_attempt_at|toronto }}</td></tr>
+    {% else %}<tr><td colspan="7"><div class="empty">Nothing here yet. The first confirmed application adds a row.</div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>
 </div>
