@@ -1,18 +1,27 @@
 """Playwright execution adapter: deterministic plan executor with compact observations.
 
-A `plan` is a list of steps (fill, select, check, upload, click, expect_text, wait_url). Site adapters
-produce plans; this module executes them inside an isolated browser context:
-  * navigation and sub-requests restricted to allowed hosts (everything else aborted)
+A `plan` is a list of steps (fill, select, check, upload, click, expect_text, wait_url, assert_value, choose,
+choose_multi, autocomplete). Site adapters produce plans; this module executes them inside an isolated
+browser context:
+  * top-level navigation restricted to allowed hosts; sub-resources (scripts, styles, fonts, frames) may
+    additionally come from the plan's / config's `resource_hosts`; everything else is aborted
   * no downloads, dedicated storage state per site, no access to the host filesystem beyond the
     specific files passed for upload
-  * login challenges / CAPTCHAs raise HandoffRequired (never bypassed)
+  * login challenges raise HandoffRequired (never bypassed)
+  * a CAPTCHA / human check raises HandoffRequired too, unless an opt-in `CaptchaSolver` is attached and
+    the challenge is one of the simple kinds it supports (text image, image grid); every attempt is
+    recorded on the evidence and the attempt count is capped
   * a timeout after the final submit raises AmbiguousOutcome with evidence (screenshot, URL, text)
+
+Steps run inside `plan.frame_selector` when that iframe is present (embedded job boards), otherwise on the page.
+`choose` / `choose_multi` / `autocomplete` resolve the control kind at run time (native select, React style
+combobox, radio / checkbox group), so one plan covers several layouts of the same form.
 
 Screenshots: `summary` is the fully filled final review step captured immediately before the final submit
 click (after any `assert_value` review checks passed); `receipt` is the verified confirmation page; an
-ambiguous outcome after the final click keeps the distinct `ambiguous` label. Each entry in
-`evidence["screenshots"]` is `{label, path, sha256, captured_at, url}`. Files are written under the job's
-artifact directory (`<artifact_dir>/jobs/<job_id>/screenshots/`) when a job id is known, otherwise under
+ambiguous outcome after the final click keeps the distinct `ambiguous` label; a human check keeps `challenge`.
+Each entry in `evidence["screenshots"]` is `{label, path, sha256, captured_at, url}`. Files are written under the
+job's artifact directory (`<artifact_dir>/jobs/<job_id>/screenshots/`) when a job id is known, otherwise under
 `screenshot_dir`.
 
 Authenticated sessions: `login_interactive(site)` opens a headed browser on the Mac for Joss to sign
@@ -23,19 +32,33 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from .actions import ActionFailed, AmbiguousOutcome
+from .actions import ActionFailed, ActionHandoff, AmbiguousOutcome
 from .util import sha256_file, utcnow
 
 log = logging.getLogger(__name__)
 
 LOGIN_PATTERNS = re.compile(r"(sign ?in|log ?in|password|verify you are human|captcha|one-time code|two-factor)", re.I)
-SCREENSHOT_LABELS = ("summary", "receipt", "ambiguous", "receipt_mismatch", "failed", "handoff", "validation")
+SCREENSHOT_LABELS = ("summary", "receipt", "ambiguous", "receipt_mismatch", "failed", "handoff", "validation", "challenge")
 _SAFE_ID = re.compile(r"[^A-Za-z0-9._-]+")
+HUMAN_CHECK_REASON = "the job site asked for a human check"
+
+# Visible challenge widgets. Kind -> (selector that is visible only while a challenge is open, supported by the solver?)
+CHALLENGE_SELECTORS: list[tuple[str, str]] = [
+    ("text_captcha", '[data-captcha-challenge="text"]'),
+    ("image_grid", '[data-captcha-challenge="grid"]'),
+    ("recaptcha", 'iframe[src*="recaptcha"][src*="bframe"]'),
+    ("hcaptcha", 'iframe[src*="hcaptcha.com"][src*="frame=challenge"]'),
+    ("turnstile", 'iframe[src*="challenges.cloudflare.com"]'),
+    ("human_check", "[data-captcha-challenge]"),
+]
+SOLVABLE_CHALLENGES = ("text_captcha", "image_grid")
+VALIDATION_SELECTOR = "[role=alert], .error, .field-error, .helper-text--error, .input-wrapper--error [aria-invalid=true], [aria-invalid=true]"
 
 
 def normalize_screenshots(raw: Any) -> list[dict[str, Any]]:
@@ -70,30 +93,38 @@ def _label_from_path(path: str) -> str:
     return stem.rsplit("_", 1)[-1] if "_" in stem else "unknown"
 
 
-class HandoffRequired(Exception):
-    def __init__(self, reason: str, evidence: dict | None = None) -> None:
-        super().__init__(reason)
-        self.evidence = evidence or {}
+class HandoffRequired(ActionHandoff):
+    """Login wall or human check: the browser stopped before the submit went through."""
 
 
 @dataclass
 class Step:
-    type: str  # fill | select | check | upload | click | expect_text | wait_url | assert_value
-    selector: str = ""
+    type: str  # fill | select | check | upload | click | expect_text | wait_url | assert_value | choose | choose_multi | autocomplete
+    selector: str = ""  # CSS; a comma list of alternatives is allowed (first match wins)
     value: str = ""
     text: str = ""
     timeout_ms: int = 10000
     final: bool = False  # the irreversible submit click
+    label: str = ""  # fallback: find the control by its visible label when no selector matches (other layouts)
+    options: list[str] = field(default_factory=list)  # choose_multi: option labels to tick
+    option_selectors: list[str] = field(default_factory=list)  # choose/choose_multi: per-option radio/checkbox selectors (same order as options)
+    optional: bool = False  # skip silently when the control does not exist on this layout
 
 
 @dataclass
 class Plan:
     start_url: str
     steps: list[Step]
-    receipt_text: str  # text that must appear after the final step
-    receipt_must_include: list[str] = field(default_factory=list)  # e.g. requisition id
+    receipt_text: str  # text that must appear after the final step (one of `receipt_patterns` when those are set)
+    receipt_must_include: list[str] = field(default_factory=list)  # e.g. requisition id in the receipt text
     upload_filename: str | None = None
     job_id: str | None = None  # names screenshot files and selects the job's artifact directory
+    receipt_patterns: list[str] = field(default_factory=list)  # regex alternatives for the confirmation text
+    receipt_url_pattern: str | None = None  # regex the final URL may match instead of / in addition to the text
+    receipt_url_must_include: list[str] = field(default_factory=list)  # identifiers that must appear in the final URL
+    frame_selector: str | None = None  # run the steps inside this iframe when it exists (embedded boards)
+    resource_hosts: list[str] = field(default_factory=list)  # extra hosts for scripts/styles/frames (never navigation)
+    site: str = ""  # plain site name for messages ("Greenhouse")
 
 
 @dataclass
@@ -105,6 +136,8 @@ class BrowserConfig:
     default_timeout_ms: int = 15000
     upload_root: Path | None = None  # uploads must live under this directory (tailored artifacts only)
     artifact_dir: Path | None = None  # screenshots go to <artifact_dir>/jobs/<job_id>/screenshots/
+    resource_hosts: set[str] = field(default_factory=set)  # sub-resource hosts allowed on every plan
+    captcha_max_attempts: int = 3
 
 
 @dataclass
@@ -113,9 +146,47 @@ class _ShotTarget:
     job_id: str | None = None
 
 
+class _Scope:
+    """Page or iframe: everything the steps touch goes through here."""
+
+    def __init__(self, page, frame_selector: str | None = None) -> None:
+        self.page = page
+        self.frame_selector = frame_selector
+        self.root = page.frame_locator(frame_selector) if frame_selector else page
+
+    def locator(self, selector: str):
+        return self.root.locator(selector)
+
+    def get_by_label(self, text: str, exact: bool = False):
+        return self.root.get_by_label(text, exact=exact)
+
+    def get_by_text(self, text, exact: bool = False):
+        return self.root.get_by_text(text, exact=exact)
+
+    def current_url(self) -> str:
+        """URL of the frame the form lives in (the iframe's own URL when one is used)."""
+        if self.frame_selector:
+            try:
+                return self.root.locator("body").evaluate("() => location.href", timeout=1000)
+            except Exception:
+                pass
+        return self.page.url
+
+    def body_text(self) -> str:
+        """Visible text of the page (and the iframe when one is used). Empty while the page is navigating."""
+        text = ""
+        for root in [self.page, self.root] if self.frame_selector else [self.page]:
+            try:
+                text += "\n" + root.locator("body").inner_text(timeout=1000)
+            except Exception:
+                continue
+        return text
+
+
 class BrowserAdapter:
-    def __init__(self, config: BrowserConfig) -> None:
+    def __init__(self, config: BrowserConfig, captcha_solver: Any | None = None) -> None:
         self.config = config
+        self.captcha_solver = captcha_solver  # opt-in; only ever used from the application-submit path
 
     def _shot_target(self, plan: Plan | None = None) -> _ShotTarget:
         job_id = plan.job_id if plan else None
@@ -135,11 +206,12 @@ class BrowserAdapter:
             return None
         return self.config.session_dir / f"{site_key}.storage.json"
 
-    def run_plan(self, plan: Plan, site_key: str = "default", observe: bool = True) -> dict[str, Any]:
+    def run_plan(self, plan: Plan, site_key: str = "default", observe: bool = True, captcha_solver: Any | None = None) -> dict[str, Any]:
         from playwright.sync_api import TimeoutError as PWTimeout
         from playwright.sync_api import sync_playwright
 
         self._check_host(plan.start_url)
+        solver = captcha_solver if captcha_solver is not None else self.captcha_solver
         evidence: dict[str, Any] = {"started_at": utcnow().isoformat(), "steps_done": 0, "final_clicked": False}
         shots = self._shot_target(plan)
         state = self._state_path(site_key)
@@ -151,41 +223,51 @@ class BrowserAdapter:
             context = browser.new_context(**ctx_kwargs)
             context.set_default_timeout(self.config.default_timeout_ms)
             allowed = self.config.allowed_hosts
+            resources = {h.lower() for h in [*self.config.resource_hosts, *plan.resource_hosts]}
 
             def gate(route, request):
                 host = urlsplit(request.url).netloc.split(":")[0].lower()
-                if host in allowed or request.url.startswith("data:"):
+                if request.url.startswith("data:") or host in allowed:
                     route.continue_()
-                else:
-                    route.abort()
+                    return
+                if host in resources:
+                    try:  # resource hosts may serve scripts, styles, fonts and child frames, never the top-level page
+                        top_level = request.is_navigation_request() and request.frame.parent_frame is None
+                    except Exception:
+                        top_level = True
+                    if not top_level:
+                        route.continue_()
+                        return
+                route.abort()
 
             context.route("**/*", gate)
             page = context.new_page()
+            scope = _Scope(page)
             try:
                 page.goto(plan.start_url, wait_until="domcontentloaded")
                 self._detect_login(page, evidence, shots)
+                scope = self._scope_for(page, plan)
                 for i, step in enumerate(plan.steps):
                     if step.final:
                         # the filled-in review state exactly as it looked before the irreversible click
                         self._snapshot(page, evidence, "summary", shots)
                         evidence["final_clicked"] = True
                         evidence["final_url_before"] = page.url
-                    self._do_step(page, step, plan)
+                    self._do_step(scope, step, plan)
                     evidence["steps_done"] = i + 1
                     if step.type in ("click",) and not step.final:
                         self._detect_login(page, evidence, shots)
-                        self._detect_validation_errors(page, evidence, shots)
-                try:
-                    page.get_by_text(plan.receipt_text, exact=False).first.wait_for(timeout=plan.steps[-1].timeout_ms if plan.steps else 15000)
-                except PWTimeout as exc:
-                    self._snapshot(page, evidence, "ambiguous", shots)
-                    raise AmbiguousOutcome("receipt not observed before timeout after final action", evidence) from exc
-                body = page.inner_text("body")[:4000]
-                evidence.update(receipt_text=body, final_url=page.url, observed_at=utcnow().isoformat())
+                        self._detect_validation_errors(scope, evidence, shots)
+                self._await_receipt(scope, plan, evidence, shots, solver)
+                body = scope.body_text()[:4000]
+                final_url = scope.current_url()
+                evidence.update(receipt_text=body, final_url=final_url, observed_at=utcnow().isoformat())
                 expected = [m for m in plan.receipt_must_include if m]
                 matched = [m for m in expected if m.lower() in body.lower()]
-                evidence["matched_identifiers"] = matched  # only what was really seen on the receipt
-                missing = [m for m in expected if m not in matched]
+                url_expected = [m for m in plan.receipt_url_must_include if m]
+                url_matched = [m for m in url_expected if m.lower() in final_url.lower()]
+                evidence["matched_identifiers"] = matched + [m for m in url_matched if m not in matched]  # only what was really seen
+                missing = [m for m in expected if m not in matched] + [m for m in url_expected if m not in url_matched]
                 if missing:
                     self._snapshot(page, evidence, "receipt_mismatch", shots)
                     raise AmbiguousOutcome(f"receipt does not reference expected identifiers: {missing}", evidence)
@@ -207,31 +289,253 @@ class BrowserAdapter:
                 context.close()
                 browser.close()
 
-    def _do_step(self, page, step: Step, plan: Plan) -> None:
+    # -- receipt / challenge loop -----------------------------------------------------------------------
+    def _await_receipt(self, scope: _Scope, plan: Plan, evidence: dict, shots: _ShotTarget, solver: Any | None) -> None:
+        """After the final click: wait for the confirmation, but stop early on a human check or a validation error."""
+        page = scope.page
+        timeout_ms = plan.steps[-1].timeout_ms if plan.steps else 15000
+        patterns = [re.compile(p, re.I) for p in (plan.receipt_patterns or [re.escape(plan.receipt_text)]) if p]
+        url_re = re.compile(plan.receipt_url_pattern, re.I) if plan.receipt_url_pattern else None
+        deadline = time.monotonic() + timeout_ms / 1000
+        attempts = 0
+        while True:
+            if url_re and url_re.search(scope.current_url()):
+                return
+            body = scope.body_text()
+            if any(p.search(body) for p in patterns):
+                return
+            challenge = self._detect_challenge(scope)
+            if challenge:
+                self._snapshot(page, evidence, "challenge", shots)
+                evidence["challenge"] = challenge["kind"]
+                if solver is not None and challenge["kind"] in SOLVABLE_CHALLENGES and attempts < self.config.captcha_max_attempts:
+                    attempts += 1
+                    solved = self._try_solve(scope, challenge, solver, evidence, attempts)
+                    if solved:
+                        deadline = time.monotonic() + timeout_ms / 1000  # the submit continues after the check
+                        continue
+                    if attempts < self.config.captcha_max_attempts and self._detect_challenge(scope):
+                        continue
+                site = plan.site or "the job site"
+                raise HandoffRequired(f"{site} asked for a human check", {**evidence, "url": page.url, "challenge": challenge["kind"]})
+            errs = self._validation_errors(scope)
+            if errs:
+                self._snapshot(page, evidence, "validation", shots)
+                # client-side validation kept the form on the page: nothing was sent, so this may be fixed and retried
+                raise ActionFailed(f"the form reported a problem: {errs[:3]}", {**evidence, "validation_errors": errs}, retryable=True)
+            if time.monotonic() > deadline:
+                self._snapshot(page, evidence, "ambiguous", shots)
+                raise AmbiguousOutcome("receipt not observed before timeout after final action", evidence)
+            page.wait_for_timeout(250)
+
+    def _try_solve(self, scope: _Scope, challenge: dict, solver: Any, evidence: dict, attempt: int) -> bool:
+        """One bounded solver attempt against a simple challenge widget. Records the attempt either way."""
+        from .captcha import CaptchaAnswer, read_challenge
+
+        record: dict[str, Any] = {"attempt": attempt, "kind": challenge["kind"], "solved": False}
+        evidence.setdefault("captcha_attempts", []).append(record)
+        try:
+            widget = read_challenge(scope, challenge)
+            answer: CaptchaAnswer = solver.solve(widget)
+            record.update(answer=answer.kind, usage=answer.usage)
+            if answer.kind == "text" and answer.text:
+                scope.locator(widget.input_selector).first.fill(answer.text)
+            elif answer.kind == "cells" and answer.cells:
+                for idx in answer.cells:
+                    scope.locator(f'{widget.selector} [data-cell="{idx}"]').first.click()
+            else:
+                return False
+            scope.locator(widget.submit_selector).first.click()
+            scope.page.wait_for_timeout(500)
+            record["solved"] = self._detect_challenge(scope) is None
+        except Exception as exc:  # a solver problem is never a submission problem; fall back to the human check
+            record["error"] = type(exc).__name__
+            log.warning("captcha solve attempt %s failed: %s", attempt, type(exc).__name__)
+        return bool(record["solved"])
+
+    def _detect_challenge(self, scope: _Scope) -> dict | None:
+        for kind, selector in CHALLENGE_SELECTORS:
+            try:
+                loc = scope.locator(selector).first
+                if loc.count() and loc.is_visible():
+                    return {"kind": kind, "selector": selector}
+            except Exception:
+                continue
+        return None
+
+    # -- steps ------------------------------------------------------------------------------------------
+    def _scope_for(self, page, plan: Plan) -> _Scope:
+        if not plan.frame_selector:
+            return _Scope(page)
+        try:
+            page.locator(plan.frame_selector).first.wait_for(state="attached", timeout=3000)
+            return _Scope(page, plan.frame_selector)
+        except Exception:
+            return _Scope(page)
+
+    def _find(self, scope: _Scope, step: Step):
+        """Locator for a step: first matching selector alternative, else the visible label, else None."""
+        if step.selector:
+            loc = scope.locator(step.selector).first
+            if loc.count():
+                return loc
+        if step.label:
+            loc = scope.get_by_label(step.label, exact=False).first
+            if loc.count():
+                return loc
+        return None
+
+    def _require(self, scope: _Scope, step: Step):
+        loc = self._find(scope, step)
+        if loc is None:
+            if step.optional:
+                return None
+            loc = scope.locator(step.selector).first  # let Playwright raise its timeout with the selector in the message
+            loc.wait_for(state="attached", timeout=step.timeout_ms)
+        return loc
+
+    def _do_step(self, scope: _Scope, step: Step, plan: Plan) -> None:
         if step.type == "fill":
-            page.fill(step.selector, step.value, timeout=step.timeout_ms)
+            loc = self._require(scope, step)
+            if loc is not None:
+                loc.fill(step.value, timeout=step.timeout_ms)
         elif step.type == "select":
-            page.select_option(step.selector, step.value, timeout=step.timeout_ms)
+            loc = self._require(scope, step)
+            if loc is not None:
+                loc.select_option(step.value, timeout=step.timeout_ms)
         elif step.type == "check":
-            page.check(step.selector, timeout=step.timeout_ms)
+            loc = self._require(scope, step)
+            if loc is not None:
+                loc.check(timeout=step.timeout_ms)
         elif step.type == "upload":
             path = self.check_upload_path(step.value)
-            page.set_input_files(step.selector, str(path), timeout=step.timeout_ms)
-            shown = page.evaluate("sel => { const el = document.querySelector(sel); return el && el.files && el.files[0] ? el.files[0].name : null }", step.selector)
+            loc = self._require(scope, step)
+            if loc is None:
+                return
+            loc.set_input_files(str(path), timeout=step.timeout_ms)
+            shown = loc.evaluate("el => el.files && el.files[0] ? el.files[0].name : null")
             if shown != path.name:
                 raise ActionFailed(f"uploaded filename mismatch: expected {path.name}, saw {shown}")
         elif step.type == "click":
-            page.click(step.selector, timeout=step.timeout_ms)
+            loc = self._require(scope, step)
+            if loc is not None:
+                loc.click(timeout=step.timeout_ms)
         elif step.type == "expect_text":
-            page.get_by_text(step.text, exact=False).first.wait_for(timeout=step.timeout_ms)
+            scope.get_by_text(step.text, exact=False).first.wait_for(timeout=step.timeout_ms)
         elif step.type == "wait_url":
-            page.wait_for_url(re.compile(step.value), timeout=step.timeout_ms)
+            scope.page.wait_for_url(re.compile(step.value), timeout=step.timeout_ms)
         elif step.type == "assert_value":
-            actual = page.input_value(step.selector, timeout=step.timeout_ms)
+            loc = self._require(scope, step)
+            actual = loc.input_value(timeout=step.timeout_ms) if loc is not None else None
             if actual != step.value:
                 raise ActionFailed(f"review state mismatch for {step.selector}: '{actual}' != '{step.value}'")
+        elif step.type == "choose":
+            self._choose(scope, step)
+        elif step.type == "choose_multi":
+            self._choose_multi(scope, step)
+        elif step.type == "autocomplete":
+            self._autocomplete(scope, step)
         else:
             raise ActionFailed(f"unknown step type {step.type}")
+
+    def _kind(self, loc) -> str:
+        js = (
+            "el => el.tagName === 'SELECT' ? 'select' : (el.getAttribute('role') === 'combobox' || el.getAttribute('aria-autocomplete') === 'list') "
+            "? 'combobox' : (el.type || el.tagName.toLowerCase())"
+        )
+        return loc.evaluate(js)
+
+    def _in_group(self, scope: _Scope, label: str, option: str):
+        """A radio/checkbox inside the fieldset (or group) whose legend is the question label."""
+        if not label:
+            return None
+        group = scope.locator("fieldset, [role=group], [role=radiogroup]").filter(has_text=label[:60])
+        if group.count():
+            loc = group.first.get_by_label(option, exact=True).first
+            if loc.count():
+                return loc
+        return None
+
+    def _choose(self, scope: _Scope, step: Step) -> None:
+        """Single choice: radio by option selector, native <select> by label, or a combobox (type, then click the exact option)."""
+        for sel in step.option_selectors:
+            loc = scope.locator(sel).first
+            if loc.count():
+                loc.check(timeout=step.timeout_ms)
+                return
+        loc = self._find(scope, step)
+        if loc is None:
+            grouped = self._in_group(scope, step.label, step.value)
+            if grouped is not None:
+                grouped.check(timeout=step.timeout_ms)
+                return
+            loc = self._require(scope, step)
+            if loc is None:
+                return
+        kind = self._kind(loc)
+        if kind == "select":
+            loc.select_option(label=step.value, timeout=step.timeout_ms)
+        elif kind == "combobox":
+            self._pick_option(scope, loc, step.value, step.timeout_ms, exact=True)
+        elif kind in ("radio", "checkbox"):
+            scope.get_by_label(step.value, exact=True).first.check(timeout=step.timeout_ms)
+        else:
+            loc.fill(step.value, timeout=step.timeout_ms)
+
+    def _choose_multi(self, scope: _Scope, step: Step) -> None:
+        """Several choices: checkbox per option selector, else by option label, else a multi-select combobox."""
+        picked: set[int] = set()
+        for i, sel in enumerate(step.option_selectors):
+            if i >= len(step.options):
+                break
+            loc = scope.locator(sel).first
+            if loc.count():
+                loc.check(timeout=step.timeout_ms)
+                picked.add(i)
+        remaining = [o for i, o in enumerate(step.options) if i not in picked]
+        if not remaining:
+            return
+        loc = self._find(scope, step)
+        kind = self._kind(loc) if loc is not None else ""
+        if kind == "select":
+            loc.select_option(label=remaining, timeout=step.timeout_ms)
+        elif kind == "combobox":
+            for opt in remaining:
+                self._pick_option(scope, loc, opt, step.timeout_ms, exact=True)
+        else:
+            for opt in remaining:
+                box = self._in_group(scope, step.label, opt) or scope.get_by_label(opt, exact=True).first
+                box.check(timeout=step.timeout_ms)
+
+    def _autocomplete(self, scope: _Scope, step: Step) -> None:
+        """Type into a suggestion box and pick the first suggestion that contains the typed value (city, country)."""
+        loc = self._require(scope, step)
+        if loc is None:
+            return
+        if self._kind(loc) == "select":
+            loc.select_option(label=step.value, timeout=step.timeout_ms)
+            return
+        self._pick_option(scope, loc, step.value, step.timeout_ms, exact=False)
+
+    def _pick_option(self, scope: _Scope, loc, value: str, timeout_ms: int, exact: bool) -> None:
+        loc.click(timeout=timeout_ms)
+        loc.fill(value if exact else value.split(",")[0].strip(), timeout=timeout_ms)
+        options = scope.locator('[role="option"]:visible, .select__option:visible')
+        try:
+            options.first.wait_for(state="visible", timeout=min(timeout_ms, 5000))
+        except Exception as exc:
+            raise ActionFailed(f"no suggestions appeared for '{value}'", {"value": value}) from exc
+        texts = [t.strip() for t in options.all_inner_texts()]
+        want = value.strip().lower()
+        idx = next((i for i, t in enumerate(texts) if t.lower() == want), None)
+        if idx is None and not exact:
+            idx = next((i for i, t in enumerate(texts) if want in t.lower()), None)
+            if idx is None:
+                head = want.split(",")[0].strip()
+                idx = next((i for i, t in enumerate(texts) if head and head in t.lower()), None)
+        if idx is None:
+            raise ActionFailed(f"option '{value}' is not offered; the site offers {texts[:8]}", {"value": value, "offered": texts[:20]})
+        options.nth(idx).click(timeout=timeout_ms)
 
     def check_upload_path(self, value: str) -> Path:
         """Only files under the configured artifact directory may be uploaded (never arbitrary host paths)."""
@@ -254,14 +558,17 @@ class BrowserAdapter:
             self._snapshot(page, evidence, "handoff", shots)
             raise HandoffRequired("login or human verification challenge detected", {**evidence, "url": page.url})
 
-    def _detect_validation_errors(self, page, evidence: dict, shots: _ShotTarget | None = None) -> None:
+    def _validation_errors(self, scope: _Scope) -> list[str]:
         try:
-            errs = page.locator("[role=alert], .error, .field-error, [aria-invalid=true]").all_inner_texts()
+            errs = [e.strip() for e in scope.locator(VALIDATION_SELECTOR).all_inner_texts() if e.strip()]
         except Exception:
-            return
-        errs = [e.strip() for e in errs if e.strip()]
+            return []
+        return list(dict.fromkeys(errs))
+
+    def _detect_validation_errors(self, scope: _Scope, evidence: dict, shots: _ShotTarget | None = None) -> None:
+        errs = self._validation_errors(scope)
         if errs:
-            self._snapshot(page, evidence, "validation", shots)
+            self._snapshot(scope.page, evidence, "validation", shots)
             raise ActionFailed(f"form validation errors: {errs[:3]}", {**evidence, "validation_errors": errs})
 
     def _snapshot(self, page, evidence: dict, label: str, shots: _ShotTarget | None = None) -> None:
@@ -298,7 +605,7 @@ class BrowserAdapter:
                     """() => {
                       const out = [];
                       const labelFor = (el) => {
-                        if (el.id) { const l = document.querySelector(`label[for="${el.id}"]`); if (l) return l.innerText.trim(); }
+                        if (el.id) { const l = document.querySelector(`label[for="${CSS.escape(el.id)}"]`); if (l) return l.innerText.trim(); }
                         const p = el.closest('label'); if (p) return p.innerText.trim();
                         return el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.name || el.id || '';
                       };

@@ -15,9 +15,9 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from .actions import ActionStore, Outcome
+from .actions import ActionHandoff, ActionStore, Outcome
 from .authorization import material_hash
-from .browser import HandoffRequired, Plan, normalize_screenshots
+from .browser import Plan, normalize_screenshots
 from .db import Store
 from .jobs import JobStore
 from .profile import BandEvidence, Profile, compute_experience, desired_salary
@@ -62,6 +62,7 @@ class FormField:
     options: list[str] = field(default_factory=list)
     selector: str = ""
     required: bool = False
+    meta: dict = field(default_factory=dict)  # ATS detail (field name, section, option ids) kept by the form adapters
 
 
 @dataclass
@@ -232,7 +233,10 @@ class ApplicationService:
         fit_rank = (job.get("fit") or {}).get("rank")
         fit = "strong" if fit_rank == 1 else "stretch" if (fit_rank or 3) >= 4 else "fair"
         resume_pdf = artifact.get("pdf_path") if artifact and artifact.get("page_limit_verified") else (artifact.get("path") if artifact else None)
-        answers = map_answers(fields, self.profile, job, resume_pdf, band, fit)
+        from .ats import registry as ats_registry
+
+        adapter = ats_registry.for_fields(fields)  # questions read through a site adapter's API are mapped by that adapter
+        answers = adapter.map_answers(fields, self.profile, job, resume_pdf, band, fit) if adapter else map_answers(fields, self.profile, job, resume_pdf, band, fit)
         material_unknowns = [a.label for a in answers if a.needs_input and not a.sensitive]
         unknowns += [f"answer needed: {u}" for u in material_unknowns]
         unknowns += self.profile.missing_essentials()
@@ -307,7 +311,7 @@ class ApplicationService:
         if prior is not None and prior.get("material_hash") != app["material_hash"]:
             return Outcome(prior["status"], "an earlier submission for this job already exists; reconcile first", action_id=prior["_id"])
         host = (pkg.get("apply_url") or "").split("/")[2].lower() if pkg.get("apply_url") and "://" in pkg["apply_url"] else None
-        builder = self._builder_for(host, pkg.get("apply_route"))
+        builder = self._builder_for(host, pkg.get("apply_route"), pkg.get("apply_url"))
         if builder is None or run_adapter is None:
             self._set(
                 app_id,
@@ -335,18 +339,21 @@ class ApplicationService:
             plan = builder(job, pkg, pkg["answers"])
             if not plan.job_id:
                 plan.job_id = job["_id"]  # screenshots are named after and stored with the job's artifacts
-            try:
-                return run_adapter(plan)
-            except HandoffRequired as exc:
-                raise _Handoff(str(exc), exc.evidence) from exc
+            return run_adapter(plan)
 
         try:
             outcome = self.actions.execute(action["_id"], worker, adapter, job=job, has_material_unknowns=bool(pkg.get("outstanding")))
-        except _Handoff as exc:
+        except ActionHandoff as exc:  # the action store already put the action back to `ready` with the evidence
             self.store.release("jobs", {"_id": job["_id"]}, worker, job["status"])
-            self.actions.coll.update_one({"_id": action["_id"]}, {"$set": {"status": "ready", "handoff": exc.evidence}, "$unset": {"reserved_by": "", "reserved_until": ""}})
-            self._set(app_id, "handoff", reason=str(exc), next_action="refresh the site session from the Mac (amore browser login) or complete manually")
-            return Outcome("handoff", str(exc), exc.evidence, action["_id"])
+            ev = self._with_screenshots(job["_id"], app_id, exc.evidence)  # the challenge / login page capture becomes evidence too
+            nxt = (
+                "finish the human check and the submit on the site yourself, then record the confirmation"
+                if exc.evidence.get("challenge")
+                else "refresh the site session from the Mac (amore browser login) or complete manually"
+            )
+            self._set(app_id, "handoff", reason=str(exc), next_action=nxt, evidence=ev, handoff_kind="human_check" if exc.evidence.get("challenge") else "login")
+            self.store.audit("application_handoff", app_id, host=host, challenge=exc.evidence.get("challenge"), captcha_attempts=len(exc.evidence.get("captcha_attempts") or []))
+            return Outcome("handoff", str(exc), ev, action["_id"])
         self._apply_outcome(app, job, outcome, worker)
         return outcome
 
@@ -486,17 +493,14 @@ class ApplicationService:
             sync={"state": "sync_pending"},
         )
 
-    def _builder_for(self, host: str | None, route: str | None) -> PlanBuilder | None:
+    def _builder_for(self, host: str | None, route: str | None, apply_url: str | None = None) -> PlanBuilder | None:
         if route and route in self.plan_builders:
             return self.plan_builders[route]
         if host:
             for key, b in self.plan_builders.items():
                 if key == host or host.endswith("." + key):
                     return b
-        return None
+        from .ats import adapter_for
 
-
-class _Handoff(Exception):
-    def __init__(self, msg: str, evidence: dict) -> None:
-        super().__init__(msg)
-        self.evidence = evidence
+        adapter = adapter_for(apply_url, route)  # built-in site adapters (Greenhouse, ...)
+        return adapter.build_plan if adapter else None

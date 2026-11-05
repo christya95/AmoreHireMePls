@@ -8,6 +8,7 @@ provider-reported usage. Unknown cost stays None, never zero.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import threading
@@ -170,7 +171,8 @@ class Provider:
     name = "none"
     model = ""
 
-    def structured(self, system: str, user: str, output_model: type[T], max_tokens: int) -> tuple[T, Usage]:
+    def structured(self, system: str, user: str, output_model: type[T], max_tokens: int, images: list[bytes] | None = None) -> tuple[T, Usage]:
+        """One validated structured call. `images` are PNG bytes attached as image parts (vision capable models only)."""
         raise NotImplementedError
 
     def check(self) -> dict[str, Any]:
@@ -178,7 +180,7 @@ class Provider:
 
 
 class NoProvider(Provider):
-    def structured(self, system, user, output_model, max_tokens):
+    def structured(self, system, user, output_model, max_tokens, images=None):
         raise ProviderUnavailable("no model provider configured (AMORE_MODEL is empty)")
 
 
@@ -197,8 +199,8 @@ class FakeProvider(Provider):
         self.calls: list[dict] = []
         self.usage = usage
 
-    def structured(self, system, user, output_model, max_tokens):
-        self.calls.append({"system": system, "user": user, "model": output_model.__name__})
+    def structured(self, system, user, output_model, max_tokens, images=None):
+        self.calls.append({"system": system, "user": user, "model": output_model.__name__, "images": len(images or [])})
         fn = self.responses.get(output_model.__name__)
         if fn is None:
             raise ProviderUnavailable(f"fake provider has no response for {output_model.__name__}")
@@ -220,12 +222,19 @@ class LangChainProvider(Provider):
         provider, _, model_name = model.partition(":")
         self._llm = init_chat_model(model_name, model_provider=provider or None, max_retries=max_retries, timeout=timeout)
 
-    def structured(self, system, user, output_model, max_tokens):
+    def structured(self, system, user, output_model, max_tokens, images=None):
+        import base64
+
         from langchain_core.messages import HumanMessage, SystemMessage
 
         runnable = self._llm.with_structured_output(output_model, include_raw=True)
         start = time.monotonic()
-        result = runnable.invoke([SystemMessage(content=system), HumanMessage(content=user)])
+        content: Any = user
+        if images:
+            content = [{"type": "text", "text": user}] + [
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(img).decode("ascii")}} for img in images
+            ]
+        result = runnable.invoke([SystemMessage(content=system), HumanMessage(content=content)])
         raw = result.get("raw")
         parsed = result.get("parsed")
         if result.get("parsing_error") or parsed is None:
@@ -292,9 +301,20 @@ class AIRunner:
             {"skill": spec.prompt_id(), "model": self.provider.model, "inputs": inputs.model_dump(mode="json"), "fact_version": fact_version, "posting_hash": posting_hash}
         )
 
-    def run(self, skill_name: str, inputs: BaseModel, *, fact_version: int | None = None, posting_hash: str | None = None, untrusted_fields: tuple[str, ...] = ()) -> SkillResult:
+    def run(
+        self,
+        skill_name: str,
+        inputs: BaseModel,
+        *,
+        fact_version: int | None = None,
+        posting_hash: str | None = None,
+        untrusted_fields: tuple[str, ...] = (),
+        images: list[bytes] | None = None,
+    ) -> SkillResult:
         spec = self.catalog.get(skill_name)
         key = self.cache_key(spec, inputs, fact_version, posting_hash)
+        if images:  # the picture bytes are part of the exact input
+            key = sha256_json({"key": key, "images": [hashlib.sha256(i).hexdigest() for i in images]})
         cached = self._cache_get(key)
         if cached is not None:
             return SkillResult(output=cached, usage=Usage(cached_result=True, model=self.provider.model, cost_usd=0.0, cost_known=True), cache_key=key, skill=spec.prompt_id())
@@ -311,7 +331,7 @@ class AIRunner:
             attempts = 0
             while True:
                 try:
-                    parsed, usage = self.provider.structured(spec.system_prompt, user, spec.output_model, spec.max_output_tokens)
+                    parsed, usage = self.provider.structured(spec.system_prompt, user, spec.output_model, spec.max_output_tokens, images=images)
                     break
                 except ValueError as exc:  # one bounded repair attempt for schema failures
                     attempts += 1

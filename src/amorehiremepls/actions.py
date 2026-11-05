@@ -43,6 +43,15 @@ class ActionFailed(Exception):
         self.retryable = retryable
 
 
+class ActionHandoff(Exception):
+    """The adapter stopped before anything irreversible happened and a person must continue (login wall, human
+    check that gates the submit). The action returns to `ready`; the caller records the handoff and may resume later."""
+
+    def __init__(self, reason: str, evidence: dict | None = None) -> None:
+        super().__init__(reason)
+        self.evidence = evidence or {}
+
+
 @dataclass
 class Outcome:
     status: str  # succeeded | failed | needs_verification | blocked | denied | in_progress | not_found
@@ -140,6 +149,11 @@ class ActionStore:
             status, reason = "succeeded", "verified evidence recorded"
         except AmbiguousOutcome as exc:
             evidence, status, reason = exc.evidence, "needs_verification", str(exc)
+        except ActionHandoff as exc:
+            # nothing was sent: hand the action back as `ready` with the evidence, and let the caller interrupt for a person
+            self.store.release("actions", {"_id": action_id}, owner, "ready", extra={"handoff": exc.evidence, "outcome_reason": str(exc), "finished_at": utcnow()})
+            self.store.audit("action_handoff", action_id, reason=str(exc))
+            raise
         except ActionFailed as exc:
             evidence, status, reason, retryable = exc.evidence, "failed", str(exc), exc.retryable
         except Exception as exc:  # unknown exception after the adapter may have acted: never assume it did not

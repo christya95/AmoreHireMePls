@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,7 @@ from .profile import Profile, ProfileStore
 from .skills import catalog
 from .sync import SyncCoordinator
 from .tailoring import Tailor
+from .util import utcnow
 
 log = logging.getLogger(__name__)
 
@@ -80,6 +82,8 @@ class Runtime:
                 screenshot_dir=settings.artifact_dir / "screenshots",  # fallback only; job runs use artifact_dir/jobs/<job_id>/screenshots
                 upload_root=settings.artifact_dir,
                 artifact_dir=settings.artifact_dir,
+                resource_hosts=settings.resource_hosts,
+                captcha_max_attempts=settings.captcha_max_attempts,
             )
         )
         self.sync = SyncCoordinator(self.store, settings.tracker_clone_dir, settings.tracker_remote, settings.tracker_branch, settings.tracker_push_enabled)
@@ -110,6 +114,22 @@ class Runtime:
         if not self.settings.provider_configured and getattr(self.provider, "name", "none") == "none":
             return None
         return AIRunner(self.store, self.provider, catalog, self.pricing, self.budget(), run_id=run_id)
+
+    def captcha_autosolve_enabled(self) -> bool:
+        """Settings toggle (control `captcha_autosolve`) wins over the environment default; both default to off."""
+        value = self.store.get_control("captcha_autosolve")
+        return bool(self.settings.captcha_autosolve if value is None else value)
+
+    def captcha_solver(self, run_id: str | None = None):
+        """The opt-in solver for the application-submit path, or None (human check handoff)."""
+        if not self.captcha_autosolve_enabled():
+            return None
+        ai = self.ai(run_id)
+        if ai is None:
+            return None
+        from .captcha import ModelCaptchaSolver
+
+        return ModelCaptchaSolver(ai)
 
     def discovery(self, run_id: str | None = None) -> Discovery:
         return Discovery(self.store, self.profile, self.ai(run_id))
@@ -174,6 +194,18 @@ class RealServices:
         url = job.get("apply_url") or job.get("posting_url")
         if not url or job.get("apply_route") == "linkedin_or_employer_site_handoff":
             return []
+        from .ats import adapter_for
+
+        adapter = adapter_for(url, job.get("apply_route"))
+        if adapter is not None:
+            try:  # the vendor's public question list needs no browser and names every control
+                qs = adapter.fetch_questions(job)
+                fields = [asdict(f) for f in qs.fields]
+                plan = {**job.get("form_plan", {}), "fields": fields, "source": qs.source, "external_job_id": qs.external_job_id, "read_at": utcnow()}
+                self.rt.jobs.set_status(job["_id"], job["status"], form_plan=plan, apply_route=adapter.name)
+                return fields
+            except Exception as exc:
+                log.warning("%s question list failed for %s: %s; falling back to a page scan", adapter.name, url, type(exc).__name__)
         try:
             fields = self.rt.browser.scan_form(url, site_key=url.split("/")[2])
         except Exception as exc:  # scanning is best-effort; failures mean a handoff later
@@ -183,7 +215,10 @@ class RealServices:
         return fields
 
     def prepare(self, job_id: str, fields: list[dict]) -> dict:
-        ff = [FormField(f.get("id", ""), f.get("label", ""), f.get("type", "text"), f.get("options", []), f.get("selector", ""), bool(f.get("required"))) for f in fields]
+        ff = [
+            FormField(f.get("id", ""), f.get("label", ""), f.get("type", "text"), f.get("options", []), f.get("selector", ""), bool(f.get("required")), f.get("meta") or {})
+            for f in fields
+        ]
         return self.rt.applications().prepare(job_id, ff)
 
     def supply_inputs(self, application_id: str, values: dict) -> dict:
@@ -199,7 +234,8 @@ class RealServices:
 
     def execute(self, application_id: str, worker: str) -> dict:
         svc = self.rt.applications()
-        out = svc.execute(application_id, worker, run_adapter=lambda plan: self.rt.browser.run_plan(plan, site_key=plan.start_url.split("/")[2]))
+        solver = self.rt.captcha_solver()  # None unless Joss switched the automatic captcha step on
+        out = svc.execute(application_id, worker, run_adapter=lambda plan: self.rt.browser.run_plan(plan, site_key=plan.start_url.split("/")[2], captcha_solver=solver))
         return {"status": out.status, "reason": out.reason, "evidence": out.evidence, "action_id": out.action_id}
 
     def record_manual(self, application_id: str, manual: dict) -> dict:

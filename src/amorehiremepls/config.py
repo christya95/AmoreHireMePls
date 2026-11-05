@@ -49,6 +49,15 @@ class Settings(BaseSettings):
     browser_headless: bool = True
     browser_session_dir: Path = Path("./runtime/private/sessions")
     browser_allowed_hosts: str = ""
+    # Extra hosts that may serve scripts/styles/fonts/frames to an allowed page (never navigation). Site adapters add
+    # their own (Greenhouse: its CDN and the reCAPTCHA hosts); list more here only if a board breaks without them.
+    browser_resource_hosts: str = ""
+
+    # Automatic CAPTCHA step. Off by default: a human check pauses the application for Joss. On: simple text/image-grid
+    # challenges on the user's own approved submission are sent to the configured model, at most N attempts, all
+    # recorded. Joss accepted the platform-terms risk on 2026-11-05. Overridable from Settings (control `captcha_autosolve`).
+    captcha_autosolve: bool = False
+    captcha_max_attempts: int = Field(default=3, ge=1, le=5)
 
     smtp_host: str = ""
     smtp_port: int = 587
@@ -62,6 +71,10 @@ class Settings(BaseSettings):
     @property
     def allowed_hosts(self) -> set[str]:
         return {h.strip().lower() for h in self.browser_allowed_hosts.split(",") if h.strip()}
+
+    @property
+    def resource_hosts(self) -> set[str]:
+        return {h.strip().lower() for h in self.browser_resource_hosts.split(",") if h.strip()}
 
     @property
     def effective_model(self) -> str:
