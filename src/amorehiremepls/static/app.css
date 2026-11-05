@@ -226,6 +226,13 @@ td.wrap { min-width: 170px; }
   overflow: hidden; background: var(--accent-soft); color: var(--accent-text); letter-spacing: 0.02em;
 }
 .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Company logos: the initials stay in the markup; when a logo is present and loads, it sits on top of them.
+   If it fails (404, broken bytes) app.js removes .has-logo and the initials show again. */
+.avatar { position: relative; }
+.avatar .initials { grid-area: 1 / 1; }
+.avatar img.logo { grid-area: 1 / 1; object-fit: contain; background: #fff; padding: 2px; box-sizing: border-box; border-radius: 50%; display: none; }
+.avatar.has-logo img.logo { display: block; }
+.avatar.has-logo .initials { visibility: hidden; }
 .avatar.lg { --size: 64px; }
 .avatar.xl { --size: 88px; }
 .avatar.sm { --size: 28px; }

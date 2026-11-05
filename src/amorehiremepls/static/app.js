@@ -26,6 +26,16 @@
     });
   });
 
+  // Company logos: when an app-served logo fails to load (no icon for that employer), show the initials again.
+  function logoFailed(img) {
+    var holder = img.closest(".avatar");
+    if (holder) holder.classList.remove("has-logo");
+  }
+  document.querySelectorAll(".avatar img.logo").forEach(function (img) {
+    img.addEventListener("error", function () { logoFailed(img); });
+    if (img.complete && img.naturalWidth === 0) logoFailed(img);
+  });
+
   // Settings: live accent preview from presets or the free hex field.
   var hexInput = document.querySelector('input[name="accent_hex"]');
   function applyAccent(v) {

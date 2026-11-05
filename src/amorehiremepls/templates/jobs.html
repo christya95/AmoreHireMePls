@@ -1,5 +1,5 @@
 {% extends "base.html" %}{% block content %}
-{% from "_macros.html" import status, hint with context %}
+{% from "_macros.html" import status, hint, company with context %}
 <div class="stack">
 <div class="page-head"><div><h1>Jobs</h1><p>Paste a job link, or let the app watch job boards for you. Open a job to see its steps and the next thing to do.</p></div></div>
 
@@ -46,7 +46,7 @@
   <div class="table-wrap"><table>
     <thead><tr><th>Employer and role</th><th>Status</th><th>Fit {{ hint('fit_rank') }}</th><th>Why</th><th>Application</th><th class="right">Updated</th></tr></thead>
     <tbody>{% for j in jobs %}<tr>
-      <td><a class="row-person" href="/jobs/{{ j._id }}"><span class="avatar style-soft">{{ j.employer|initials }}</span><span><strong>{{ j.employer }}</strong><span class="sub">{{ j.title }}{% if j.location %} · {{ j.location }}{% endif %}{% if j.requisition_id or j.linkedin_job_id %} · {{ j.requisition_id or j.linkedin_job_id }}{% endif %}</span></span></a></td>
+      <td><a class="row-person" href="/jobs/{{ j._id }}">{{ company(j.employer, j) }}<span><strong>{{ j.employer }}</strong><span class="sub">{{ j.title }}{% if j.location %} · {{ j.location }}{% endif %}{% if j.requisition_id or j.linkedin_job_id %} · {{ j.requisition_id or j.linkedin_job_id }}{% endif %}</span></span></a></td>
       <td>{{ status(j.status) }}{% if j.needs_reconciliation %} <span class="pill bad">check this one</span>{% endif %}</td>
       <td>{% if j.fit %}{{ j.fit.rank }}{% else %}<span class="muted">—</span>{% endif %}</td>
       <td><small>{% if j.qualification %}{{ j.qualification.reasons|join('; ') }}{% endif %}</small></td>

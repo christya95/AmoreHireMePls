@@ -16,6 +16,7 @@ from .config import Settings
 from .db import Store
 from .discovery import Discovery
 from .jobs import JobStore
+from .logos import LogoCache
 from .orchestration import Runner, build_application_graph, make_checkpointer
 from .outreach import OutreachService
 from .profile import Profile, ProfileStore
@@ -94,6 +95,7 @@ class Runtime:
             else None
         )
         self.smtp = smtp
+        self.logos = LogoCache(settings.artifact_dir)  # public research cache (favicons), no candidate data, no model use
         self._checkpointer = None
 
     def reload_profile(self) -> Profile:

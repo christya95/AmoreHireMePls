@@ -1,5 +1,5 @@
 {% extends "base.html" %}{% block content %}
-{% from "_macros.html" import status, hint with context %}
+{% from "_macros.html" import status, hint, company with context %}
 <div class="stack">
 <div class="page-head"><div><h1>Recruiters</h1><p>Short LinkedIn notes to recruiters at employers where you have applied. Three steps: add the person, let the app draft the note, then send it yourself and record it. {{ hint('outreach_scope') }}</p></div></div>
 
@@ -7,7 +7,7 @@
   <div class="card flush">
     <div class="card-h"><h3>Step 1 · Employers you can contact</h3><span class="sub">Only employers where an application was confirmed. Find in-house recruiters or talent acquisition people there and add them on the right. RBC and the big tech firms are left out on purpose.</span></div>
     <div class="table-wrap"><table><thead><tr><th>Employer</th><th>Role you applied to</th><th class="right">Date</th></tr></thead>
-    <tbody>{% for a in submitted %}{% set j = jobs.get(a.job_id) %}<tr><td><span class="row-person"><span class="avatar style-soft">{{ (j.employer if j else '?')|initials }}</span>{{ j.employer if j else a.job_id }}</span></td><td>{{ j.title if j else '' }}</td><td class="right nowrap">{{ a.application_date or (a.record.application_date if a.record else '') }}</td></tr>
+    <tbody>{% for a in submitted %}{% set j = jobs.get(a.job_id) %}<tr><td><span class="row-person">{{ company(j.employer if j else None, j) }}{{ j.employer if j else a.job_id }}</span></td><td>{{ j.title if j else '' }}</td><td class="right nowrap">{{ a.application_date or (a.record.application_date if a.record else '') }}</td></tr>
     {% else %}<tr><td colspan="3"><div class="empty">No confirmed applications yet, so there is nobody to contact. This page opens up after the first confirmed application.<div class="actions center mt"><a class="btn secondary sm" href="/applications">Open applications</a></div></div></td></tr>{% endfor %}</tbody></table></div>
   </div>
   <div class="card">

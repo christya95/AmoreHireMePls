@@ -62,6 +62,7 @@ class UISettings(BaseModel):
     avatar: AvatarInfo = Field(default_factory=AvatarInfo)
     checklist_dismissed: bool = False
     collapsed_intros: list[str] = Field(default_factory=list)  # page keys whose intro strip is folded
+    company_logos: bool = True  # show each employer's logo (deterministic fetch, no model use); off shows initials
     updated_at: datetime | None = None
 
     @property

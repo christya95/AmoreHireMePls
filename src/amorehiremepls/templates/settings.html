@@ -33,6 +33,12 @@
         <div class="field narrow"><label>Hex</label><input name="tint_hex" value="{{ tint_hex }}" pattern="#[0-9a-fA-F]{6}" placeholder="#8c8f90" maxlength="7"></div>
         <span class="hint">The page background and soft surfaces take a little of this colour. "Match accent" is the original look; "Neutral" removes the colour cast entirely.</span>
       </div>
+      <div class="form-row">
+        <div class="field"><label>Company logos</label>
+          <label class="check"><input type="checkbox" name="company_logos" value="on" {{ 'checked' if ui.company_logos }}> Show company logos</label>
+          <span class="hint">On by default. The app downloads each company's logo once and keeps a copy. Off shows initials. This never uses AI.</span>
+        </div>
+      </div>
       <div class="form-actions"><button>Save appearance</button></div>
     </form>
   </div>

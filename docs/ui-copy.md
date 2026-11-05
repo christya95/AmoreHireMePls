@@ -108,6 +108,7 @@ People never to contact: `unresolved` Not yet identified · `resolved` Identifie
 | copy of the job ad | posting snapshot |
 | fit score | fit rank |
 | person | recipient |
+| company logo (Settings → Appearance, on by default; off shows initials; downloaded once by the app, never an AI call) | favicon, employer icon |
 | other profile or email for the same person | alias |
 | check / record the result | reconcile |
 | the app, background tasks running | the worker, heartbeat |

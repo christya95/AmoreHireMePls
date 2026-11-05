@@ -1,9 +1,9 @@
 {% extends "base.html" %}{% block content %}
-{% from "_macros.html" import status, hint with context %}
+{% from "_macros.html" import status, hint, company with context %}
 <div class="stack">
 <div class="card">
   <div class="welcome">
-    <span class="avatar lg style-soft">{{ job.employer|initials }}</span>
+    {{ company(job.employer, job, "lg") }}
     <div>
       <h1>{{ job.title }}</h1>
       <p>{{ job.employer }}{% if job.location %} · {{ job.location }}{% endif %} · job ID {{ job.requisition_id or '—' }}{% if job.linkedin_job_id %} · LinkedIn {{ job.linkedin_job_id }}{% endif %}</p>

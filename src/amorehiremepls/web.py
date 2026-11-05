@@ -23,6 +23,7 @@ from itsdangerous import BadSignature, URLSafeTimedSerializer
 from .authorization import ScopeBinding, StopConditions
 from .browser import normalize_screenshots
 from .discovery import SOURCES
+from .logos import EMPLOYER_DOMAINS, REQUEST_TIMEOUT
 from .profile import ExcludedEmployer, Provenance, RecipientExclusion
 from .runtime import Runtime
 from .tracker import TrackerClone, TrackerImporter
@@ -276,6 +277,8 @@ def create_app(rt: Runtime) -> FastAPI:
             "intro_key": intro_key,
             "intro_collapsed": intro_key in ui.collapsed_intros,
             "glossary": GLOSSARY,
+            # logo_src(job, employer=None) -> app-served image URL or None (initials). Deterministic, no model use.
+            "logo_src": rt.logos.src_for if ui.company_logos else (lambda job=None, employer=None: None),
         }
         resp = TEMPLATES.TemplateResponse(request, template, {**base, **ctx})
         if request.cookies.get(UI_COOKIE) != ui_cookie_value(ui):
@@ -799,7 +802,8 @@ def create_app(rt: Runtime) -> FastAPI:
                 preview = TrackerImporter(rt.store, TrackerClone(rt.settings.tracker_clone_dir)).preview().as_dict()
             except Exception as exc:
                 preview = {"error": f"{type(exc).__name__}: {exc}"}
-        return render(request, "history.html", session, apps=apps, imports=imports, preview=preview, sync=rt.sync.status())
+        jobs = {j["_id"]: j for j in rt.store.c("jobs").find({"_id": {"$in": [a.get("job_id") for a in apps if a.get("job_id")]}})}
+        return render(request, "history.html", session, apps=apps, imports=imports, preview=preview, sync=rt.sync.status(), jobs=jobs)
 
     @app.post("/history/import")
     def history_import(request: Request, session: dict = Depends(require_session), csrf: str = Form(...)):
@@ -1411,6 +1415,7 @@ def create_app(rt: Runtime) -> FastAPI:
         accent_hex: str = Form(""),
         tint: str = Form("accent"),
         tint_hex: str = Form(""),
+        company_logos: str = Form(""),
     ):
         require_csrf(request, session, csrf)
         if theme not in ("system", "light", "dark"):
@@ -1423,6 +1428,7 @@ def create_app(rt: Runtime) -> FastAPI:
             return RedirectResponse("/settings?err=bad_tint", status_code=303)
         ui = ui_store.load()
         ui.theme, ui.accent, ui.bg_tint = theme, chosen, chosen_tint  # type: ignore[assignment]
+        ui.company_logos = company_logos in ("on", "1", "true")
         ui_store.save(ui)
         resp = RedirectResponse("/settings?ok=saved", status_code=303)
         set_ui_cookie(resp, ui)
@@ -1474,5 +1480,28 @@ def create_app(rt: Runtime) -> FastAPI:
         if not path.is_file():
             raise HTTPException(404)
         return FileResponse(path, media_type=ui.avatar.content_type, headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"})
+
+    @app.get("/logos/{employer_key}.png")
+    def company_logo(employer_key: str, session: dict = Depends(require_session)):
+        """Employer icon from the public cache. The content type comes from sniffed magic bytes (never from the
+        remote site) and the body is served with `nosniff`. 404 lets the page fall back to initials. A first
+        request may fetch once with a short budget; later requests are cache hits."""
+        if not re.fullmatch(r"[a-z0-9-]{1,80}", employer_key) or not ui_store.load().company_logos:
+            raise HTTPException(404)
+        hit = rt.logos.lookup(employer_key)
+        if hit is None and rt.logos.needs_fetch(employer_key):
+            # Page render records the domain in memory. After a restart, or when the image is the first request,
+            # fall back to the alias table and then the stored jobs. This runs in the web process; no worker required.
+            domain = rt.logos.wanted.get(employer_key) or EMPLOYER_DOMAINS.get(employer_key)
+            if not domain:
+                fields = {"employer": 1, "posting_url": 1, "apply_url": 1, "url": 1, "company_website": 1, "website": 1, "homepage": 1, "job_url": 1, "source_url": 1}
+                jobs = list(rt.store.c("jobs").find({}, fields).limit(400))
+                domain = rt.logos.resolve_domain(employer_key, jobs)
+            if domain:
+                hit = rt.logos.ensure(employer_key, domain, timeout=REQUEST_TIMEOUT)
+        if hit is None:
+            raise HTTPException(404, headers={"Cache-Control": "private, no-store"})
+        path, media = hit
+        return FileResponse(path, media_type=media, headers={"Cache-Control": "private, max-age=604800, immutable", "X-Content-Type-Options": "nosniff"})
 
     return app

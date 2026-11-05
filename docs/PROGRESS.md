@@ -125,6 +125,12 @@ Keep this file current. A later session should be able to continue from the "Exa
 
 1. Should `Product Engineer` style titles count as a preferred role family, or stay `needs_review`? (Affects qualification of the Faire posting and similar ones.)
 
+## Company logos (2026-11-05)
+
+- Rows stayed on initials because almost every posting URL is LinkedIn (or another job board). Those hosts are not the employer's site, and there was no name-to-domain table, so nothing was fetched. The appearance option also defaulted off in code (the saved setting on this Mac was already on).
+- Logos are on by default. The domain comes from a company website field, then the posting host when it is not a job board, then a built-in public alias list (the screenshot employers, plus the other employers already in the jobs list). The web process fetches on the first `/logos/{key}` request: the site's own icon, then DuckDuckGo, then Google. Bytes are cached under `artifacts/public-cache/logos/`. An older "missing" sidecar is ignored. Initials remain when no domain can be derived, and a broken image falls back to initials in the browser. No model call.
+- Checked on the local web at 127.0.0.1:8790 (no local worker): every jobs-list employer, including Robinhood, Electric Mind, CIBC, PointClickCare, Autodesk, Broadridge, DoorDash, Toast, Interac, Marqeta, Tata Consultancy Services, The MRG Group, Citi and Stripe, returned an image. Joss does not need to flip the Settings toggle.
+
 ## Exact next step
 
-Joss logs in to http://192.168.2.49:8790 (the NAS is the only running instance; the Mac processes are stopped), works through the getting-started checklist on Overview, opens the Faire job (documents already regenerated on the NAS with the header block), reviews the package (the form scan should reach the Greenhouse page now that the hosts are set), answers the role-family question, and grants the first authorization scope in the dashboard when ready. Redeploy after code changes with `scripts/deploy_nas.sh`.
+Joss logs in to http://192.168.2.49:8790 (NAS) or the local web at http://127.0.0.1:8790. Company logos are on without a settings change. Redeploy the NAS after this commit with `scripts/deploy_nas.sh` when ready. The Faire package review and the role-family question are unchanged.

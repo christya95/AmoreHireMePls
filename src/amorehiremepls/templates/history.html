@@ -1,5 +1,5 @@
 {% extends "base.html" %}{% block content %}
-{% from "_macros.html" import status, hint with context %}
+{% from "_macros.html" import status, hint, company with context %}
 <div class="stack">
 <div class="page-head"><div><h1>Past applications</h1><p>Applications from before this app, loaded from your private GitHub tracker. Each one keeps its original level of proof. A note written from memory is never shown as a confirmed receipt. {{ hint('tracker') }}</p></div></div>
 
@@ -38,7 +38,7 @@
     <thead><tr><th>Entry</th><th>Employer and role</th><th>Status</th><th>Date</th><th>How sure</th><th>Files</th><th>On GitHub</th></tr></thead>
     <tbody>{% for a in apps %}<tr>
       <td class="mono">{{ a.tracker_record_id }}</td>
-      <td><span class="row-person"><span class="avatar style-soft">{{ (a.record.employer or '?')|initials }}</span><span><strong>{{ a.record.employer }}</strong><span class="sub">{{ a.record.role }}</span></span></span></td>
+      <td><span class="row-person">{{ company(a.record.employer, jobs.get(a.job_id)) }}<span><strong>{{ a.record.employer }}</strong><span class="sub">{{ a.record.role }}</span></span></span></td>
       <td>{{ status(a.status) }}</td>
       <td class="nowrap">{{ a.record.application_date }}<span class="sub">{{ a.record.date_basis }}</span></td>
       <td><small>{{ a.record.evidence_basis or '—' }}</small></td>

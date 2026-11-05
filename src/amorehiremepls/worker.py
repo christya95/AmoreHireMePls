@@ -15,6 +15,7 @@ from typing import Any
 
 from .discovery import SOURCES, SourceError
 from .runtime import Runtime
+from .ui_settings import UISettingsStore
 from .util import TORONTO, toronto_now, utcnow
 
 log = logging.getLogger(__name__)
@@ -104,7 +105,21 @@ class Worker:
         results = self.rt.sync.process_pending(owner=self.name)
         done["sync"] = len(results)
         done["scheduled"] = self.run_schedule()
+        done["logos"] = self.refresh_logos()
         return done
+
+    def refresh_logos(self, limit: int = 3) -> int:
+        """Cheap periodic step: when the "Show company logos" option is on, fetch a few missing employer icons so
+        page views rarely have to. Deterministic favicon fetch; no model usage; failures are remembered for a week."""
+        try:
+            if not UISettingsStore(self.rt.store).load().company_logos:
+                return 0
+            fields = {"employer": 1, "posting_url": 1, "apply_url": 1, "url": 1, "company_website": 1, "website": 1}
+            jobs = list(self.rt.store.c("jobs").find({}, fields).sort("updated_at", -1).limit(200))
+            return self.rt.logos.refresh(jobs, limit=limit)
+        except Exception:
+            log.exception("logo refresh failed")
+            return 0
 
     def _start(self, run: dict) -> None:
         job_id = run["params"]["job_id"]

@@ -1,5 +1,5 @@
 {% extends "base.html" %}{% block content %}
-{% from "_macros.html" import status, hint with context %}
+{% from "_macros.html" import status, hint, company with context %}
 {% set pkg = a.review_package %}
 {% set step = {'ready_for_review': ('Read the resume and the answers, then approve this exact application.', '#authorize'),
                'needs_input': ('Fill in the answers marked "needed" and save. The application is then ready for your approval.', '#answers'),
@@ -11,7 +11,7 @@
 <div class="stack">
 <div class="card">
   <div class="welcome">
-    <span class="avatar lg style-soft">{{ job.employer|initials }}</span>
+    {{ company(job.employer, job, "lg") }}
     <div>
       <h1>{{ job.title }}</h1>
       <p>{{ job.employer }} · application <span class="mono">{{ a._id }}</span></p>

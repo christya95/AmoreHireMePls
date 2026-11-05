@@ -3,6 +3,13 @@
 {% macro status(s) -%}
 <span class="status"><span class="pill {{ s|tone }}">{{ s|label }}</span><code class="raw" title="internal state">{{ s }}</code></span>
 {%- endmacro %}
+{#- company(employer, job=None, cls=""): the employer avatar. Initials by default; with "Show company logos" on and an
+    icon available, an <img> served by this app (never an outside link) with the initials kept as alt text. The
+    initials stay in the markup and reappear if the image fails to load (see app.js). -#}
+{% macro company(employer, job=None, cls="") -%}
+{% set name = employer or '?' %}{% set src = logo_src(job, name) if logo_src else None -%}
+<span class="avatar style-soft{% if cls %} {{ cls }}{% endif %}{% if src %} has-logo{% endif %}">{% if src %}<img class="logo" src="{{ src }}" alt="{{ name|initials }}" width="36" height="36" loading="lazy" decoding="async">{% endif %}<span class="initials">{{ name|initials }}</span></span>
+{%- endmacro %}
 {% macro hint(key) -%}
 {% set g = glossary[key] %}<details class="hint"><summary aria-label="What is {{ g[0] }}?" title="{{ g[0] }}">?</summary><div class="hint-body"><strong>{{ g[0] }}.</strong> {{ g[1] }} <a href="/help#{{ key }}">More in Help</a>{% if g[2] %} <code class="raw" title="technical term">{{ g[2] }}</code>{% endif %}</div></details>
 {%- endmacro %}

@@ -1,5 +1,5 @@
 {% extends "base.html" %}{% block content %}
-{% from "_macros.html" import status, hint with context %}
+{% from "_macros.html" import status, hint, company with context %}
 <div class="stack">
 
 {% if checklist %}
@@ -140,7 +140,7 @@
   <div class="table-wrap"><table>
     <thead><tr><th>Employer</th><th>Role</th><th>Status</th><th>Fit</th><th class="right">Updated</th></tr></thead>
     <tbody>{% for j in recent_jobs %}<tr>
-      <td><a class="row-person" href="/jobs/{{ j._id }}"><span class="avatar style-soft">{{ j.employer|initials }}</span><span>{{ j.employer }}</span></a></td>
+      <td><a class="row-person" href="/jobs/{{ j._id }}">{{ company(j.employer, j) }}<span>{{ j.employer }}</span></a></td>
       <td>{{ j.title }}<span class="sub">{{ j.location or '' }}</span></td>
       <td>{{ status(j.status) }}</td>
       <td>{% if j.fit %}fit {{ j.fit.rank }}{% else %}<span class="muted">—</span>{% endif %}</td>
