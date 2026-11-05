@@ -74,7 +74,7 @@ appears anywhere else.
 ## Statuses (coloured label; raw state in the grey chip)
 
 Applications: `queued` Queued · `preparing` Preparing · `ready_for_review` Waiting for your approval · `needs_input`
-Needs your answers · `authorized` Approved, applying soon · `executing` Applying now · `handoff` Finish on the site
+Needs your answers · `authorized` Approved · `executing` Applying now · `handoff` Finish on the site
 yourself · `challenge_retry` Trying once more later · `needs_verification` Result unclear, check it · `submitted` Applied ·
 `failed` Failed · `duplicate` Already applied · `blocked` Blocked by your rules · `denied` Not approved.
 

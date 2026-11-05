@@ -88,6 +88,9 @@ def test_supply_inputs_replaces_an_existing_answer_and_keeps_unchanged_ones(stor
     answers = {a["field_id"]: a for a in app["review_package"]["answers"]}
     assert answers["fn"]["value"] == "Jordan" and answers["fn"]["fact_ids"] == ["user:input"] and answers["fn"]["reason"] == "edited by Joss"
     assert answers["why"]["reason"] == "supplied by Joss" and app["material_hash"] != before
+    store.c("applications").update_one({"_id": app["_id"]}, {"$set": {"status": "authorized"}})
+    same = svc.supply_inputs(app["_id"], {"why": "I enjoy building reliable backend services.", "fn": "Jordan"})
+    assert same["status"] == "authorized"
     app = svc.supply_inputs(app["_id"], {"why": ""})
     answers = {a["field_id"]: a for a in app["review_package"]["answers"]}
     assert answers["why"]["value"] is None and answers["why"]["needs_input"] and app["status"] == "needs_input"

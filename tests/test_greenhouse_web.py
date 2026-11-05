@@ -123,3 +123,54 @@ def test_retry_is_not_offered_for_sites_without_a_form_filler(client):
     assert "Retry with the app" not in client.get("/applications/app_gh1").text
     r = client.post("/applications/app_gh1/retry", data={"csrf": csrf})
     assert r.status_code == 303 and r.headers["location"].endswith("err=retry_unsupported")
+
+
+def test_approval_continues_a_task_still_waiting_for_answers_and_the_page_shows_updates(client):
+    csrf = _login(client)
+    rt = client.app.state.rt
+    now = datetime.now(UTC)
+    rt.store.c("jobs").insert_one(
+        {
+            "_id": "job_wait",
+            "employer": "Acme",
+            "employer_norm": "acme",
+            "title": "Backend Developer",
+            "status": "needs_review",
+            "posting_url": "https://boards.greenhouse.io/acme/jobs/123456",
+            "apply_url": "https://boards.greenhouse.io/acme/jobs/123456",
+            "requisition_id": "123456",
+            "sources": ["manual"],
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+    rt.store.c("applications").insert_one(
+        {
+            "_id": "app_wait",
+            "job_id": "job_wait",
+            "status": "ready_for_review",
+            "provenance": {"origin": "local"},
+            "material_hash": "m-wait",
+            "review_package": {
+                "apply_url": "https://boards.greenhouse.io/acme/jobs/123456",
+                "posting_url": "https://boards.greenhouse.io/acme/jobs/123456",
+                "answers": [{"field_id": "first_name", "label": "First name", "value": "Ada", "fact_ids": ["user:input"], "needs_input": False}],
+                "outstanding": [],
+                "gaps": [],
+            },
+            "history": [{"at": now, "status": "ready_for_review"}],
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+    run = rt.store.create_run("application", {"job_id": "job_wait"})
+    rt.store.update_run(run["_id"], status="waiting", interrupt={"type": "needs_input", "application_id": "app_wait"})
+    rt.store.run_event(run["_id"], "waiting")
+    r = client.post("/applications/app_wait/authorize", data={"csrf": csrf, "material_hash": "m-wait", "hours": "24"})
+    assert r.status_code == 303
+    saved = rt.store.c("runs").find_one({"_id": run["_id"]})
+    assert saved["requested"] == "resume" and saved["resume_payload"]["inputs"]["first_name"] == "Ada"
+    page = client.get("/applications/app_wait").text
+    assert "Updates" in page and "You approved this package" in page and "Package ready for you to read" in page
+    assert "The task will continue within a minute" in page
+    assert "Nothing to do" not in page and "within a minute. Nothing" not in page

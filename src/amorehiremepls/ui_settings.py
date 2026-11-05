@@ -278,7 +278,7 @@ STATUS_LABELS: dict[str, str] = {
     "preparing": "Preparing",
     "ready_for_review": "Waiting for your approval",
     "needs_input": "Needs your answers",
-    "authorized": "Approved, applying soon",
+    "authorized": "Approved",
     "challenge_retry": "Trying once more later",
     "executing": "Applying now",
     "handoff": "Finish on the site yourself",

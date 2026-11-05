@@ -200,6 +200,10 @@ All in `static/app.css` plus small template changes; no new routes, no JS framew
 
 - `jobs.ashbyhq.com`. The form schema is the public `ApiJobPosting` GraphQL read (`applicationForm` plus diversity `surveyForms`). That call is a read only. The apply page HTML is used when the posting has no form. Personal questions are left blank or set to the explicit decline choice. Value selects are filled as comboboxes. The confirmation URL must contain the posting id. Captcha and sign-in become a handoff. A click with no confirmation is `needs_verification`. Fixture-tested. Not live-verified.
 
+## Application updates (2026-11-05)
+
+Approving an application only woke a task that was already waiting for approval. If the task was still waiting for answers (because those answers were saved from the page), the application stayed "Approved" and the page said it would apply within a minute while nothing was sent. Approval and saving answers now tell that waiting task to continue. Repeating the same answers no longer drops an approval back to "ready for review". The application page has an Updates list built from the saved history and task events. No model call.
+
 ## Exact next step
 
 Greenhouse, Lever, and Ashby form filling, owner notifications, the human-check hold, and one later try are on `main` and fixture-tested only. None of those paths has been live-submitted. This session did not deploy and did not start a Mac worker.

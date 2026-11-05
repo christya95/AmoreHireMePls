@@ -210,6 +210,106 @@ def _nav(path: str, attention: int) -> list[dict]:
     return items
 
 
+_WAIT_LINE = {
+    "needs_input": "Waiting for your answers",
+    "awaiting_authorization": "Waiting for your approval",
+    "handoff": "Waiting for you to finish on the site or record the result",
+}
+
+_HISTORY_LINE = {
+    "ready_for_review": "Package ready for you to read",
+    "needs_input": "Some answers are still needed",
+    "authorized": "You approved this package",
+    "handoff": "Stopped before anything was sent",
+    "submitted": "Recorded as applied",
+    "failed": "Applying failed",
+    "needs_verification": "The result is unclear",
+    "executing": "Applying now",
+    "challenge_retry": "Will try the human check once more later",
+}
+
+
+def saved_form_inputs(app: dict) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for answer in (app.get("review_package") or {}).get("answers") or []:
+        if not answer.get("field_id") or "artifact" in (answer.get("fact_ids") or []):
+            continue
+        out[answer["field_id"]] = "" if answer.get("value") is None else str(answer["value"])
+    return out
+
+
+def continue_waiting_runs(rt: Runtime, app: dict) -> None:
+    """Saving answers or approving from the page can happen while the task is still parked on an earlier step.
+    Ask that task to continue. This only sets a flag; the task does the work on its next pass."""
+    if app.get("status") == "needs_input":
+        return
+    inputs = saved_form_inputs(app)
+    for run in rt.store.c("runs").find({"params.job_id": app["job_id"], "status": "waiting", "interrupt.type": "needs_input"}):
+        rt.store.update_run(run["_id"], requested="resume", resume_payload={"inputs": inputs})
+    if app.get("status") == "authorized":
+        for run in rt.store.c("runs").find({"params.job_id": app["job_id"], "status": "waiting", "interrupt.type": "awaiting_authorization"}):
+            rt.store.update_run(run["_id"], requested="resume", resume_payload={"authorized": True})
+
+
+def application_timeline(app: dict, runs: list[dict]) -> list[dict]:
+    """Plain updates from records already saved. No model call."""
+    rows: list[dict] = []
+    for entry in app.get("history") or []:
+        status = entry.get("status") or ""
+        text = _HISTORY_LINE.get(status, status.replace("_", " "))
+        reason = (entry.get("reason") or "").strip()
+        if reason:
+            text = f"{text}. {reason}"
+        if entry.get("at"):
+            rows.append({"at": entry["at"], "text": text})
+    for run in runs:
+        for event in run.get("events") or []:
+            text = _run_event_line(run, event)
+            if event.get("at") and text:
+                rows.append({"at": event["at"], "text": text})
+    rows.sort(key=lambda row: row["at"], reverse=True)
+    kept: list[dict] = []
+    for row in rows:
+        if kept and kept[-1]["text"] == row["text"]:
+            continue
+        kept.append(row)
+    return kept[:20]
+
+
+def _run_event_line(run: dict, event: dict) -> str:
+    message = event.get("message") or ""
+    if message == "waiting":
+        return _WAIT_LINE.get((run.get("interrupt") or {}).get("type"), "Paused")
+    if message == "running":
+        return "Task started"
+    if message == "completed":
+        return "Task finished"
+    if message == "failed":
+        return f"Task stopped: {(run.get('error') or 'it stopped')[:180]}"
+    if message.startswith("cancelled"):
+        return "Task was replaced"
+    if message == "queued":
+        return "Task queued"
+    return message
+
+
+def authorized_now(app: dict, runs: list[dict]) -> str | None:
+    if app.get("status") != "authorized":
+        return None
+    live = [run for run in runs if run.get("status") in ("queued", "claimed", "running", "waiting", "paused")]
+    if any(run["status"] in ("queued", "claimed", "running") for run in live):
+        return "The app is applying now. Refresh this page to see what happened."
+    if any(run.get("requested") == "resume" for run in live):
+        return "Approved. The task will continue within a minute. Refresh to see the result."
+    waiting = next((run for run in live if run["status"] == "waiting"), None)
+    kind = (waiting.get("interrupt") or {}).get("type") if waiting else None
+    if kind == "needs_input":
+        return "Approved, but the task is still waiting on an earlier step, so nothing is being sent yet."
+    if kind == "awaiting_authorization":
+        return "Approved. The task will apply within a minute."
+    return "Approved, and nothing is being sent right now. No task is working on this application."
+
+
 def create_app(rt: Runtime) -> FastAPI:
     app = FastAPI(title="AmoreHireMePls", docs_url=None, redoc_url=None, openapi_url=None)
     secret = rt.settings.app_secret.get_secret_value()
@@ -963,8 +1063,12 @@ def create_app(rt: Runtime) -> FastAPI:
                 nxt = {"label": "Applying failed", "href": app_href, "verb": "See what failed", "note": ""}
             elif st == "executing":
                 nxt = {"label": "Applying now", "href": run_href or app_href, "verb": "Watch", "note": ""}
+            elif active_run and active_run.get("status") in ("queued", "claimed", "running"):
+                nxt = {"label": "The app is applying now", "href": run_href or app_href, "verb": "Watch", "note": ""}
+            elif active_run and active_run.get("requested") == "resume":
+                nxt = {"label": "Approved. The task will continue within a minute", "href": run_href or app_href, "verb": "Watch", "note": ""}
             else:
-                nxt = {"label": "Approved. The app applies within a minute", "href": run_href or app_href, "verb": "Watch", "note": ""}
+                nxt = {"label": "Approved, and nothing is being sent right now", "href": app_href, "verb": "See updates", "note": "No task is working on this application."}
         elif current == "record":
             note = "A GitHub problem never changes whether you applied."
             nxt = {"label": "Applied. Not saved to your GitHub tracker yet", "href": "/sync", "verb": "Open GitHub tracker", "note": note}
@@ -1063,6 +1167,7 @@ def create_app(rt: Runtime) -> FastAPI:
         can_retry = site_adapter is not None and a["status"] in ("handoff", "failed")
         from .human_check import active_hold
 
+        runs = list(rt.store.c("runs").find({"params.job_id": a["job_id"]}).sort("created_at", -1))
         ctx = dict(
             a=a,
             job=job,
@@ -1073,6 +1178,8 @@ def create_app(rt: Runtime) -> FastAPI:
             can_retry=can_retry,
             site_label=site_adapter.site_label if site_adapter else None,
             hold=active_hold(rt.store, app_id),
+            updates=application_timeline(a, runs),
+            now_line=authorized_now(a, runs),
         )
         return render(request, "application.html", session, **ctx)
 
@@ -1081,7 +1188,8 @@ def create_app(rt: Runtime) -> FastAPI:
         form = await request.form()
         require_csrf(request, session, form.get("csrf"))
         values = {k[6:]: str(v) for k, v in form.items() if isinstance(k, str) and k.startswith("input_")}
-        rt.applications().supply_inputs(app_id, values)
+        updated = rt.applications().supply_inputs(app_id, values)
+        continue_waiting_runs(rt, updated)
         return RedirectResponse(f"/applications/{app_id}", status_code=303)
 
     @app.post("/applications/{app_id}/authorize")
@@ -1096,9 +1204,13 @@ def create_app(rt: Runtime) -> FastAPI:
         rt.auth.grant(
             "application_submit", ScopeBinding(target_id=a["job_id"], material_hash=material_hash, allowed_hosts=[host] if host else []), ttl=timedelta(hours=hours), note=note
         )
-        rt.store.c("applications").update_one({"_id": app_id}, {"$set": {"status": "authorized", "updated_at": utcnow()}})
-        for run in rt.store.c("runs").find({"params.job_id": a["job_id"], "status": "waiting", "interrupt.type": "awaiting_authorization"}):
-            rt.store.update_run(run["_id"], requested="resume", resume_payload={"authorized": True})
+        now = utcnow()
+        rt.store.c("applications").update_one(
+            {"_id": app_id},
+            {"$set": {"status": "authorized", "updated_at": now}, "$push": {"history": {"at": now, "status": "authorized", "next_action": "the task applies this package"}}},
+        )
+        a["status"] = "authorized"
+        continue_waiting_runs(rt, a)
         return RedirectResponse(f"/applications/{app_id}", status_code=303)
 
     @app.post("/applications/{app_id}/manual")

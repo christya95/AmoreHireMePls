@@ -5,7 +5,6 @@
                'needs_input': ('Fill in the answers marked "needed" and save. The application is then ready for your approval.', '#answers'),
                'handoff': (('The job site showed a human check. Finish that check and the submit on the site yourself, then record the confirmation text here.' if a.handoff_kind == 'human_check' else 'Apply on the job site yourself using the resume below, then record the confirmation text here.'), '#record'),
                'needs_verification': ('Check the job site, then record whether it went through.', '#record'),
-               'authorized': ('Approved. The app applies within a minute. Nothing to do.', None),
                'challenge_retry': ('A check appeared. The app will try this once more later, then tell you if it still needs you.', None),
                'submitted': ('Applied and recorded. Next: short notes to recruiters under Recruiters.', '/outreach'),
                'failed': ('Applying failed. See "What happened" below.', '#record')}.get(a.status) %}
@@ -28,6 +27,7 @@
     </div>
     <form method="post" action="/applications/{{ a._id }}/continue"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}"><button>Continue</button></form>
   </div>
+  {% elif now_line %}<div class="next-action mt"><div class="body"><small class="muted">What to do now</small><strong>{{ now_line }}</strong></div></div>
   {% elif step %}<div class="next-action mt"><div class="body"><small class="muted">What to do now</small><strong>{{ step[0] }}</strong></div>{% if step[1] %}<a class="btn" href="{{ step[1] }}"><svg class="icon"><use href="#i-arrow"/></svg>{{ a.status|verb }}</a>{% endif %}</div>{% endif %}
 </div>
 
@@ -78,6 +78,12 @@
       <div class="card-h"><h3>Proof of applying</h3>{{ hint('evidence') }}<span class="sub">What the app saw: the filled form right before the final click and the page shown afterwards. Click a picture to open it full size.</span></div>
       {% include "_shots.html" %}
     </div>{% endif %}
+    <div class="card" id="updates">
+      <div class="card-h"><h3>Updates</h3><span class="sub">What has happened for this application, from the saved record. Refresh the page to see new lines.</span></div>
+      {% if updates %}
+      <div class="timeline">{% for u in updates %}<div class="list-item"><span class="t">{{ u.at|toronto }}</span><span>{{ u.text }}</span></div>{% endfor %}</div>
+      {% else %}<p class="note">No updates yet.</p>{% endif %}
+    </div>
     <div class="card" id="record">
       <div class="card-h"><h3>What happened</h3>{% if a.status == 'needs_verification' %}{{ hint('needs_verification') }}{% elif a.status == 'handoff' %}{{ hint('handoff') }}{% endif %}</div>
       {% if action %}<p>Attempt <code class="raw">{{ action._id }}</code> {{ status(action.status) }} {{ action.outcome_reason or '' }}</p>

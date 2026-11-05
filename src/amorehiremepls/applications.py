@@ -313,6 +313,7 @@ class ApplicationService:
     def supply_inputs(self, app_id: str, values: dict[str, str]) -> dict:
         app = self.apps.find_one({"_id": app_id})
         pkg = app["review_package"]
+        changed = False
         for a in pkg["answers"]:
             if a["field_id"] not in values or a.get("fact_ids") == ["artifact"]:
                 continue
@@ -320,6 +321,7 @@ class ApplicationService:
             old = a.get("value") or ""
             if new == old:
                 continue
+            changed = True
             if not new:
                 a["value"] = None
                 a["needs_input"] = bool(a.get("required"))
@@ -327,6 +329,8 @@ class ApplicationService:
                 a["reason"] = "cleared by Joss" if a.get("required") else "left blank"
             else:
                 a["value"], a["needs_input"], a["fact_ids"], a["reason"] = new, False, ["user:input"], ("edited by Joss" if old else "supplied by Joss")
+        if not changed:
+            return app  # the same answers again must not knock an approval back to "ready for review"
         kept = [u for u in pkg.get("outstanding") or [] if not str(u).startswith("answer needed:")]
         needed = [f"answer needed: {a['label']}" for a in pkg["answers"] if a.get("needs_input") and not a.get("sensitive")]
         pkg["outstanding"] = sorted(set(kept + needed))
