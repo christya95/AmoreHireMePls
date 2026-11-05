@@ -9,6 +9,9 @@
 #                              0.0.0.0 also answers on the Tailscale address, see docs/nas-deployment.md)
 #   AMORE_MODEL                model name (default gpt-5.4-mini)
 #   AMORE_BROWSER_ALLOWED_HOSTS  comma-separated ATS hosts the worker may open (default empty = no live navigation)
+#   AMORE_CANDIDATE_DIR        drop folder for the candidate's own resume DOCX and career notes (default /candidate,
+#                              bind mount of /volume1/docker/amorehiremepls/candidate; web writes it through the Profile
+#                              page upload form, the worker only reads it)
 #   AMORE_APP_PASSWORD         dashboard sign-in password          (vault: Dashboard Password / password)
 #   AMORE_APP_SECRET           session signing secret              (vault: App Session Secret / credential)
 #   AMORE_MONGODB_USERNAME     NAS MongoDB app user                (vault: NAS MongoDB App User / username)
@@ -64,11 +67,10 @@ x-app: &app
     AMORE_TRACKER_CLONE_DIR: /runtime/private/job-application-records
     AMORE_TRACKER_PUSH_ENABLED: "false"
     AMORE_PRICING_FILE: /app/config/pricing.json
+    AMORE_CANDIDATE_DIR: ${AMORE_CANDIDATE_DIR:-/candidate}
   working_dir: /
-  volumes:
-    - /volume1/docker/amorehiremepls/artifacts:/runtime/artifacts
-    - /volume1/docker/amorehiremepls/private:/runtime/private
-    - /volume1/docker/amorehiremepls/logs:/runtime/logs
+  # web and worker each list their own volumes below (YAML cannot merge lists): the three data mounts plus the
+  # candidate folder, writable for web (Profile page upload form), read-only for the worker.
   # The image declares VOLUME /data; it is unused here, so back it with tmpfs instead of an anonymous volume.
   tmpfs:
     - /data:size=1m
@@ -101,14 +103,15 @@ services:
     command:
       - |
         set -e
-        mkdir -p /runtime/artifacts /runtime/private/sessions /runtime/logs
-        chown -R 10001:10001 /runtime/artifacts /runtime/private /runtime/logs
-        chmod 750 /runtime/artifacts /runtime/private /runtime/logs
+        mkdir -p /runtime/artifacts /runtime/private/sessions /runtime/logs /candidate
+        chown -R 10001:10001 /runtime/artifacts /runtime/private /runtime/logs /candidate
+        chmod 750 /runtime/artifacts /runtime/private /runtime/logs /candidate
         echo "data directories ready"
     volumes:
       - /volume1/docker/amorehiremepls/artifacts:/runtime/artifacts
       - /volume1/docker/amorehiremepls/private:/runtime/private
       - /volume1/docker/amorehiremepls/logs:/runtime/logs
+      - /volume1/docker/amorehiremepls/candidate:/candidate
     restart: "no"
     security_opt:
       - no-new-privileges:true
@@ -123,6 +126,12 @@ services:
   web:
     <<: *app
     command: ["amore", "web"]
+    # The dashboard's Profile page writes uploaded resume/notes files into /candidate (no SSH on the NAS, so this is the drop path).
+    volumes:
+      - /volume1/docker/amorehiremepls/artifacts:/runtime/artifacts
+      - /volume1/docker/amorehiremepls/private:/runtime/private
+      - /volume1/docker/amorehiremepls/logs:/runtime/logs
+      - /volume1/docker/amorehiremepls/candidate:/candidate
     ports:
       - "${AMORE_PUBLISH_HOST:-192.168.2.49}:8790:8790"
     healthcheck:
@@ -135,6 +144,12 @@ services:
   worker:
     <<: *app
     command: ["amore", "worker"]
+    # The worker only reads the candidate folder (fit checks and tailoring).
+    volumes:
+      - /volume1/docker/amorehiremepls/artifacts:/runtime/artifacts
+      - /volume1/docker/amorehiremepls/private:/runtime/private
+      - /volume1/docker/amorehiremepls/logs:/runtime/logs
+      - /volume1/docker/amorehiremepls/candidate:/candidate:ro
     # Chromium needs a larger /dev/shm than Docker's 64 MB default.
     shm_size: 512m
     healthcheck:

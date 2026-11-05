@@ -2,7 +2,8 @@
 renderer exists), tighten until the PDF is at most two pages, and record artifacts with hashes.
 
 Grounding: every tailored bullet cites a base bullet id; skills must exist in the base; new text may
-not introduce technology tokens absent from the base. Violations are rejected, not silently kept.
+not introduce technology tokens absent from the base or from the candidate's own extra notes (the
+``candidate/`` folder, passed in as supplemental evidence). Violations are rejected, not silently kept.
 Without a model provider, a deterministic tailoring (reorder by posting relevance, no rewriting) is used.
 
 Output: the approved base DOCX is the template. It is opened as-is (header block, styles, fonts, margins,
@@ -306,9 +307,13 @@ class GroundingReport:
     checked_bullets: int
 
 
-def check_grounding(tailored: dict, base: BaseResume) -> GroundingReport:
+def check_grounding(tailored: dict, base: BaseResume, supplemental_text: str = "") -> GroundingReport:
+    """Every bullet cites a base bullet; terms, years and skills must appear in the base or in the candidate's own
+    supplemental notes (``supplemental_text``, from the candidate folder). The notes never ground a bullet id."""
     violations: list[str] = []
     base_low = base.all_text.lower()
+    if supplemental_text:
+        base_low = base_low + "\n" + supplemental_text.lower()
     ids = base.bullet_ids() | {e.id for e in base.experience + base.projects}
     checked = 0
     for exp in tailored.get("experience", []):
@@ -321,14 +326,14 @@ def check_grounding(tailored: dict, base: BaseResume) -> GroundingReport:
             for tok in TECH_TOKEN_RE.findall(b.get("text", "")):
                 if tok in COMMON_WORDS or tok.lower() in base_low or tok.rstrip("s").lower() in base_low:
                     continue
-                violations.append(f"technology/term not in base: '{tok}'")
+                violations.append(f"technology/term not in evidence: '{tok}'")
             for m in re.findall(r"\b(\d+)\+?\s+years?", b.get("text", ""), re.I):
                 if f"{m} years" not in base_low and f"{m}+ years" not in base_low:
-                    violations.append(f"years claim not in base: {m} years")
+                    violations.append(f"years claim not in evidence: {m} years")
     base_skills_low = {s.lower() for s in base.skills}
     for s in tailored.get("skills", []):
         if s.lower() not in base_skills_low and s.lower() not in base_low:
-            violations.append(f"skill not in base: {s}")
+            violations.append(f"skill not in evidence: {s}")
     summary = tailored.get("summary", "")
     # The approved base summary is Joss's own wording and passes as-is; the no-dash style rule applies to rewritten text.
     if summary.strip() != (base.summary or "").strip() and re.search(r"[-–—]", summary):
@@ -897,11 +902,38 @@ _PAGE_BUDGET_RETRY = (
 
 
 class Tailor:
-    def __init__(self, store: Store, artifact_dir: Path, ai: AIRunner | None = None, render: Callable[[Path], dict] | None = None) -> None:
+    def __init__(
+        self,
+        store: Store,
+        artifact_dir: Path,
+        ai: AIRunner | None = None,
+        render: Callable[[Path], dict] | None = None,
+        supplemental_text: str = "",
+        supplemental_sha256: str = "",
+    ) -> None:
         self.store = store
         self.artifact_dir = artifact_dir
         self.ai = ai
         self.render = render or render_pdf
+        # Extra career notes from the candidate folder: evidence for both model calls and for grounding; the base stays the template.
+        self.supplemental_text = supplemental_text or ""
+        self.supplemental_sha256 = supplemental_sha256 or ""
+
+    def _tailor_input(self, base: BaseResume, posting_text: str, job: dict, page_budget: str | None = None) -> TailorInput:
+        kwargs: dict[str, Any] = {}
+        if page_budget:
+            kwargs["page_budget"] = page_budget
+        return TailorInput(
+            posting_summary=(posting_text or "")[:8000],
+            base_resume_sections=base.as_sections(),
+            allowed_fact_ids=sorted(base.bullet_ids()),
+            target_role_terms=[job.get("title", "")],
+            supplemental_evidence=self.supplemental_text,
+            **kwargs,
+        )
+
+    def _grounding(self, tailored: dict, base: BaseResume) -> GroundingReport:
+        return check_grounding(tailored, base, self.supplemental_text)
 
     def tailor_for_job(self, job: dict, base_path: Path, base_sha256: str, fact_version: int, display_name: str = "Resume") -> dict:
         base = parse_base_resume(base_path)
@@ -913,27 +945,22 @@ class Tailor:
             try:
                 res = self.ai.run(
                     "tailor_resume",
-                    TailorInput(
-                        posting_summary=posting_text[:8000],
-                        base_resume_sections=base.as_sections(),
-                        allowed_fact_ids=sorted(base.bullet_ids()),
-                        target_role_terms=[job.get("title", "")],
-                    ),
+                    self._tailor_input(base, posting_text, job),
                     fact_version=fact_version,
                     posting_hash=snapshot.get("posting_hash"),
-                    untrusted_fields=("posting_summary",),
+                    untrusted_fields=("posting_summary", "supplemental_evidence"),
                 )
                 tailored, method = res.output, "model"
             except ProviderUnavailable:
                 tailored = deterministic_tailor(base, posting_text)
         else:
             tailored = deterministic_tailor(base, posting_text)
-        report = check_grounding(tailored, base)
+        report = self._grounding(tailored, base)
         if not report.ok and method == "model":
             log.warning("model tailoring rejected (%d violations); falling back to deterministic", len(report.violations))
             tailored = deterministic_tailor(base, posting_text)
             method = "deterministic_after_rejection"
-            report = check_grounding(tailored, base)
+            report = self._grounding(tailored, base)
         req = job.get("requisition_id") or job.get("linkedin_job_id") or job["_id"][-6:]
         fname = f"{slugify(display_name.replace(' ', '_'))}_Resume_{slugify(job['employer'])}_{slugify(job['title'], 40)}_{slugify(str(req), 24)}.docx"
         out_dir = self.artifact_dir / "jobs" / job["_id"]
@@ -941,7 +968,7 @@ class Tailor:
         title = f"{person} Resume".strip()
         docx_path = out_dir / fname
         tailored, pdf, method = self._enforce_page_limit(base, tailored, posting_text, docx_path, job, fact_version, snapshot, method, title, person)
-        report = check_grounding(tailored, base)
+        report = self._grounding(tailored, base)
         structure = verify_docx_structure(docx_path)
         docx_hash = sha256_file(docx_path)
         artifact = {
@@ -960,6 +987,7 @@ class Tailor:
             "method": method,
             "grounding": {"ok": report.ok, "violations": report.violations, "checked_bullets": report.checked_bullets},
             "base_sha256": base_sha256,
+            "supplemental_sha256": self.supplemental_sha256 or None,  # which candidate-folder notes were evidence, if any
             "fact_version": fact_version,
             "posting_hash": snapshot.get("posting_hash"),
             "created_at": utcnow(),
@@ -1004,21 +1032,15 @@ class Tailor:
         try:
             res = self.ai.run(
                 "tailor_resume",
-                TailorInput(
-                    posting_summary=(posting_text or "")[:8000],
-                    base_resume_sections=base.as_sections(),
-                    allowed_fact_ids=sorted(base.bullet_ids()),
-                    target_role_terms=[job.get("title", "")],
-                    page_budget=_PAGE_BUDGET_RETRY,
-                ),
+                self._tailor_input(base, posting_text, job, page_budget=_PAGE_BUDGET_RETRY),
                 fact_version=fact_version,
                 posting_hash=snapshot.get("posting_hash"),
-                untrusted_fields=("posting_summary",),
+                untrusted_fields=("posting_summary", "supplemental_evidence"),
             )
         except (ProviderUnavailable, ValueError):
             log.warning("page-budget re-tailor unavailable; keeping the tightened draft")
             return None
-        if not check_grounding(res.output, base).ok:
+        if not self._grounding(res.output, base).ok:
             log.warning("page-budget re-tailor rejected by grounding; keeping the tightened draft")
             return None
         return res.output

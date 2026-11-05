@@ -215,6 +215,10 @@ op run --env-file .env.references -- uv run amore profile import \
     --salary-skill /path/to/your-desired-salary/SKILL.md
 
 # The one approved base resume (DOCX). It is copied into the private folder and hashed.
+# Easiest: drop it in candidate/ (with any extra career notes as .md/.txt/.docx; see candidate/README.md) and either
+# press "Use the resume from the candidate folder" on the Profile page or run the command without a path.
+op run --env-file .env.references -- uv run amore profile base-resume --approved-on 2026-10-15
+# Or point at the file directly:
 op run --env-file .env.references -- uv run amore profile base-resume /path/to/base_resume.docx --approved-on 2026-10-15
 
 # Your GitHub tracker, if you keep one
@@ -283,6 +287,7 @@ The stack joins the NAS MongoDB's Docker network, stores files under `/volume1/d
 |---|---|---|
 | `.env` | non-secret settings (database URI, ports, directories, model name, budgets, allowed hosts, schedule) | no (`.env.example` is) |
 | `.env.references` | `op://AmoreHireMePls/<item>/<field>` references only | no (`config/op.env.example` is) |
+| `candidate/` | your base resume `.docx` and extra career notes (`.md`, `.txt`, `.docx`); read for fit ranking and tailoring (`AMORE_CANDIDATE_DIR`, text capped by `AMORE_CANDIDATE_SUPPLEMENTAL_MAX_CHARS`) | only its `README.md` |
 | `config/pricing.json` | dated USD prices per million tokens per model | yes |
 | MongoDB `controls` | dashboard settings (theme, accent, tint, name, avatar metadata, hidden tips) | runtime only |
 

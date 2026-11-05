@@ -35,6 +35,12 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip)
 
 
+@pytest.fixture(autouse=True)
+def _empty_candidate_folder(tmp_path, monkeypatch):
+    """Tests never read the real drop folder (candidate/): point every Settings() at an empty one."""
+    monkeypatch.setenv("AMORE_CANDIDATE_DIR", str(tmp_path / "candidate-empty"))
+
+
 @pytest.fixture
 def store():
     client = MongoClient(TEST_MONGO_URI, serverSelectionTimeoutMS=3000)

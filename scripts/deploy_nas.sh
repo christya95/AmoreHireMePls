@@ -15,6 +15,7 @@
 #   scripts/deploy_nas.sh --skip-build --set AMORE_BROWSER_ALLOWED_HOSTS=boards.greenhouse.io,jobs.lever.co
 #                                         # set/override a non-secret stack variable (repeatable); values stick across runs
 #   scripts/deploy_nas.sh --skip-build --set AMORE_PUBLISH_HOST=0.0.0.0   # publish on all NAS interfaces (LAN + tailnet)
+#   scripts/deploy_nas.sh --set AMORE_CANDIDATE_DIR=/candidate            # drop folder inside the containers (compose default)
 #
 # Stack variables not managed here (anything other than AMORE_IMAGE_TAG and the vault secrets) are carried over from
 # the stack's current environment, so a value set once with --set stays until changed. Secret names cannot be --set.

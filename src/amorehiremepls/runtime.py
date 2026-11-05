@@ -13,6 +13,7 @@ from .ai import AIRunner, Budget, Pricing, Provider, build_provider
 from .applications import ApplicationService, FormField
 from .authorization import AuthorizationStore
 from .browser import BrowserAdapter, BrowserConfig, Plan, Step
+from .candidate_docs import CandidateDocs, load_candidate_docs
 from .config import Settings
 from .db import Store
 from .discovery import Discovery
@@ -132,11 +133,16 @@ class Runtime:
 
         return ModelCaptchaSolver(ai)
 
+    def candidate_docs(self) -> CandidateDocs:
+        """Fresh read of the drop folder (base DOCX + extra notes). Cheap, so every tailor/rank sees the current files."""
+        return load_candidate_docs(self.settings.candidate_dir, self.settings.candidate_supplemental_max_chars)
+
     def discovery(self, run_id: str | None = None) -> Discovery:
-        return Discovery(self.store, self.profile, self.ai(run_id))
+        return Discovery(self.store, self.profile, self.ai(run_id), supplemental_text=self.candidate_docs().supplemental_text)
 
     def tailor(self, run_id: str | None = None) -> Tailor:
-        return Tailor(self.store, self.settings.artifact_dir, self.ai(run_id))
+        docs = self.candidate_docs()
+        return Tailor(self.store, self.settings.artifact_dir, self.ai(run_id), supplemental_text=docs.supplemental_text, supplemental_sha256=docs.supplemental_sha256)
 
     def notifier(self):
         from .notify import Notifier

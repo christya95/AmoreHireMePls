@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     artifact_dir: Path = Path("./runtime/artifacts")
     private_dir: Path = Path("./runtime/private")
     log_dir: Path = Path("./runtime/logs")
+    # Drop folder for the candidate's own files: one base resume DOCX plus extra career notes (.md/.txt/.docx).
+    # Read at tailoring and fit-ranking time; only its README is tracked in git. Missing or empty = current behavior.
+    candidate_dir: Path = Path("./candidate")
+    # Character budget for the extra documents' text sent as evidence (files in name order, cut at the limit).
+    candidate_supplemental_max_chars: int = Field(default=12_000, ge=0, le=60_000)
 
     # Default provider is OpenAI (Joss, 2026-11-04). AMORE_MODEL may be "gpt-..." (uses AMORE_MODEL_PROVIDER)
     # or fully qualified "anthropic:claude-..." to select another provider. Empty = no provider configured.

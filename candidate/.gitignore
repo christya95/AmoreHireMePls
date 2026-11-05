@@ -1,0 +1,4 @@
+# Everything dropped in this folder stays on this computer. Only this file and the README are tracked.
+*
+!.gitignore
+!README.md

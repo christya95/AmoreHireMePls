@@ -427,8 +427,9 @@ def test_tailor_service_falls_back_when_model_output_is_ungrounded_and_records_h
 
 def test_tailor_skill_states_the_two_page_budget():
     spec = catalog.get("tailor_resume")
-    assert spec.version == "2026-11-05.1"
+    assert spec.version == "2026-11-05.2"
     assert "two pages" in spec.system_prompt.lower() and "two page budget" in spec.system_prompt.lower()
+    assert "supplemental_evidence" in spec.system_prompt and "supplemental_evidence" in spec.input_model.model_fields
 
 
 def _render_fixed(pages: int):

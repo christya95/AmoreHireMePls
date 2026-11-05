@@ -140,11 +140,35 @@ def profile_import(
 
 
 @profile_app.command("base-resume")
-def profile_base_resume(path: Path, approved_on: str = typer.Option(..., help="YYYY-MM-DD the user approved this base"), note: str = ""):
+def profile_base_resume(
+    path: Path | None = typer.Argument(None, help="The DOCX to approve. Omitted: the resume found in the candidate folder (AMORE_CANDIDATE_DIR)."),
+    approved_on: str = typer.Option(..., help="YYYY-MM-DD the user approved this base"),
+    note: str = "",
+):
     """Select the approved base resume DOCX (copied into the private dir, hashed, never modified)."""
     rt = _rt()
-    p = rt.profiles.select_base_resume(path, approved_on, "cli:user", rt.settings.private_dir, note)
+    source = "cli:user"
+    if path is None:
+        docs = rt.candidate_docs()
+        if docs.base_resume is None:
+            typer.echo(f"no .docx found in the candidate folder {docs.directory}; pass a path or drop the resume there", err=True)
+            raise typer.Exit(1)
+        for w in docs.warnings:
+            typer.echo(w, err=True)
+        path, source = docs.base_resume, "cli:candidate_folder"
+    p = rt.profiles.select_base_resume(path, approved_on, source, rt.settings.private_dir, note)
     _echo(p.base_resume.model_dump())
+
+
+@profile_app.command("candidate-docs")
+def profile_candidate_docs():
+    """What the candidate folder holds: the resume picked as base, the extra documents, their size, and any warnings."""
+    rt = _rt()
+    docs = rt.candidate_docs()
+    out = docs.as_dict()
+    if docs.base_resume is not None and rt.profile.base_resume is not None:
+        out["base_resume_matches_approved"] = rt.profile.base_resume.sha256 == docs.base_resume_sha256
+    _echo(out)
 
 
 @profile_app.command("show")

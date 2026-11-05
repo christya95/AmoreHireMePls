@@ -38,7 +38,7 @@ authenticates against database `amorehiremepls` (`AMORE_MONGODB_AUTH_SOURCE=amor
 | Docker Hub private repository **`lepia/amorehiremepls`** | hub.docker.com, account `lepia` (Personal vault login) | Created private (`is_private: true`) before the first push; unauthenticated `GET /v2/repositories/lepia/amorehiremepls/` returns 404. |
 | Docker Hub access tokens | vault `AmoreHireMePls` → **`Docker Hub Push Token`** (`repo:write`, used by the Mac) and **`Docker Hub Pull Token`** (`repo:read`, used by Portainer) | Created with the Hub API; the account password itself is used nowhere. |
 | Portainer registry `Docker Hub (lepia, AmoreHireMePls pull token)` | Portainer registry id 1, type Docker Hub, user `lepia` + pull token | Portainer passes it to compose when the stack pulls the private image. |
-| Stack **`amorehiremepls`** | Portainer stack id **7**, endpoint 1, file `deploy/nas/compose.yaml` | Services `init` (one-shot chown, exits 0), `web`, `worker`. Data under `/volume1/docker/amorehiremepls/{artifacts,private,logs}`. |
+| Stack **`amorehiremepls`** | Portainer stack id **7**, endpoint 1, file `deploy/nas/compose.yaml` | Services `init` (one-shot chown, exits 0), `web`, `worker`. Data under `/volume1/docker/amorehiremepls/{artifacts,private,logs,candidate}`. |
 
 Why Docker Hub and not GHCR: the `gh` login on the Mac has scopes `repo, read:org, gist, admin:public_key` only (no `write:packages`
 / `read:packages`), and a new GitHub PAT cannot be minted headlessly. The Hub login in the Personal vault has no 2FA, so scoped
@@ -50,7 +50,12 @@ tokens could be created through the Hub API without touching the password again.
 - Image `docker.io/lepia/amorehiremepls:${AMORE_IMAGE_TAG}`; the tag is the 12-character git sha of the commit built; `:latest`
   is pushed too. Portainer stack environment variables carry the tag and the five secrets (names only in the file):
   `AMORE_APP_PASSWORD`, `AMORE_APP_SECRET`, `AMORE_MONGODB_USERNAME`, `AMORE_MONGODB_PASSWORD`, `OPENAI_API_KEY`, plus optional
-  `AMORE_PUBLISH_HOST`, `AMORE_MODEL`, `AMORE_BROWSER_ALLOWED_HOSTS`.
+  `AMORE_PUBLISH_HOST`, `AMORE_MODEL`, `AMORE_BROWSER_ALLOWED_HOSTS`, `AMORE_CANDIDATE_DIR` (default `/candidate`).
+- **Candidate folder.** `/volume1/docker/amorehiremepls/candidate` is mounted at `/candidate` (writable on `web`, read-only on
+  `worker`); `init` creates it and gives it to uid 10001 like the other data directories. Because the NAS has no SSH, the
+  Profile page has an upload form ("Add a resume or career notes": `.docx`, `.md`, `.txt`, 5 MB cap, sanitized basename) that
+  writes into this folder; the worker reads it on every fit check and tailoring. Adopting the uploaded DOCX as the base resume
+  remains a separate button on the same card.
 - Database: the stack's default network **is** `mongodb_default` (external), so the app reaches the database as
   `mongodb://mongodb:27017/?directConnection=true` without crossing the host interface. The `mongodb` stack is untouched.
 - **Path layout.** Records written by the Mac instance store paths relative to the repository root (`runtime/artifacts/...`,
@@ -111,6 +116,7 @@ built in memory with uid/gid 10001):
 | `runtime/private/avatar/avatar.png` | `/volume1/docker/amorehiremepls/private/avatar/` | served by `/settings/avatar/image`. |
 | `runtime/private/job-application-records` (tracker clone, head `11cf8f6`, plain https remote, no embedded credentials) | `/volume1/docker/amorehiremepls/private/job-application-records/` | `AMORE_TRACKER_PUSH_ENABLED=false`; the NAS coordinator commits locally only. |
 | (none yet) | `/volume1/docker/amorehiremepls/private/sessions/` | Copy `runtime/private/sessions/<site>.json` here the same way after `amore browser login` on the Mac. |
+| `candidate/*.docx`, `candidate/*.md` (the drop folder) | `/volume1/docker/amorehiremepls/candidate/` | Use the Profile page upload form on the NAS dashboard; no archive API step needed. |
 
 `amore setup-db` was run inside the web container: ping ok, all indexes present, `MongoDBSaver` checkpointer ok.
 

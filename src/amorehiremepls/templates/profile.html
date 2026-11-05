@@ -6,7 +6,18 @@
 <div class="grid-2">
   <div class="card">
     <div class="card-h"><h3>Base resume</h3>{% if p.base_resume %}<span class="pill ok">approved {{ p.base_resume.approved_on }}</span>{% else %}<span class="pill bad">not chosen</span>{% endif %}<span class="sub">The one resume every tailored version starts from. A copy is kept privately. The original is never edited.</span></div>
-    {% if p.base_resume %}<p class="wrap"><code>{{ p.base_resume.path }}</code></p><p class="note">{{ p.base_resume.source }}{% if p.base_resume.note %} · {{ p.base_resume.note }}{% endif %} <code class="raw" title="file fingerprint">{{ p.base_resume.sha256[:16] }}</code></p>{% else %}<div class="empty">No base resume yet. Paste the full path of your approved DOCX below (on this computer). Old tailored copies are never used as the base.</div>{% endif %}
+    {% if p.base_resume %}<p class="wrap"><code>{{ p.base_resume.path }}</code></p><p class="note">{{ p.base_resume.source }}{% if p.base_resume.note %} · {{ p.base_resume.note }}{% endif %} <code class="raw" title="file fingerprint">{{ p.base_resume.sha256[:16] }}</code></p>{% else %}<div class="empty">No base resume yet. Drop your DOCX in the candidate folder (<code>{{ cand.directory }}</code>), add it with the form below, or paste the full path of your approved DOCX below (on this computer). Old tailored copies are never used as the base.</div>{% endif %}
+    {% if cand and cand.base_resume %}
+    <div class="note mt">Resume found in the candidate folder: <code>{{ cand.base_resume.name }}</code>.
+      {% if cand_state == 'same' %}This is your approved base resume.{% elif cand_state == 'new' %}It is not chosen yet.{% else %}It differs from your approved copy; your approved copy stays until you choose the new one.{% endif %}
+      {% if cand_state != 'same' %}<form class="inline" method="post" action="/profile/base-resume"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="path" value="{{ cand_path }}"><input type="hidden" name="note" value="from the candidate folder"><button class="secondary xs">Use the resume from the candidate folder</button></form>{% endif %}
+      {% for w in cand.warnings %}<br><small>{{ w }}</small>{% endfor %}
+    </div>
+    {% endif %}
+    {% if cand and cand.supplemental_files %}<p class="note">Extra documents read when checking fit and tailoring: {% for f in cand.supplemental_files %}<code>{{ f.name }}</code>{% if not loop.last %}, {% endif %}{% endfor %} ({{ cand.supplemental_text|length }} characters{% if cand.truncated %}, cut at the limit{% endif %}).</p>{% endif %}
+    <form method="post" action="/profile/candidate-upload" enctype="multipart/form-data" class="form-row mt"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="field wide"><label>Add a resume or career notes</label><input type="file" name="file" accept=".docx,.md,.txt" required><span class="hint">Word, Markdown or plain text, up to 5 MB. It goes into the candidate folder; a file with the same name is replaced.</span></div>
+      <button class="secondary">Add file</button></form>
     <form method="post" action="/profile/base-resume" class="form-row mt"><input type="hidden" name="csrf" value="{{ csrf }}">
       <div class="field wide"><label>Where the file is on this computer</label><input name="path" placeholder="/path/to/approved_base_resume.docx" required></div>
       <div class="field"><label>Note</label><input name="note"></div>

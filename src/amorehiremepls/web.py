@@ -180,6 +180,11 @@ FLASHES = {
     "notify_sent": ("Test notification sent.", "ok"),
     "notify_failed": ("The test notification could not be sent. Check the mail server settings and try again.", "bad"),
     "notify_off": ("Nothing is set up to send a notification yet.", "bad"),
+    "candidate_saved": ("The file is in your candidate folder. It is read the next time the app checks a fit or tailors a resume.", "ok"),
+    "candidate_bad_type": ("Only Word (.docx), Markdown (.md) or plain text (.txt) files are accepted.", "bad"),
+    "candidate_too_big": ("That file is too large. The limit is 5 MB.", "bad"),
+    "candidate_bad_name": ("That file name was not accepted. Give the file a short plain name and try again.", "bad"),
+    "candidate_not_writable": ("The app cannot write to the candidate folder on this computer. Check the folder permissions.", "bad"),
 }
 HOSTS_ENV_EXAMPLE = "AMORE_BROWSER_ALLOWED_HOSTS=boards.greenhouse.io,jobs.lever.co"
 
@@ -405,7 +410,7 @@ def create_app(rt: Runtime) -> FastAPI:
     def open_questions() -> list[str]:
         q = []
         if rt.profile.base_resume is None:
-            q.append("Your approved base resume (DOCX) is not chosen yet. Where is it on this computer?")
+            q.append("Your approved base resume (DOCX) is not chosen yet. Drop it in the candidate folder or paste where it is on this computer.")
         for x in rt.profile.preferences.recipient_exclusions:
             if x.resolution == "unresolved":
                 q.append(f"'{x.label}' is on your do not contact list but has no LinkedIn link or employer yet. Add one so the app can tell them apart from namesakes.")
@@ -791,7 +796,22 @@ def create_app(rt: Runtime) -> FastAPI:
         p = rt.reload_profile()
         from .profile import compute_experience
 
-        return render(request, "profile.html", session, p=p, exp=compute_experience(p.employment).as_dict(), provider_check=None)
+        # The drop folder (candidate/): offer its resume for adoption; never swap the approved base on its own.
+        cand = rt.candidate_docs()
+        cand_state = None
+        if cand.base_resume is not None:
+            cand_state = "new" if p.base_resume is None else ("same" if p.base_resume.sha256 == cand.base_resume_sha256 else "differs")
+        return render(
+            request,
+            "profile.html",
+            session,
+            p=p,
+            exp=compute_experience(p.employment).as_dict(),
+            provider_check=None,
+            cand=cand,
+            cand_state=cand_state,
+            cand_path=str(cand.base_resume.resolve()) if cand.base_resume else "",
+        )
 
     @app.post("/profile/preferences")
     def profile_prefs(
@@ -855,6 +875,22 @@ def create_app(rt: Runtime) -> FastAPI:
         rt.profiles.select_base_resume(p, utcnow().date().isoformat(), "user:dashboard", rt.settings.private_dir, note)
         rt.reload_profile()
         return RedirectResponse("/profile", status_code=303)
+
+    @app.post("/profile/candidate-upload")
+    async def candidate_upload(request: Request, session: dict = Depends(require_session), csrf: str = Form(...), file: UploadFile = File(...)):
+        """Put one resume or notes file into the candidate drop folder. Adopting it as the base resume stays a separate click."""
+        require_csrf(request, session, csrf)
+        from .candidate_docs import UPLOAD_MAX_BYTES, CandidateUploadError, save_upload
+
+        data = await file.read(UPLOAD_MAX_BYTES + 1)
+        try:
+            saved = save_upload(rt.settings.candidate_dir, file.filename or "", data)
+        except CandidateUploadError as exc:
+            return RedirectResponse(f"/profile?err=candidate_{exc.code}", status_code=303)
+        except OSError:
+            return RedirectResponse("/profile?err=candidate_not_writable", status_code=303)
+        rt.store.audit("candidate_file_uploaded", None, name=saved.name, bytes=len(data), sha256=sha256_file(saved))
+        return RedirectResponse("/profile?ok=candidate_saved", status_code=303)
 
     @app.post("/profile/exclusions/resolve")
     def resolve_exclusion(
