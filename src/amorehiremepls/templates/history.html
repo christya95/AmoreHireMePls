@@ -1,6 +1,7 @@
 {% extends "base.html" %}{% block content %}
+{% from "_macros.html" import status, hint with context %}
 <div class="stack">
-<div class="page-head"><div><h1>History</h1><p>The private GitHub tracker is the durable ledger. Imports keep original provenance; a reconstructed log is never shown as a verified receipt.</p></div></div>
+<div class="page-head"><div><h1>History</h1><p>Your past applications, imported from the private GitHub tracker. Each record keeps its original evidence level; a reconstructed log is never shown as a verified receipt.</p></div></div>
 
 <div class="grid-main">
   <div class="card">
@@ -14,6 +15,7 @@
       <tr><td>Preview</td><td><span class="pill info">new {{ preview.new }}</span> <span class="pill">unchanged {{ preview.unchanged }}</span> <span class="pill warn">changed {{ preview.changed }}</span> <span class="pill {{ 'bad' if preview.conflicts else '' }}">conflicts {{ preview.conflicts|length }}</span> <span class="pill">duplicates {{ preview.duplicates|length }}</span> <span class="pill {{ 'warn' if preview.missing_artifacts else '' }}">artifacts missing/changed {{ preview.missing_artifacts|length }}</span></td></tr>
       {% endif %}
     </table>
+    {% if not sync.clone_present %}<div class="empty">The tracker clone is not on this machine yet. Run <code>uv run amore tracker clone</code> here, then come back and import.</div>{% endif %}
     {% if preview and preview.error %}<div class="flash bad mt">{{ preview.error }}</div>{% endif %}
     {% if preview and not preview.error %}
     {% if preview.duplicates %}<details class="disclosure"><summary>Duplicate identities</summary><pre>{{ preview.duplicates|json }}</pre></details>{% endif %}
@@ -37,12 +39,12 @@
     <tbody>{% for a in apps %}<tr>
       <td class="mono">{{ a.tracker_record_id }}</td>
       <td><span class="row-person"><span class="avatar style-soft">{{ (a.record.employer or '?')|initials }}</span><span><strong>{{ a.record.employer }}</strong><span class="sub">{{ a.record.role }}</span></span></span></td>
-      <td><span class="pill {{ a.status|tone }}">{{ a.status|human }}</span></td>
+      <td>{{ status(a.status) }}</td>
       <td class="nowrap">{{ a.record.application_date }}<span class="sub">{{ a.record.date_basis }}</span></td>
       <td><small>{{ a.record.evidence_basis or '—' }}</small></td>
       <td>{% for s in a.artifact_status %}<span class="pill {{ 'ok' if s.hash_ok else 'bad' }}">{{ s.kind }}</span> {% endfor %}</td>
-      <td><span class="pill {{ a.sync.state|tone }}">{{ a.sync.state|human }}</span></td></tr>
-    {% else %}<tr><td colspan="7"><div class="empty">No imported records.</div></td></tr>{% endfor %}</tbody>
+      <td>{{ status(a.sync.state) }}</td></tr>
+    {% else %}<tr><td colspan="7"><div class="empty"><svg class="icon"><use href="#i-history"/></svg>Nothing imported yet. {% if sync.clone_present %}Use "Import / re-import" above.{% else %}Clone the tracker first (see above).{% endif %}</div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>
 </div>

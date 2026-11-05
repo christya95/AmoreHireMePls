@@ -1,4 +1,5 @@
 {% extends "base.html" %}{% block content %}
+{% from "_macros.html" import status, hint with context %}
 <div class="stack">
 <div class="card">
   <div class="welcome">
@@ -6,45 +7,63 @@
     <div>
       <h1>{{ job.title }}</h1>
       <p>{{ job.employer }}{% if job.location %} · {{ job.location }}{% endif %} · req {{ job.requisition_id or '—' }}{% if job.linkedin_job_id %} · LinkedIn {{ job.linkedin_job_id }}{% endif %}</p>
-      <div class="flex mt"><span class="pill {{ job.status|tone }}">{{ job.status|human }}</span>{% if job.fit %}<span class="pill accent">fit rank {{ job.fit.rank }}</span>{% endif %}<a href="{{ job.posting_url }}" rel="noopener" target="_blank"><small>posting ↗</small></a><small>sources {{ job.sources|join(', ') }}</small></div>
+      <div class="flex mt">{{ status(job.status) }}{% if job.fit %}<span class="pill accent">fit rank {{ job.fit.rank }}</span>{{ hint('fit_rank') }}{% endif %}<a href="{{ job.posting_url }}" rel="noopener" target="_blank"><small>posting ↗</small></a><small>sources {{ job.sources|join(', ') }}</small></div>
       {% if job.possible_duplicates %}<p class="mt"><span class="pill warn">possible duplicates: {{ job.possible_duplicates|join(', ') }}</span></p>{% endif %}
-    </div>
-    <div class="actions">
-      <form class="inline" method="post" action="/jobs/{{ job._id }}/qualify"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Re-qualify and rank</button></form>
-      <form class="inline" method="post" action="/jobs/{{ job._id }}/run"><input type="hidden" name="csrf" value="{{ csrf }}"><button><svg class="icon"><use href="#i-runs"/></svg>Start single-job run</button></form>
     </div>
   </div>
 </div>
 
+<div class="card stepper-card">
+  <ol class="stepper" aria-label="Workflow">
+    {% for s in steps %}<li class="{{ 'done' if s.done }}{{ ' current' if s.current }}"><span class="dot">{% if s.done %}<svg class="icon"><use href="#i-check"/></svg>{% else %}{{ loop.index }}{% endif %}</span><span class="name">{{ s.name }}</span></li>{% endfor %}
+  </ol>
+  <div class="next-action">
+    <div class="body"><small class="muted">Next</small><strong>{{ next_step.label }}</strong>{% if next_step.note %}<small>{{ next_step.note }}</small>{% endif %}</div>
+    {% if next_step.form %}<form method="post" action="{{ next_step.form }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button><svg class="icon"><use href="#i-arrow"/></svg>{{ next_step.verb }}</button></form>
+    {% elif next_step.href %}<a class="btn" href="{{ next_step.href }}"><svg class="icon"><use href="#i-arrow"/></svg>{{ next_step.verb }}</a>{% endif %}
+    <details class="pop more">
+      <summary class="btn secondary sm">More actions</summary>
+      <div class="pop-body stack gap-s">
+        <form method="post" action="/jobs/{{ job._id }}/qualify"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary sm w100">Re-qualify and rank</button></form>
+        {% if not active_run %}<form method="post" action="/jobs/{{ job._id }}/run"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary sm w100">Start a new run</button></form>{% endif %}
+        <form method="post" action="/jobs/{{ job._id }}/regenerate" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="secondary sm w100">Regenerate documents</button>
+          <small>{{ glossary.regenerate[1] }}{% if scopes %} <strong>An approval for this job is active and will be revoked.</strong>{% endif %}</small></form>
+      </div>
+    </details>
+  </div>
+</div>
+
 <div class="grid-2">
-  <div class="card"><div class="card-h"><h3>Qualification</h3>{% if job.qualification %}<span class="pill {{ job.qualification.decision|tone }}">{{ job.qualification.decision|human }}</span>{% endif %}</div>
+  <div class="card"><div class="card-h"><h3>Qualification</h3>{% if job.qualification %}{{ status(job.qualification.decision) }}{% endif %}<span class="sub">Deterministic rules from your preferences: role family, location, employment type, salary floor, exclusions.</span></div>
     {% if job.qualification %}<ul>{% for r in job.qualification.reasons %}<li>{{ r }}</li>{% endfor %}</ul>
-    <details class="disclosure"><summary>Raw qualification</summary><pre>{{ job.qualification|json }}</pre></details>{% else %}<p class="note">Not qualified yet.</p>{% endif %}</div>
-  <div class="card"><div class="card-h"><h3>Fit evidence</h3></div>{% if job.fit %}<pre>{{ job.fit|json }}</pre>{% else %}<p class="note">No fit ranking yet (needs a configured model provider).</p>{% endif %}</div>
+    <details class="disclosure"><summary>Raw qualification</summary><pre>{{ job.qualification|json }}</pre></details>{% else %}<div class="empty">Not qualified yet.<div class="actions center mt"><form method="post" action="/jobs/{{ job._id }}/qualify" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary sm">Qualify and rank</button></form></div></div>{% endif %}</div>
+  <div class="card"><div class="card-h"><h3>Fit evidence</h3>{{ hint('fit_rank') }}</div>{% if job.fit %}<pre>{{ job.fit|json }}</pre>{% else %}<p class="note">No fit ranking yet. It needs a configured model provider; the deterministic qualification above still works without one.</p>{% endif %}</div>
+</div>
+
+<div class="card flush"><div class="card-h"><h3>Documents</h3>{{ hint('grounding') }}<span class="sub">Tailored from the approved base resume. Open the PDF to read exactly what would be uploaded.</span></div>
+  <div class="table-wrap"><table><thead><tr><th>File</th><th>Open / download</th><th>Grounding</th><th>Method</th><th class="right">Created</th></tr></thead>
+  <tbody>{% for d in artifacts %}<tr class="{{ 'superseded' if d.superseded }}"><td class="wrap"><strong>{{ d.filename }}</strong>{% if d.superseded %}<span class="sub">replaced by a newer version</span>{% endif %}</td><td class="wrap">{% include "_doc_actions.html" %}</td><td>{% if d.grounding.ok %}<span class="pill ok">ok</span>{% else %}<span class="pill bad">{{ d.grounding.violations|join('; ') }}</span>{% endif %}</td><td>{{ d.method }}</td><td class="right nowrap">{{ d.created_at|toronto }}</td></tr>
+  {% else %}<tr><td colspan="5"><div class="empty"><svg class="icon"><use href="#i-documents"/></svg>No tailored resume yet. "Tailor and prepare" above builds one and pauses for your review.</div></td></tr>{% endfor %}</tbody></table></div></div>
+
+<div class="grid-2">
+  <div class="card flush"><div class="card-h"><h3>Applications</h3><span class="sub">The local review package and any imported history for this employer.</span></div>
+    <div class="table-wrap"><table><thead><tr><th>ID</th><th>Status</th><th>Origin</th><th class="right">Updated</th></tr></thead>
+    <tbody>{% for a in apps %}<tr><td><a class="mono" href="/applications/{{ a._id }}">{{ a._id }}</a></td><td>{{ status(a.status) }}</td><td>{{ a.provenance.origin|human }}</td><td class="right nowrap">{{ a.updated_at|toronto }}</td></tr>
+    {% else %}<tr><td colspan="4"><div class="empty">No application yet. A run prepares the review package.</div></td></tr>{% endfor %}</tbody></table></div></div>
+  <div class="card flush"><div class="card-h"><h3>Runs</h3><span class="sub">Background work for this job.</span></div>
+    <div class="table-wrap"><table><thead><tr><th>Run</th><th>Status</th><th class="right">Created</th></tr></thead>
+    <tbody>{% for r in runs %}<tr><td><a class="mono" href="/runs/{{ r._id }}">{{ r._id }}</a></td><td>{{ status(r.status) }}</td><td class="right nowrap">{{ r.created_at|toronto }}</td></tr>
+    {% else %}<tr><td colspan="3"><div class="empty">No runs for this job yet.</div></td></tr>{% endfor %}</tbody></table></div></div>
 </div>
 
 <div class="grid-2">
   <div class="card"><div class="card-h"><h3>Posting snapshot</h3>{% if job.latest_snapshot %}<small>fetched {{ job.latest_snapshot.fetched_at|toronto }} · hash {{ job.latest_snapshot.posting_hash }}</small>{% endif %}</div>
     {% if job.latest_snapshot %}<pre>{{ job.latest_snapshot.text[:3000] }}</pre>{% else %}<p class="note">No snapshot.</p>{% endif %}</div>
-  <div class="card"><div class="card-h"><h3>Form plan (generic adapter)</h3><span class="sub">Scanned fields and a submit selector let the Playwright adapter run this site. Leave empty for a manual handoff.</span></div>
+  <div class="card"><div class="card-h"><h3>Form plan (advanced)</h3><span class="sub">Only needed for sites the browser adapter can fill itself. Leave it empty and the app hands the application to you instead.</span></div>
+    <details class="disclosure"><summary>Edit form plan JSON</summary>
     <form method="post" action="/jobs/{{ job._id }}/form-plan"><input type="hidden" name="csrf" value="{{ csrf }}"><textarea class="mono" name="plan_json" rows="8">{{ job.form_plan|json if job.form_plan else '{"fields": [], "next_selectors": [], "submit_selector": "", "receipt_text": "thank you", "receipt_includes_requisition": false}' }}</textarea>
-    <div class="form-actions"><button class="secondary">Save form plan</button></div></form></div>
+    <div class="form-actions"><button class="secondary">Save form plan</button></div></form></details></div>
 </div>
-
-<div class="grid-2">
-  <div class="card flush"><div class="card-h"><h3>Applications</h3></div>
-    <div class="table-wrap"><table><thead><tr><th>ID</th><th>Status</th><th>Origin</th><th class="right">Updated</th></tr></thead>
-    <tbody>{% for a in apps %}<tr><td><a class="mono" href="/applications/{{ a._id }}">{{ a._id }}</a></td><td><span class="pill {{ a.status|tone }}">{{ a.status|human }}</span></td><td>{{ a.provenance.origin|human }}</td><td class="right nowrap">{{ a.updated_at|toronto }}</td></tr>
-    {% else %}<tr><td colspan="4"><div class="empty">No application yet. Start a run to prepare a review package.</div></td></tr>{% endfor %}</tbody></table></div></div>
-  <div class="card flush"><div class="card-h"><h3>Runs</h3></div>
-    <div class="table-wrap"><table><thead><tr><th>Run</th><th>Status</th><th class="right">Created</th></tr></thead>
-    <tbody>{% for r in runs %}<tr><td><a class="mono" href="/runs/{{ r._id }}">{{ r._id }}</a></td><td><span class="pill {{ r.status|tone }}">{{ r.status|human }}</span></td><td class="right nowrap">{{ r.created_at|toronto }}</td></tr>
-    {% else %}<tr><td colspan="3"><div class="empty">No runs for this job.</div></td></tr>{% endfor %}</tbody></table></div></div>
-</div>
-
-<div class="card flush"><div class="card-h"><h3>Documents</h3></div>
-  <div class="table-wrap"><table><thead><tr><th>File</th><th>Open / download</th><th>Grounding</th><th>Method</th><th class="right">Created</th></tr></thead>
-  <tbody>{% for d in artifacts %}<tr><td class="wrap"><strong>{{ d.filename }}</strong></td><td class="wrap">{% include "_doc_actions.html" %}</td><td>{% if d.grounding.ok %}<span class="pill ok">ok</span>{% else %}<span class="pill bad">{{ d.grounding.violations|join('; ') }}</span>{% endif %}</td><td>{{ d.method }}</td><td class="right nowrap">{{ d.created_at|toronto }}</td></tr>
-  {% else %}<tr><td colspan="5"><div class="empty">No tailored documents yet.</div></td></tr>{% endfor %}</tbody></table></div></div>
 </div>
 {% endblock %}

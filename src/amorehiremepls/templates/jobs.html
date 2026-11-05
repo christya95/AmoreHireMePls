@@ -1,10 +1,11 @@
 {% extends "base.html" %}{% block content %}
+{% from "_macros.html" import status, hint with context %}
 <div class="stack">
-<div class="page-head"><div><h1>Jobs</h1><p>Import postings, run discovery, and start single or bounded batch runs. Execution still needs an authorization scope.</p></div></div>
+<div class="page-head"><div><h1>Jobs</h1><p>Import a posting, or let discovery find them. Opening a job shows its steps and the next action.</p></div></div>
 
 <div class="grid-main">
   <div class="card">
-    <div class="card-h"><h3>Import a job</h3><span class="sub">Posting text is treated as untrusted data; it is qualified deterministically first.</span></div>
+    <div class="card-h"><h3>Import a job</h3><span class="sub">Only the URL is required; paste the posting text if the site blocks fetching. The posting is checked against your rules right away.</span></div>
     <form method="post" action="/jobs/import"><input type="hidden" name="csrf" value="{{ csrf }}">
       <div class="field"><label for="url">Posting URL</label><input id="url" name="url" placeholder="https://… (LinkedIn, ATS, careers page)" required></div>
       <div class="form-grid mt">
@@ -21,7 +22,7 @@
     <div class="card">
       <div class="card-h"><h3>Discovery sources</h3><form method="post" action="/jobs/discover" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary sm"><svg class="icon"><use href="#i-sync"/></svg>Run discovery now</button></form></div>
       {% if sources %}<div class="table-wrap"><table class="compact"><thead><tr><th>Type</th><th>Key</th><th>Employer</th></tr></thead><tbody>{% for s in sources %}<tr><td>{{ s.type }}</td><td class="mono">{{ s.key }}</td><td>{{ s.employer or '' }}</td></tr>{% endfor %}</tbody></table></div>
-      {% else %}<p class="note">No sources yet. Add a board token or site below.</p>{% endif %}
+      {% else %}<p class="note">No sources yet. Add a Greenhouse or Lever board token below and discovery will check it on its schedule.</p>{% endif %}
       <form method="post" action="/jobs/sources" class="form-row mt"><input type="hidden" name="csrf" value="{{ csrf }}">
         <div class="field narrow"><label>Type</label><select name="type">{% for t in source_types %}<option>{{ t }}</option>{% endfor %}</select></div>
         <div class="field"><label>Board token / site</label><input name="key" required></div>
@@ -29,7 +30,7 @@
         <button class="secondary">Add source</button></form>
     </div>
     <div class="card">
-      <div class="card-h"><h3>Bounded batch</h3><span class="sub">Prepares review packages for the best ranked qualified jobs; nothing is submitted without a scope.</span></div>
+      <div class="card-h"><h3>Bounded batch</h3>{{ hint('batch') }}<span class="sub">Prepares review packages for the best ranked qualified jobs. Nothing is submitted; each package still waits for your approval.</span></div>
       <form method="post" action="/runs/batch" class="form-row"><input type="hidden" name="csrf" value="{{ csrf }}">
         <div class="field narrow"><label>Up to</label><input name="max_count" type="number" value="3" min="1" max="10"></div>
         <div class="field narrow"><label>Status</label><select name="status_in"><option value="qualified">qualified</option><option value="needs_review">needs_review</option></select></div>
@@ -40,18 +41,18 @@
 
 <div class="card flush">
   <div class="card-h"><h3>Job queue</h3>
-    <div class="choices">{% for f in ['', 'new', 'needs_review', 'qualified', 'applied', 'applied_historical'] %}<a class="pill {{ 'accent' if request.query_params.get('status_filter', '') == f else '' }}" href="/jobs{% if f %}?status_filter={{ f }}{% endif %}">{{ f|human if f else 'all' }}</a>{% endfor %}</div>
+    <div class="choices">{% for f in ['', 'new', 'needs_review', 'qualified', 'applied', 'applied_historical'] %}<a class="pill {{ 'accent' if request.query_params.get('status_filter', '') == f else '' }}" href="/jobs{% if f %}?status_filter={{ f }}{% endif %}">{{ f|label if f else 'all' }}</a>{% endfor %}</div>
   </div>
   <div class="table-wrap"><table>
-    <thead><tr><th>Employer / role</th><th>Status</th><th>Fit</th><th>Qualification</th><th>Application</th><th class="right">Updated</th></tr></thead>
+    <thead><tr><th>Employer / role</th><th>Status</th><th>Fit {{ hint('fit_rank') }}</th><th>Why</th><th>Application</th><th class="right">Updated</th></tr></thead>
     <tbody>{% for j in jobs %}<tr>
       <td><a class="row-person" href="/jobs/{{ j._id }}"><span class="avatar style-soft">{{ j.employer|initials }}</span><span><strong>{{ j.employer }}</strong><span class="sub">{{ j.title }}{% if j.location %} · {{ j.location }}{% endif %}{% if j.requisition_id or j.linkedin_job_id %} · {{ j.requisition_id or j.linkedin_job_id }}{% endif %}</span></span></a></td>
-      <td><span class="pill {{ j.status|tone }}">{{ j.status|human }}</span>{% if j.needs_reconciliation %} <span class="pill bad">reconcile</span>{% endif %}</td>
+      <td>{{ status(j.status) }}{% if j.needs_reconciliation %} <span class="pill bad">reconcile</span>{% endif %}</td>
       <td>{% if j.fit %}rank {{ j.fit.rank }}{% else %}<span class="muted">—</span>{% endif %}</td>
-      <td><small>{% if j.qualification %}{{ j.qualification.decision|human }}: {{ j.qualification.reasons|join('; ') }}{% endif %}</small></td>
-      <td>{% if apps.get(j._id) %}<a class="pill {{ apps[j._id].status|tone }}" href="/applications/{{ apps[j._id]._id }}">{{ apps[j._id].status|human }}</a>{% endif %}</td>
+      <td><small>{% if j.qualification %}{{ j.qualification.reasons|join('; ') }}{% endif %}</small></td>
+      <td>{% if apps.get(j._id) %}<a class="btn {{ 'sm' if apps[j._id].status in ['ready_for_review', 'needs_input', 'handoff', 'needs_verification'] else 'secondary sm' }}" href="/applications/{{ apps[j._id]._id }}">{{ apps[j._id].status|verb }}</a><span class="sub">{{ apps[j._id].status|label }}</span>{% else %}<a class="btn secondary sm" href="/jobs/{{ j._id }}">Open</a>{% endif %}</td>
       <td class="right nowrap">{{ j.updated_at|toronto }}</td></tr>
-    {% else %}<tr><td colspan="6"><div class="empty">No jobs match this filter.</div></td></tr>{% endfor %}</tbody>
+    {% else %}<tr><td colspan="6"><div class="empty"><svg class="icon"><use href="#i-jobs"/></svg>{% if request.query_params.get('status_filter') %}No jobs are "{{ request.query_params.get('status_filter')|label }}" right now.<div class="actions center mt"><a class="btn secondary sm" href="/jobs">Show all</a></div>{% else %}No jobs yet. Paste a posting URL in "Import a job" above, or add a discovery source.{% endif %}</div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>
 </div>

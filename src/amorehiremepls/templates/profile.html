@@ -1,11 +1,11 @@
 {% extends "base.html" %}{% block content %}
 <div class="stack">
-<div class="page-head"><div><h1>Candidate profile</h1><p>Approved facts with provenance. Every resume claim and form answer is grounded here; nothing is invented. Dashboard appearance lives under <a href="/settings">Settings</a>.</p></div></div>
+<div class="page-head"><div><h1>Candidate profile</h1><p>The approved facts every resume claim and form answer is grounded in. If a fact is missing, the app asks you instead of guessing. Dashboard appearance lives under <a href="/settings">Settings</a>.</p></div></div>
 
 <div class="grid-2">
   <div class="card">
-    <div class="card-h"><h3>Base resume</h3>{% if p.base_resume %}<span class="pill ok">approved {{ p.base_resume.approved_on }}</span>{% else %}<span class="pill bad">not selected</span>{% endif %}</div>
-    {% if p.base_resume %}<p class="wrap"><code>{{ p.base_resume.path }}</code></p><p class="note">sha256 {{ p.base_resume.sha256[:16] }}… · {{ p.base_resume.source }}{% if p.base_resume.note %} · {{ p.base_resume.note }}{% endif %}</p>{% else %}<p class="note">Old tailored copies are never used as the base.</p>{% endif %}
+    <div class="card-h"><h3>Base resume</h3>{% if p.base_resume %}<span class="pill ok">approved {{ p.base_resume.approved_on }}</span>{% else %}<span class="pill bad">not selected</span>{% endif %}<span class="sub">The one resume every tailored version starts from. A copy is kept privately; the original is never edited.</span></div>
+    {% if p.base_resume %}<p class="wrap"><code>{{ p.base_resume.path }}</code></p><p class="note">sha256 {{ p.base_resume.sha256[:16] }}… · {{ p.base_resume.source }}{% if p.base_resume.note %} · {{ p.base_resume.note }}{% endif %}</p>{% else %}<div class="empty">No base resume yet. Paste the full path of your approved DOCX below (on this machine). Old tailored copies are never used as the base.</div>{% endif %}
     <form method="post" action="/profile/base-resume" class="form-row mt"><input type="hidden" name="csrf" value="{{ csrf }}">
       <div class="field wide"><label>Path on the server host</label><input name="path" placeholder="/path/to/approved_base_resume.docx" required></div>
       <div class="field"><label>Note</label><input name="note"></div>

@@ -1,6 +1,7 @@
 {% extends "base.html" %}{% block content %}
+{% from "_macros.html" import status, hint with context %}
 <div class="stack">
-<div class="page-head"><div><h1>Sync</h1><p>Durable outbox to the tracker clone. GitHub sync failures are separate from application outcomes and never change an application status.</p></div>
+<div class="page-head"><div><h1>Sync</h1><p>Confirmed applications are written to the GitHub tracker through this queue. A sync problem never changes whether an application was submitted.</p></div>
   <div class="actions">
     <form class="inline" method="post" action="/sync/process"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary"><svg class="icon"><use href="#i-sync"/></svg>Retry pending now</button></form>
     <form class="inline" method="post" action="/sync/reconcile"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Reconcile after crash</button></form>
@@ -14,12 +15,12 @@
       {% if status.head %}<tr><td>HEAD</td><td><code>{{ status.head }}</code>{% if status.dirty %} <span class="pill warn">dirty</span>{% endif %}</td></tr><tr><td>Ahead of remote</td><td>{{ status.ahead }}</td></tr>{% endif %}
       {% if status.error %}<tr><td>Error</td><td><span class="pill bad">{{ status.error }}</span></td></tr>{% endif %}
     </table>
-    <p class="note mt"><code>local_only</code> means committed in the clone but not pushed; <code>sync_pending</code> means not yet written. Neither changes the application status.</p>
+    <p class="note mt">States {{ hint('sync_states') }}: <strong>Not yet recorded on GitHub</strong> (queued, or committed in the clone but not pushed) → <strong>Recorded on GitHub</strong>. <strong>Conflict</strong> needs you: resolve it in the clone, then retry.</p>
   </div>
   <div class="card">
     <div class="card-h"><h3>Outbox</h3></div>
-    {% if status.outbox %}<div class="kpis">{% for k, v in status.outbox.items() %}<div><div class="kpi"><span class="label">{{ k|human }}</span><span class="value">{{ v }}</span></div></div>{% endfor %}</div>
-    {% else %}<div class="empty"><svg class="icon"><use href="#i-check"/></svg>Outbox is empty.</div>{% endif %}
+    {% if status.outbox %}<div class="kpis">{% for k, v in status.outbox.items() %}<div><div class="kpi"><span class="label">{{ k|label }}</span><span class="value">{{ v }}</span><code class="raw">{{ k }}</code></div></div>{% endfor %}</div>
+    {% else %}<div class="empty"><svg class="icon"><use href="#i-check"/></svg>Nothing is waiting to be recorded. Items appear here after a confirmed submission.</div>{% endif %}
   </div>
 </div>
 
@@ -27,8 +28,8 @@
   <div class="card-h"><h3>Outbox items</h3><span class="pill">{{ items|length }}</span></div>
   <div class="table-wrap"><table>
     <thead><tr><th>Item</th><th>Application</th><th>Status</th><th>Record</th><th>Commit</th><th>Attempts</th><th>Error</th><th class="right">Next attempt</th></tr></thead>
-    <tbody>{% for i in items %}<tr><td class="mono"><small>{{ i._id }}</small></td><td><a class="mono" href="/applications/{{ i.application_id }}">{{ i.application_id }}</a></td><td><span class="pill {{ i.status|tone }}">{{ i.status|human }}</span></td><td>{{ i.record_id or '' }}</td><td><code>{{ (i.commit_sha or '')[:12] }}</code></td><td>{{ i.attempts }}</td><td><small>{{ i.error or '' }}</small></td><td class="right nowrap">{{ i.next_attempt_at|toronto }}</td></tr>
-    {% else %}<tr><td colspan="8"><div class="empty">No outbox items.</div></td></tr>{% endfor %}</tbody>
+    <tbody>{% for i in items %}<tr><td class="mono"><small>{{ i._id }}</small></td><td><a class="mono" href="/applications/{{ i.application_id }}">{{ i.application_id }}</a></td><td>{{ status(i.status) }}</td><td>{{ i.record_id or '' }}</td><td><code>{{ (i.commit_sha or '')[:12] }}</code></td><td>{{ i.attempts }}</td><td><small>{{ i.error or '' }}</small></td><td class="right nowrap">{{ i.next_attempt_at|toronto }}</td></tr>
+    {% else %}<tr><td colspan="8"><div class="empty">No outbox items yet. The first confirmed submission creates one.</div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>
 </div>

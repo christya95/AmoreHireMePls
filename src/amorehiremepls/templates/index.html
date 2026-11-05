@@ -1,5 +1,29 @@
 {% extends "base.html" %}{% block content %}
+{% from "_macros.html" import status, hint with context %}
 <div class="stack">
+
+{% if checklist %}
+<div class="card checklist{{ ' complete' if checklist.complete }}">
+  <div class="card-h">
+    <h3>{{ 'Setup complete' if checklist.complete else 'Getting started' }}</h3>
+    <span class="pill {{ 'ok' if checklist.complete else 'accent' }}">{{ checklist.done }} of {{ checklist.total }} done</span>
+    {% if checklist.complete %}<form method="post" action="/settings/checklist" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="dismissed" value="1"><button class="ghost sm">Hide this card</button></form>{% endif %}
+    <span class="sub">{% if checklist.complete %}Everything the app needs is in place. You can bring this card back from Settings.{% else %}Do these once, in order. Each line opens the exact place to act.{% endif %}</span>
+  </div>
+  {% if not checklist.complete %}
+  <progress class="progress" value="{{ checklist.done }}" max="{{ checklist.total }}" aria-label="{{ checklist.done }} of {{ checklist.total }} setup steps done"></progress>
+  <ol class="steps-list">
+    {% for it in checklist['items'] %}
+    <li class="{{ 'done' if it.done }}">
+      <span class="tick">{% if it.done %}<svg class="icon"><use href="#i-check"/></svg>{% else %}{{ loop.index }}{% endif %}</span>
+      <div class="body"><strong>{{ it.label }}</strong>{% if not it.done and it.hint %}<small>{{ it.hint }}</small>{% endif %}{% if not it.done and it.code %}<code class="path">{{ it.code }}</code>{% endif %}</div>
+      {% if not it.done %}{% if it.method == 'post' %}<form method="post" action="{{ it.href }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="next" value="/"><button class="secondary sm">{{ it.action }}</button></form>{% else %}<a class="btn secondary sm" href="{{ it.href }}">{{ it.action }}</a>{% endif %}{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+</div>
+{% endif %}
 
 <div class="card tinted welcome">
   {% with size='lg' %}{% include "_avatar.html" %}{% endwith %}
@@ -55,25 +79,27 @@
 
 <div class="grid-main">
   <div class="card {{ 'attention' if attention }}">
-    <div class="card-h"><h3>Needs your attention</h3>{% if attention %}<span class="pill warn">{{ attention|length }}</span>{% endif %}</div>
+    <div class="card-h"><h3>Needs your attention</h3>{% if attention %}<span class="pill warn">{{ attention|length }}</span>{% endif %}<span class="sub">One button per item; the button says what you will do.</span></div>
     {% if attention %}
     <div class="list">
       {% for it in attention %}
       <div class="list-item">
         <span class="ico {{ it.tone }}"><svg><use href="#i-{{ it.icon }}"/></svg></span>
         <div class="body"><strong>{{ it.title }}</strong><span>{{ it.detail }}</span>{% if it.hint %}<small>{{ it.hint }}</small>{% endif %}</div>
-        <a class="btn secondary sm" href="{{ it.href }}">{{ it.action }}</a>
+        <a class="btn sm" href="{{ it.href }}">{{ it.action }}</a>
       </div>
       {% endfor %}
     </div>
-    {% else %}<div class="empty"><svg class="icon"><use href="#i-check"/></svg>All clear. Authorizations, inputs, handoffs and verifications show up here.</div>{% endif %}
+    {% else %}<div class="empty"><svg class="icon"><use href="#i-check"/></svg>Nothing is waiting on you. Approvals, questions, handoffs and unknown outcomes appear here.<div class="actions center mt"><a class="btn secondary sm" href="/jobs">Import a job</a></div></div>{% endif %}
   </div>
   <div class="card">
     <div class="card-h"><h3>System</h3><a class="btn ghost sm" href="/status">Details</a></div>
     <table class="kv compact">
       <tr><td>Database</td><td><span class="pill {{ 'ok' if health.ok else 'bad' }}">{{ 'ok' if health.ok else 'down' }}</span> <small>{{ health.db.version or '' }}</small></td></tr>
       <tr><td>Worker</td><td><span class="pill {{ 'ok' if worker_ok else 'warn' }}">{{ 'heartbeat ok' if worker_ok else 'no recent heartbeat' }}</span></td></tr>
-      <tr><td>Model provider</td><td><span class="pill {{ 'ok' if health.provider_configured else 'warn' }}">{{ provider }}</span> <a href="/provider/check"><small>check</small></a></td></tr>
+      <tr><td>Model provider</td><td><span class="pill {{ 'ok' if health.provider_configured else 'warn' }}">{{ provider }}</span>
+        {% if provider_last %}<small>last check {{ 'ok' if provider_last.ok else 'failed' }} {{ provider_last.at|toronto }}{% if provider_last.error %} · {{ provider_last.error }}{% endif %}</small>{% endif %}
+        <form method="post" action="/provider/check" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="next" value="/"><button class="ghost xs">Check now</button></form></td></tr>
       <tr><td>Base resume</td><td><span class="pill {{ 'ok' if base_resume else 'bad' }}">{{ 'approved copy selected' if base_resume else 'not selected' }}</span></td></tr>
       <tr><td>Discovery</td><td>{{ schedule }}</td></tr>
       <tr><td>Usage (all time)</td><td>{{ usage.calls or 0 }} calls · ${{ '%.4f'|format(usage.cost or 0) }} known{% if usage.unknown %} · <span class="pill warn">{{ usage.unknown }} unknown</span>{% endif %}</td></tr>
@@ -84,11 +110,11 @@
 
 <div class="grid-main">
   <div class="card flush">
-    <div class="card-h"><h3>Recent runs</h3><a class="btn ghost sm" href="/runs">All runs</a></div>
+    <div class="card-h"><h3>Recent runs</h3><a class="btn ghost sm" href="/runs">All runs</a><span class="sub">Background work by the worker. A run pauses whenever it needs you.</span></div>
     <div class="table-wrap"><table>
       <thead><tr><th>Run</th><th>Kind</th><th>Status</th><th>Waiting on</th><th class="right">Created</th></tr></thead>
-      <tbody>{% for r in runs %}<tr><td><a href="/runs/{{ r._id }}" class="mono">{{ r._id }}</a></td><td>{{ r.kind|human }}</td><td><span class="pill {{ r.status|tone }}">{{ r.status|human }}</span></td><td>{{ (r.interrupt.type if r.interrupt else '')|human }}</td><td class="right nowrap">{{ r.created_at|toronto }}</td></tr>
-      {% else %}<tr><td colspan="5"><div class="empty">No runs yet.</div></td></tr>{% endfor %}</tbody>
+      <tbody>{% for r in runs %}<tr><td><a href="/runs/{{ r._id }}" class="mono">{{ r._id }}</a></td><td>{{ r.kind|human }}</td><td>{{ status(r.status) }}</td><td>{{ (r.interrupt.type if r.interrupt else '')|human }}</td><td class="right nowrap">{{ r.created_at|toronto }}</td></tr>
+      {% else %}<tr><td colspan="5"><div class="empty">No runs yet. Open a job and press "Tailor and prepare" to start one.<div class="actions center mt"><a class="btn secondary sm" href="/jobs">Go to jobs</a></div></div></td></tr>{% endfor %}</tbody>
     </table></div>
   </div>
   <div class="card">
@@ -107,10 +133,10 @@
     <tbody>{% for j in recent_jobs %}<tr>
       <td><a class="row-person" href="/jobs/{{ j._id }}"><span class="avatar style-soft">{{ j.employer|initials }}</span><span>{{ j.employer }}</span></a></td>
       <td>{{ j.title }}<span class="sub">{{ j.location or '' }}</span></td>
-      <td><span class="pill {{ j.status|tone }}">{{ j.status|human }}</span></td>
+      <td>{{ status(j.status) }}</td>
       <td>{% if j.fit %}rank {{ j.fit.rank }}{% else %}<span class="muted">—</span>{% endif %}</td>
       <td class="right nowrap">{{ j.updated_at|toronto }}</td></tr>
-    {% else %}<tr><td colspan="5"><div class="empty">No jobs yet.</div></td></tr>{% endfor %}</tbody>
+    {% else %}<tr><td colspan="5"><div class="empty"><svg class="icon"><use href="#i-jobs"/></svg>No jobs yet. Paste a posting URL to import the first one.<div class="actions center mt"><a class="btn sm" href="/jobs">Import a job</a></div></div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>
 

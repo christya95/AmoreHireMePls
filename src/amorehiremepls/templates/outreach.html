@@ -1,16 +1,17 @@
 {% extends "base.html" %}{% block content %}
+{% from "_macros.html" import status, hint with context %}
 <div class="stack">
-<div class="page-head"><div><h1>Outreach</h1><p>Recruiter connection notes and messages for employers with a confirmed application. Drafts by default; sends need their own authorization.</p></div></div>
+<div class="page-head"><div><h1>Outreach</h1><p>Recruiter connection notes for employers where an application was confirmed. Three steps: add the person, draft, then send it yourself and record it. {{ hint('outreach_scope') }}</p></div></div>
 
 <div class="grid-main">
   <div class="card flush">
-    <div class="card-h"><h3>Confirmed applications (company lists)</h3><span class="sub">Add in-house recruiters / talent acquisition people for these employers. RBC and FAANG employers are excluded automatically.</span></div>
+    <div class="card-h"><h3>Step 1 · Employers you can contact</h3><span class="sub">Only employers with a confirmed submission. Find in-house recruiters or talent acquisition people there and add them on the right. RBC and FAANG employers are excluded automatically.</span></div>
     <div class="table-wrap"><table><thead><tr><th>Employer</th><th>Role applied to</th><th class="right">Date</th></tr></thead>
     <tbody>{% for a in submitted %}{% set j = jobs.get(a.job_id) %}<tr><td><span class="row-person"><span class="avatar style-soft">{{ (j.employer if j else '?')|initials }}</span>{{ j.employer if j else a.job_id }}</span></td><td>{{ j.title if j else '' }}</td><td class="right nowrap">{{ a.application_date or (a.record.application_date if a.record else '') }}</td></tr>
-    {% else %}<tr><td colspan="3"><div class="empty">No confirmed submissions yet.</div></td></tr>{% endfor %}</tbody></table></div>
+    {% else %}<tr><td colspan="3"><div class="empty">No confirmed submissions yet, so there is nobody to contact. Outreach unlocks after the first recorded submission.<div class="actions center mt"><a class="btn secondary sm" href="/applications">Open applications</a></div></div></td></tr>{% endfor %}</tbody></table></div>
   </div>
   <div class="card">
-    <div class="card-h"><h3>Add recipient</h3><span class="sub">A LinkedIn profile URL (or verified email) establishes identity; names alone never do.</span></div>
+    <div class="card-h"><h3>Step 2 · Add a recipient</h3><span class="sub">Paste the LinkedIn profile URL; a name alone is never enough to identify someone.</span></div>
     <form method="post" action="/outreach/recipients" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
       <div class="form-grid"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Employer</label><input name="employer" required></div></div>
       <div class="field"><label>LinkedIn profile URL</label><input name="profile_url" placeholder="linkedin.com/in/…"></div>
@@ -20,7 +21,7 @@
 </div>
 
 <div class="card flush">
-  <div class="card-h"><h3>Recipients</h3><span class="pill">{{ recipients|length }}</span></div>
+  <div class="card-h"><h3>Step 3 · Recipients: check history, then draft</h3><span class="pill">{{ recipients|length }}</span><span class="sub">"First contact allowed" means nothing in your history matches this person. If it is held, confirm your inbox and mark it reconciled before drafting.</span></div>
   <div class="table-wrap"><table>
     <thead><tr><th>Person</th><th>Identity</th><th>History check</th><th>Actions</th></tr></thead>
     <tbody>{% for r in recipients %}<tr>
@@ -32,24 +33,24 @@
         <form class="inline" method="post" action="/outreach/recipients/{{ r._id }}/history"><input type="hidden" name="csrf" value="{{ csrf }}"><select name="kind"><option>message</option><option>connection_request</option><option>email</option><option>reply</option></select><input name="when" placeholder="YYYY-MM-DD" size="9"><button class="secondary xs">Record prior contact</button></form>
         <form class="inline" method="post" action="/outreach/recipients/{{ r._id }}/draft"><input type="hidden" name="csrf" value="{{ csrf }}"><select name="kind"><option>connection_request</option><option>outreach_first_contact</option><option>follow_up</option></select><input name="applied_role" placeholder="role applied to (confirmed only)" size="18"><button class="xs">Draft</button></form>
       </div></td></tr>
-    {% else %}<tr><td colspan="4"><div class="empty"><svg class="icon"><use href="#i-outreach"/></svg>No recipients yet.</div></td></tr>{% endfor %}</tbody>
+    {% else %}<tr><td colspan="4"><div class="empty"><svg class="icon"><use href="#i-outreach"/></svg>No recipients yet. Add one with the form above once you have a confirmed submission.</div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>
 
 <div class="card flush">
-  <div class="card-h"><h3>Drafts and sends</h3><span class="pill">{{ messages|length }}</span></div>
+  <div class="card-h"><h3>Step 4 · Drafts and sends</h3><span class="pill">{{ messages|length }}</span><span class="sub">LinkedIn notes are a handoff: copy the text, send it in LinkedIn, then "Record manual send". Each send is its own approval.</span></div>
   <div class="table-wrap"><table>
     <thead><tr><th>When</th><th>Recipient</th><th>Kind</th><th>Status</th><th>Text</th><th>Validation</th><th>Actions</th></tr></thead>
     <tbody>{% for m in messages %}<tr>
       <td class="nowrap">{{ m.created_at|toronto }}</td><td><small class="mono">{{ m.recipient_id }}</small></td><td>{{ m.kind|human }}</td>
-      <td><span class="pill {{ m.status|tone }}">{{ m.status|human }}</span>{% if m.last_send_result %}<span class="sub">{{ m.last_send_result.status }}: {{ m.last_send_result.reasons|join('; ') if m.last_send_result.reasons else m.last_send_result.reason or '' }}</span>{% endif %}</td>
+      <td>{{ status(m.status) }}{% if m.last_send_result %}<span class="sub">{{ m.last_send_result.status }}: {{ m.last_send_result.reasons|join('; ') if m.last_send_result.reasons else m.last_send_result.reason or '' }}</span>{% endif %}</td>
       <td class="wrap msg-text">{{ m.text }}<span class="sub">{{ m.validation.length }} chars · {{ m.method }}</span></td>
       <td>{% if m.validation.ok %}<span class="pill ok">ok</span>{% else %}{% for p in m.validation.problems %}<span class="pill bad">{{ p }}</span>{% endfor %}{% endif %}</td>
       <td>{% if m.status in ['draft', 'handoff'] %}<div class="stack gap-s">
         <form class="inline" method="post" action="/outreach/messages/{{ m._id }}/send"><input type="hidden" name="csrf" value="{{ csrf }}"><select name="channel"><option value="linkedin">LinkedIn (manual handoff)</option><option value="email" {{ '' if smtp else 'disabled' }}>Email (SMTP)</option></select><button class="xs">Send / hand off</button></form>
         <form class="inline" method="post" action="/outreach/messages/{{ m._id }}/record-send"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="confirmation" placeholder="seen in LinkedIn as sent" size="16" required><button class="secondary xs">Record manual send</button></form>
       </div>{% endif %}</td></tr>
-    {% else %}<tr><td colspan="7"><div class="empty">No drafts yet. Draft from a recipient above.</div></td></tr>{% endfor %}</tbody>
+    {% else %}<tr><td colspan="7"><div class="empty">No drafts yet. Press "Draft" next to a recipient above; the note mentions the role you applied to and stays under 300 characters.</div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>
 </div>

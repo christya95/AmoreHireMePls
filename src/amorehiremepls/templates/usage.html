@@ -8,9 +8,9 @@
   <div class="table-wrap"><table>
     <thead><tr><th>Skill@version</th><th class="right">Calls</th><th class="right">Cached</th><th class="right">Input</th><th class="right">Output</th><th class="right">Known cost USD</th><th class="right">Unknown-cost calls</th></tr></thead>
     <tbody>{% for s in by_skill %}<tr><td class="mono">{{ s._id }}</td><td class="right">{{ s.calls }}</td><td class="right">{{ s.cached }}</td><td class="right">{{ s.in }}</td><td class="right">{{ s.out }}</td><td class="right">{{ '%.4f'|format(s.cost) }}</td><td class="right">{% if s.unknown %}<span class="pill warn">{{ s.unknown }}</span>{% else %}0{% endif %}</td></tr>
-    {% else %}<tr><td colspan="7"><div class="empty"><svg class="icon"><use href="#i-usage"/></svg>No model calls recorded yet.</div></td></tr>{% endfor %}</tbody>
+    {% else %}<tr><td colspan="7"><div class="empty"><svg class="icon"><use href="#i-usage"/></svg>No model calls yet. Calls are recorded when a run ranks fit, tailors a resume or drafts a note.</div></td></tr>{% endfor %}</tbody>
   </table></div>
-  <p class="note pad">Cost per verified outcome is only meaningful when every call has known pricing.</p>
+  <p class="note pad">{% if not pricing %}No pricing file is loaded, so every cost reads "unknown". Create <code>config/pricing.json</code> (see Help) and restart the web process.{% else %}Cost per verified outcome is only meaningful when every call has known pricing; "unknown" means the model is missing from the pricing file.{% endif %}</p>
 </div>
 
 <div class="card flush">

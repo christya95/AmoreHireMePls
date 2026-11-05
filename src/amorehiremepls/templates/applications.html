@@ -1,19 +1,20 @@
 {% extends "base.html" %}{% block content %}
+{% from "_macros.html" import status, hint with context %}
 <div class="stack">
-<div class="page-head"><div><h1>Applications</h1><p>Review packages prepared by the worker. Authorize, answer, hand off or reconcile from each package.</p></div></div>
+<div class="page-head"><div><h1>Applications</h1><p>Each row is one job the worker prepared. The button says the one thing to do next.</p></div>{% include "_app_tabs.html" %}</div>
 <div class="card flush">
-  <div class="card-h"><h3>Local applications</h3>
-    <div class="choices"><a class="pill {{ 'accent' if not status_filter }}" href="/applications">all {{ counts.values()|sum }}</a>{% for k in ['ready_for_review', 'needs_input', 'authorized', 'handoff', 'needs_verification', 'submitted', 'failed'] %}{% if counts.get(k) %}<a class="pill {{ 'accent' if status_filter == k else k|tone }}" href="/applications?status_filter={{ k }}">{{ k|human }} {{ counts[k] }}</a>{% endif %}{% endfor %}</div>
+  <div class="card-h"><h3>Review packages</h3>
+    <div class="choices"><a class="pill {{ 'accent' if not status_filter }}" href="/applications">all {{ counts.values()|sum }}</a>{% for k in ['ready_for_review', 'needs_input', 'authorized', 'handoff', 'needs_verification', 'submitted', 'failed'] %}{% if counts.get(k) %}<a class="pill {{ 'accent' if status_filter == k else k|tone }}" href="/applications?status_filter={{ k }}">{{ k|label }} {{ counts[k] }}</a>{% endif %}{% endfor %}</div>
   </div>
   <div class="table-wrap"><table>
-    <thead><tr><th>Employer / role</th><th>Status</th><th>Next</th><th>Document</th><th class="right">Updated</th></tr></thead>
+    <thead><tr><th>Employer / role</th><th>Status</th><th>Document</th><th>Next</th><th class="right">Updated</th></tr></thead>
     <tbody>{% for a in apps %}{% set j = jobs.get(a.job_id, {}) %}{% set pkg = a.review_package or {} %}<tr>
       <td><a class="row-person" href="/applications/{{ a._id }}"><span class="avatar style-soft">{{ (j.employer or '?')|initials }}</span><span><strong>{{ j.employer or a.job_id }}</strong><span class="sub">{{ j.title or '' }}{% if j.location %} · {{ j.location }}{% endif %}</span></span></a></td>
-      <td><span class="pill {{ a.status|tone }}">{{ a.status|human }}</span></td>
-      <td><small>{{ a.next_action or a.reason or '' }}</small></td>
+      <td>{{ status(a.status) }}{% if a.reason %}<span class="sub">{{ a.reason }}</span>{% endif %}</td>
       <td>{% if pkg.document %}<small class="wrap">{{ pkg.document.filename }}</small>{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td><a class="btn {{ 'sm' if a.status in ['ready_for_review', 'needs_input', 'handoff', 'needs_verification'] else 'secondary sm' }}" href="/applications/{{ a._id }}">{{ a.status|verb }}</a></td>
       <td class="right nowrap">{{ a.updated_at|toronto }}</td></tr>
-    {% else %}<tr><td colspan="5"><div class="empty"><svg class="icon"><use href="#i-applications"/></svg>No local applications{% if status_filter %} with status {{ status_filter|human }}{% endif %}. Imported history lives under <a href="/history">History</a>.</div></td></tr>{% endfor %}</tbody>
+    {% else %}<tr><td colspan="5"><div class="empty"><svg class="icon"><use href="#i-applications"/></svg>{% if status_filter %}No packages are "{{ status_filter|label }}" right now.{% else %}No review packages yet. Open a job and press "Tailor and prepare"; the worker builds the package and pauses here for you.{% endif %}<div class="actions center mt"><a class="btn sm" href="/jobs">Go to jobs</a>{% if status_filter %}<a class="btn secondary sm" href="/applications">Show all</a>{% endif %}</div><small class="block mt">Imported history lives under <a href="/history">History</a>.</small></div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>
 </div>
