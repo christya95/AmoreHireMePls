@@ -293,11 +293,12 @@ Queue item 3. Owner decision recorded first (`0a57466`): tracker sync keeps runn
 - **People.** `/admin` lists people, AI calls and known cost, and can add a member, extend access, set a password, turn access off or on, or delete. The detail page is `/admin/people/<id>`.
 - **Worker.** Runs, discovery, logos and the later human-check try are limited to active admins and members whose access has not ended. `process_pending` reads the outbox and the application records without that filter, so an expired or turned-off member's queued tracker items still flush.
 - **Usage.** Members do not see `/usage`, the Overview cost card, the "AI use" row, or cost and token figures on task and application pages. Admins see per-person cost on People, including their own. Budgets are unchanged.
-- **Tests.** `tests/test_accounts.py` (6). Full suite 342 passed, ruff clean. Not deployed yet.
+- **Tests.** `tests/test_accounts.py` (6). Full suite 342 passed, ruff clean.
+- **Deployed.** `lepia/amorehiremepls:5959e62bfd09` (commit `5959e62`) on the NAS stack. Init exited 0, web and worker healthy, `/health` 200. Password-only sign-in still lands on Overview, the greeting shows the display name, and the admin has no expiry badge. People lists the `admin` sign-in with no end date. `amore migrate-users` ran once: admin created, 222 records stamped (actions 1, applications 41, artifacts 15, audit 107, authorizations 3, imports 3, jobs 39, profile 1, runs 3, usage 9). Signed-in pages were checked over HTTP without printing the display name. The People forms and `/access-ended` were not clicked on the live dashboard; those paths are covered by `tests/test_accounts.py`. No application was retried and nothing was sent.
 
 ## Exact next step
 
-Deploy queue item 3 and record the image tag here and in `docs/HANDOFF.md`. Queue item 2 is deployed as `lepia/amorehiremepls:4fce6fdef10d`. Do not start recruiter notes: there is still no confirmed employer receipt.
+Queue item 5 waits for a confirmed employer receipt. Do not draft recruiter Connect notes until one exists. Do not retry the Faire application or mark the BMO job closed; those are owner decisions (handoff questions 4 and 5). Open owner questions are 1, 2, 3, 4, 5, 7, 8, and 9. Question 6 is answered: tracker sync keeps running for an expired member.
 
 Greenhouse, Lever, and Ashby form filling, owner notifications, the human-check hold, and one later try are fixture-tested only. None of those paths has been live-submitted. Do not retry the Faire application or mark the BMO job closed; those are owner decisions (handoff questions 4 and 5).
 

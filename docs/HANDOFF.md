@@ -1,12 +1,13 @@
 # Handoff
 
-Written 2026-11-05 12:40 Toronto at commit `45be592`, updated after queue item 2 (directory packages). Read this first in every new session.
+Written 2026-11-05 12:40 Toronto at commit `45be592`, updated after queue item 3 (per-user accounts). Read this first in every new session.
 No private values here: field names and counts only. Keep under 120 lines; finished items move to `docs/PROGRESS.md`.
 
 ## State now
 
-- Deployed: NAS Portainer stack `amorehiremepls`, image `lepia/amorehiremepls:4fce6fdef10d` (queue item 2). Web and worker
-  healthy, dashboard `http://192.168.2.49:8790` (`/health` 200, Overview greeting shows the display name, tracker on).
+- Deployed: NAS Portainer stack `amorehiremepls`, image `lepia/amorehiremepls:5959e62bfd09` (queue item 3, commit `5959e62`).
+  Web and worker healthy, dashboard `http://192.168.2.49:8790` (`/health` 200, Overview greeting shows the display name,
+  admin has no expiry badge, tracker on). `amore migrate-users` has been run once (admin created, 222 records stamped).
   `origin/main` is this docs commit ahead of the deployed tag.
 - Live and used for real: profile store, base resume registration, tracker preview/import (nothing pushed), discovery by URL,
   model check through `op run`, deterministic tailoring with a 2 page PDF, review package and approval gates, honest
@@ -17,7 +18,7 @@ No private values here: field names and counts only. Keep under 120 lines; finis
   edit), `AMORE_TIMEZONE` and tracker settings, profession neutral code with `candidate/profile.toml` as the one customization
   surface (`amore profile import --from … [--dry-run]`, `export --to …`, `fingerprint`, Profile page Load button). The
   owner's live preferences are exported to the gitignored Mac copy of `profile.toml`; the NAS Profile card says "not found"
-  because the file is only on the Mac. Layout is the six packages in `docs/architecture.md`. Suite: 336 passed, ruff clean.
+  because the file is only on the Mac. Layout is the six packages in `docs/architecture.md`. Suite: 342 passed, ruff clean.
 - Fixture tested only: Greenhouse, Lever and Ashby form filling including the hidden input upload fix and the pre fill form
   check; the salary skill; Workday posting refresh; owner notifications, the human check hold and the one later try.
 - Not verified: no live employer receipt exists yet for any ATS; nothing has ever been submitted by the app.
@@ -69,11 +70,9 @@ No private values here: field names and counts only. Keep under 120 lines; finis
    Deployed as `68c7a2576966`.
 2. Done on `main` (see `docs/PROGRESS.md`, "Directory packages", and `docs/architecture.md`): move `9e9413d`, route split
    `1ea2bc5`. No list of 22 high-value comments exists in the repo, so none were added. Deployed as `4fce6fdef10d`.
-3. Done on `main` (see `docs/PROGRESS.md`, "Per-user accounts"). One database, `user_id` scope, argon2id, People under
-   `/admin`, member badge, worker skips expired and turned-off people, tracker sync still runs for them, members do not
-   see AI cost. Run `amore migrate-users` once after deploy. Not deployed yet.
-4. Deploy after each of items 1 to 3 and record the tag here and in `docs/PROGRESS.md`. Size: S. Plan: operating rule 3.
-   Waits for: each item's tests and lint.
+3. Done on `main` (see `docs/PROGRESS.md`, "Per-user accounts"). Deployed as `5959e62bfd09`. `amore migrate-users` has been
+   run once.
+4. Done. Items 1 to 3 are deployed and the tags are recorded here and in `docs/PROGRESS.md`.
 5. After the first confirmed employer receipt: recruiter Connect note drafts per the owner's rule (in house recruiters at
    that employer, skip RBC and FAANG, under 300 characters, no dashes, no layoff mention, mention the role applied to, draft
    only, send only when the owner asks). Size: S per batch. Plan: `outreach.py`. Waits for: a confirmed receipt.
