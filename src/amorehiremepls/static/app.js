@@ -106,7 +106,7 @@
     });
   }
 
-  // Close popovers (emergency stop, account menu) when clicking elsewhere or pressing Escape.
+  // Close popovers (emergency stop, account menu, More actions) when clicking elsewhere or pressing Escape.
   function closePops(except) {
     document.querySelectorAll("details.pop[open]").forEach(function (d) { if (d !== except) d.removeAttribute("open"); });
   }
@@ -115,6 +115,25 @@
     closePops(inside);
   });
   document.addEventListener("keydown", function (ev) { if (ev.key === "Escape") closePops(null); });
+
+  // More actions hangs from its button. Reserve only the part of the menu that
+  // would otherwise stick out of the bar and cover the fit and rules cards.
+  function reserveMore(d) {
+    var bar = d.closest(".next-action");
+    var panel = d.querySelector(".pop-body");
+    if (!bar || !panel) return;
+    if (!d.open) { bar.style.marginBottom = ""; return; }
+    var hang = (d.getBoundingClientRect().bottom + 8 + panel.offsetHeight) - bar.getBoundingClientRect().bottom;
+    bar.style.marginBottom = hang > 0 ? Math.ceil(hang) + "px" : "";
+    panel.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+  document.querySelectorAll("details.more").forEach(function (d) {
+    d.addEventListener("toggle", function () { reserveMore(d); });
+    if (d.open) reserveMore(d);
+  });
+  window.addEventListener("resize", function () {
+    document.querySelectorAll("details.more[open]").forEach(reserveMore);
+  });
 
   // Double-submit guard for state-changing forms.
   document.querySelectorAll("form[method='post']").forEach(function (form) {

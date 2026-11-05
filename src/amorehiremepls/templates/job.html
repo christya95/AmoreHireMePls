@@ -32,11 +32,11 @@
   </div>
 </div>
 
-<div class="grid-main top">
-  <div class="card order-2"><div class="card-h"><h3>Does it fit your rules?</h3>{% if job.qualification %}{{ status(job.qualification.decision) }}{% endif %}<span class="sub">Checked against your preferences: role, location, employment type, lowest salary, employers to skip.</span></div>
+<div class="grid-main top job-lower">
+  <div class="card rules-card order-2"><div class="card-h"><h3>Does it fit your rules?</h3>{% if job.qualification %}{{ status(job.qualification.decision) }}{% endif %}<span class="sub">Checked against your preferences: role, location, employment type, lowest salary, employers to skip.</span></div>
     {% if job.qualification %}<ul>{% for r in job.qualification.reasons %}<li>{{ r }}</li>{% endfor %}</ul>
     <details class="disclosure"><summary>Technical details</summary><pre>{{ job.qualification|json }}</pre></details>{% else %}<div class="empty">Not checked yet.<div class="actions center mt"><form method="post" action="/jobs/{{ job._id }}/qualify" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary sm">Check fit</button></form></div></div>{% endif %}</div>
-  <div class="card"><div class="card-h"><h3>How well you match</h3>{{ hint('fit_rank') }}</div>
+  <div class="card fit-card"><div class="card-h"><h3>How well you match</h3>{{ hint('fit_rank') }}</div>
     {% if fit %}
     <div class="fit-layout">
       <div class="fit-ring band-{{ fit.band }}" role="img" aria-label="Fit score {{ fit.score }} out of 100, {{ fit.label }}">

@@ -318,6 +318,9 @@ td.wrap { min-width: 170px; }
 .grid-2 { display: grid; gap: var(--gap); grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .grid-3 { display: grid; gap: var(--gap); grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .grid-main { display: grid; gap: var(--gap); grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); }
+/* Job page: fit is the wide column, rules the narrow one. Explicit cells so neither card can leave the grid. */
+.job-lower > .fit-card { grid-column: 1; grid-row: 1; position: static; min-width: 0; }
+.job-lower > .rules-card { grid-column: 2; grid-row: 1; position: static; min-width: 0; }
 .span-2 { grid-column: span 2; }
 .section { margin-bottom: var(--gap); }
 
@@ -718,11 +721,18 @@ html[data-checklist="folded"] .checklist-body { max-height: 0; opacity: 0; margi
 .stepper .name { font-size: 0.76rem; font-weight: 600; color: var(--muted); }
 .stepper li.done .name { color: var(--text-2); }
 .stepper li.current .name { color: var(--accent-text); }
-.next-action { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 12px 16px; border-radius: var(--radius-sm); background: var(--accent-softer); border: 1px solid var(--accent-line); }
-.next-action .body { flex: 1; min-width: 200px; }
+.next-action { display: flex; align-items: center; justify-content: flex-end; gap: 14px; flex-wrap: wrap; padding: 12px 16px; border-radius: var(--radius-sm); background: var(--accent-softer); border: 1px solid var(--accent-line); position: relative; z-index: 5; }
+.next-action .body { flex: 1 1 200px; min-width: 200px; margin-right: auto; }
 .next-action .body strong { display: block; font-weight: 650; }
 .next-action .body small { display: block; color: var(--muted); }
-.next-action details.more .pop-body { width: min(300px, calc(100vw - 32px)); }
+/* The menu's containing block is the button (details.pop is position: relative), so it stays
+   anchored there on a wrapped phone row. While open, app.js adds margin-bottom for the part
+   that would otherwise cover the fit and rules cards. */
+.next-action details.more { z-index: 2; }
+.next-action details.more .pop-body {
+  right: 0; left: auto; top: calc(100% + 8px); z-index: 2;
+  width: min(300px, calc(100vw - 32px));
+}
 .tabs { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; background: var(--surface); border: 1px solid var(--card-border); }
 .tabs a { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 999px; font-weight: 600; font-size: 0.84rem; color: var(--text-2); }
 .tabs a:hover { background: var(--accent-softer); text-decoration: none; color: var(--text); }
@@ -754,6 +764,8 @@ ul.plain li strong { color: var(--text); }
 @media (max-width: 1100px) {
   .grid-main { grid-template-columns: 1fr; }
   .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .job-lower > .fit-card { grid-column: 1; grid-row: 1; }
+  .job-lower > .rules-card { grid-column: 1; grid-row: 2; }
 }
 @media (max-width: 900px) {
   .app { grid-template-columns: minmax(0, 1fr); }
@@ -839,6 +851,10 @@ ul.plain li strong { color: var(--text); }
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }
 }
+@keyframes rise-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
 @keyframes flash-in {
   from { opacity: 0; transform: translateY(-8px); }
   to { opacity: 1; transform: none; }
@@ -857,8 +873,11 @@ ul.plain li strong { color: var(--text); }
 .stack > .grid-2 > .card,
 .stack > .grid-main > .card,
 .kpis > .kpi {
-  animation: rise var(--motion) var(--ease) both;
+  /* backwards, not both: forwards keeps transform as an identity matrix, which is still a
+     stacking context, so the job cards painted over the More actions menu. */
+  animation: rise var(--motion) var(--ease) backwards;
 }
+.stack > .card:has(details.more) { animation-name: rise-fade; }
 .stack > .card:nth-child(2),
 .kpis > .kpi:nth-child(2) { animation-delay: 30ms; }
 .stack > .card:nth-child(3),

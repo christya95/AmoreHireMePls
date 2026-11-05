@@ -78,6 +78,26 @@ def test_filled_controls_use_the_deepened_accent_and_presets_pass_aa():
     assert below <= {"amber"}, below  # amber is the documented exception; every other preset carries white text at AA
 
 
+def test_job_fit_and_rules_are_grid_siblings_not_absolute():
+    """The fit ring and the rules card share one grid. Neither card is taken out of flow."""
+    job = Path("src/amorehiremepls/templates/job.html").read_text()
+    start = job.index('<div class="grid-main top job-lower">')
+    body = job[start : job.index('<div class="card flush">', start)]
+    assert body.count('class="card ') == 2
+    assert 'class="card rules-card order-2"' in body and 'class="card fit-card"' in body
+    assert 'class="fit-ring' in body and "Does it fit your rules?" in body
+    assert "position: absolute" not in body and "position:absolute" not in body
+    fit_css = re.search(r"\.job-lower > \.fit-card \{([^}]*)\}", CSS).group(1)
+    rules_css = re.search(r"\.job-lower > \.rules-card \{([^}]*)\}", CSS).group(1)
+    assert "grid-column: 1" in fit_css and "position: static" in fit_css
+    assert "grid-column: 2" in rules_css and "position: static" in rules_css
+    assert "position: absolute" not in fit_css and "position: absolute" not in rules_css
+    assert ".job-lower > .rules-card { grid-column: 1; grid-row: 2; }" in CSS
+    menu = re.search(r"\.next-action details\.more \.pop-body \{([^}]*)\}", CSS).group(1)
+    assert "top: calc(100% + 8px)" in menu and "right: 0" in menu and "left: auto" in menu
+    assert "animation: rise var(--motion) var(--ease) backwards" in CSS
+
+
 def test_semantic_pills_focus_ring_and_reduced_motion_are_defined():
     for tone in TONES:
         assert re.search(rf"\.pill\.{tone}, \.badge\.{tone} \{{[^}}]*color: var\(--{tone}-text\)", CSS), tone
@@ -140,7 +160,7 @@ def test_rendered_pages_carry_tone_and_attention_classes(client):
     assert 'class="pill neutral"' in client.get("/help").text  # unknown/neutral states get an explicit class
     job = client.get(f"/jobs/{job_id}").text
     assert '<hr class="soft">' in job and 'class="stepper"' in job and 'class="next-action"' in job  # one hero card: header, steps, next action
-    assert 'class="grid-main top"' in job and 'class="card order-2"' in job
+    assert 'class="grid-main top job-lower"' in job and 'class="card rules-card order-2"' in job and 'class="card fit-card"' in job
     settings = client.get("/settings").text
     assert 'class="appearance-preview"' in settings and 'class="theme-thumb system"' in settings
     assert re.search(r'<label class="switch">.*?name="company_logos" value="on" checked', settings, flags=re.S)
