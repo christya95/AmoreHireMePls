@@ -554,6 +554,7 @@ Honest status, as of the latest increment ([docs/capability-map.md](docs/capabil
 | [docs/nas-deployment.md](docs/nas-deployment.md) | Portainer stack, image, data layout, deploy script, secrets, checks |
 | [docs/backup-restore.md](docs/backup-restore.md) | `amore backup` / `amore restore`, what is in the archive, schedule |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | symptom → cause → fix table |
+| [docs/ui-copy.md](docs/ui-copy.md) | the plain words the dashboard uses for every technical status, and where they are defined |
 | [AGENTS.md](AGENTS.md) | engineering rules for anyone (human or agent) changing this code |
 | In-app **Help** page | the eight steps, every status in plain words, glossary, safety model, environment table, where files live |
 
