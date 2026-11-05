@@ -7,14 +7,22 @@
   <div class="card">
     <div class="card-h"><h3>Appearance</h3><span class="sub">Saved in the app and remembered by your browser so the page looks right straight away.</span></div>
     <form method="post" action="/settings/appearance" class="stack"><input type="hidden" name="csrf" value="{{ csrf }}">
-      <div class="appearance-preview" aria-hidden="true"><span class="pill accent">Accent</span><span class="pill ok">Good</span><span class="pill warn">Waiting</span><span class="pill bad">Needs you</span><span class="pill info">Note</span></div>
-      <div class="field"><label>Theme</label>
+      {# Live preview: it is built from the same variables as the page, so the theme, accent and tint pickers change it at once. #}
+      <div class="appearance-preview" aria-hidden="true">
+        <div class="pv-side"><i class="pv-mark"></i><i class="pv-nav active"></i><i class="pv-nav"></i><i class="pv-nav"></i></div>
+        <div class="pv-card">
+          <div class="pv-title">Preview</div>
+          <div class="pv-row"><span class="pill ok">Applied</span><span class="pill warn">Waiting for your approval</span><span class="pill bad">Result unclear</span><span class="pill info">New</span><span class="pill">Closed</span></div>
+          <div class="pv-row"><span class="btn sm">Read and approve</span><span class="btn secondary sm">Open</span><a>A link</a></div>
+        </div>
+      </div>
+      <div class="settings-group"><label>Theme</label>
         <div class="choices">
-          <label class="choice"><input type="radio" name="theme" value="system" {{ 'checked' if ui.theme == 'system' }}><span>System</span></label>
-          <label class="choice"><input type="radio" name="theme" value="light" {{ 'checked' if ui.theme == 'light' }}><span><svg class="icon"><use href="#i-sun"/></svg>Light</span></label>
-          <label class="choice"><input type="radio" name="theme" value="dark" {{ 'checked' if ui.theme == 'dark' }}><span><svg class="icon"><use href="#i-moon"/></svg>Dark</span></label>
+          <label class="choice theme-choice"><input type="radio" name="theme" value="system" {{ 'checked' if ui.theme == 'system' }}><span><i class="theme-thumb system"></i>System</span></label>
+          <label class="choice theme-choice"><input type="radio" name="theme" value="light" {{ 'checked' if ui.theme == 'light' }}><span><i class="theme-thumb light"></i>Light</span></label>
+          <label class="choice theme-choice"><input type="radio" name="theme" value="dark" {{ 'checked' if ui.theme == 'dark' }}><span><i class="theme-thumb dark"></i>Dark</span></label>
         </div></div>
-      <div class="field"><label>Accent colour</label>
+      <div class="settings-group"><label>Accent colour</label>
         <div class="swatches">
           {% for name, hex in presets.items() %}<label class="swatch sw-{{ name }}"><input type="radio" name="accent" value="{{ name }}" data-hex="{{ hex }}" {{ 'checked' if accent_name == name }}><span><svg class="icon"><use href="#i-check"/></svg></span><small>{{ name }}</small></label>{% endfor %}
           <label class="swatch sw-custom" data-hex="{{ ui.accent }}"><input type="radio" name="accent" value="custom" {{ 'checked' if not accent_name }}><span><svg class="icon"><use href="#i-check"/></svg></span><small>custom</small></label>
@@ -24,7 +32,7 @@
         <div class="field narrow"><label>Hex</label><input name="accent_hex" value="{{ ui.accent }}" pattern="#[0-9a-fA-F]{6}" placeholder="#6f8f73" maxlength="7"></div>
         <span class="hint">Buttons, links, the active menu item and the chart use the accent.</span>
       </div>
-      <div class="field"><label>Background tint</label>
+      <div class="settings-group"><label>Background tint</label>
         <div class="choices tint-choices">
           {% for key, label, hex in tints %}<label class="choice"><input type="radio" name="tint" value="{{ key }}" data-hex="{{ hex or '' }}" {{ 'checked' if tint_name == key }}><span><i class="tint-dot tint-{{ key }}"></i>{{ label }}</span></label>{% endfor %}
           <label class="choice"><input type="radio" name="tint" value="custom" {{ 'checked' if not tint_name }}><span><i class="tint-dot tint-custom"></i>Custom</span></label>
@@ -34,10 +42,7 @@
         <div class="field narrow"><label>Hex</label><input name="tint_hex" value="{{ tint_hex }}" pattern="#[0-9a-fA-F]{6}" placeholder="#8c8f90" maxlength="7"></div>
         <span class="hint">The page background and soft surfaces take a little of this colour. "Match accent" is the original look; "Neutral" removes the colour cast entirely.</span>
       </div>
-      <div class="logo-row">
-        <label class="check"><input type="checkbox" name="company_logos" value="on" {{ 'checked' if ui.company_logos }}> Show company logos</label>
-        <span class="hint">On by default. The app downloads each company's logo once and keeps a copy. Off shows initials. This never uses AI.</span>
-      </div>
+      <label class="switch"><span class="body"><strong>Show company logos</strong><small>On by default. The app downloads each company's logo once and keeps a copy. Off shows initials. This never uses AI.</small></span><input type="checkbox" name="company_logos" value="on" {{ 'checked' if ui.company_logos }}></label>
       <div class="form-actions"><button>Save appearance</button></div>
     </form>
   </div>
