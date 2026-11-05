@@ -117,9 +117,14 @@ def build_application_graph(services: Services, store: Store | None, checkpointe
                 services.record_manual(state["application_id"], manual["manual"])
                 return {"status": "submitted", "outcome": {"status": "succeeded", "basis": "explicit_user_confirmation"}}
             return {"status": "handoff", "outcome": outcome}
-        status = {"succeeded": "submitted", "needs_verification": "needs_verification", "failed": "failed", "denied": "ready_for_review", "blocked": "blocked"}.get(
-            outcome["status"], outcome["status"]
-        )
+        status = {
+            "succeeded": "submitted",
+            "needs_verification": "needs_verification",
+            "failed": "failed",
+            "denied": "ready_for_review",
+            "blocked": "blocked",
+            "retry_scheduled": "challenge_retry",
+        }.get(outcome["status"], outcome["status"])
         return {"status": status, "outcome": outcome}
 
     def route_after_execute(state: AppState) -> str:

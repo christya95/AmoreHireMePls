@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     human_check_hold_minutes: int = Field(default=30, ge=0, le=180)
     # Localhost-only Chromium debug port while a hold is active. 0 disables it. Not reachable on the NAS.
     human_check_cdp_port: int = Field(default=9222, ge=0, le=65535)
+    # One fresh-session try after a human check, before the owner is notified. 0 sends the note immediately.
+    # Skipped while a hold is still open. The later try never clicks submit if the first try already did.
+    challenge_retry_minutes: int = Field(default=180, ge=0, le=1440)
 
     smtp_host: str = ""
     smtp_port: int = 587

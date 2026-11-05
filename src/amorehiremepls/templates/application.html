@@ -6,6 +6,7 @@
                'handoff': (('The job site showed a human check. Finish that check and the submit on the site yourself, then record the confirmation text here.' if a.handoff_kind == 'human_check' else 'Apply on the job site yourself using the resume below, then record the confirmation text here.'), '#record'),
                'needs_verification': ('Check the job site, then record whether it went through.', '#record'),
                'authorized': ('Approved. The app applies within a minute. Nothing to do.', None),
+               'challenge_retry': ('A check appeared. The app will try this once more later, then tell you if it still needs you.', None),
                'submitted': ('Applied and recorded. Next: short notes to recruiters under Recruiters.', '/outreach'),
                'failed': ('Applying failed. See "What happened" below.', '#record')}.get(a.status) %}
 <div class="stack">

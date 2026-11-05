@@ -144,7 +144,15 @@ class Runtime:
         return Notifier(self.store, self.settings, self.actions)
 
     def applications(self, run_id: str | None = None, builders: dict | None = None) -> ApplicationService:
-        return ApplicationService(self.store, self.profile, self.tailor(run_id), self.actions, builders or {"generic_form": generic_plan_builder}, notifier=self.notifier())
+        return ApplicationService(
+            self.store,
+            self.profile,
+            self.tailor(run_id),
+            self.actions,
+            builders or {"generic_form": generic_plan_builder},
+            notifier=self.notifier(),
+            challenge_retry_minutes=self.settings.challenge_retry_minutes,
+        )
 
     def outreach(self, run_id: str | None = None) -> OutreachService:
         return OutreachService(self.store, self.profile, self.ai(run_id), self.smtp)

@@ -106,6 +106,7 @@ class Worker:
         done["sync"] = len(results)
         done["scheduled"] = self.run_schedule()
         done["logos"] = self.refresh_logos()
+        done["challenge_retries"] = self.run_due_challenge_retries()
         return done
 
     def refresh_logos(self, limit: int = 3) -> int:
@@ -120,6 +121,63 @@ class Worker:
         except Exception:
             log.exception("logo refresh failed")
             return 0
+
+    def run_due_challenge_retries(self) -> int:
+        """One later try per application, when it is due. A fresh browser session. No second click if the first try already clicked."""
+        self._close_expired_challenge_retries()
+        now = utcnow()
+        n = 0
+        due = self.rt.store.c("challenge_retries").find({"status": "scheduled", "due_at": {"$lte": now}}).sort("due_at", 1).limit(1)
+        for doc in due:
+            claimed = self.rt.store.reserve("challenge_retries", {"_id": doc["_id"]}, self.name, ["scheduled"], "running", 900, allow_takeover=False)
+            if not claimed:
+                continue
+            try:
+                self._run_challenge_retry(claimed)
+            finally:
+                self.rt.store.c("challenge_retries").update_one({"_id": doc["_id"], "status": "running"}, {"$set": {"status": "done", "finished_at": utcnow()}})
+            n += 1
+        return n
+
+    def _close_expired_challenge_retries(self) -> None:
+        """A crashed later try is not started again. The owner is told once, and submit is not clicked again."""
+        now = utcnow()
+        for doc in self.rt.store.c("challenge_retries").find({"status": "running", "reserved_until": {"$lt": now}}):
+            closed = self.rt.store.c("challenge_retries").update_one(
+                {"_id": doc["_id"], "status": "running"}, {"$set": {"status": "done", "result": "lease_expired", "finished_at": now}}
+            )
+            if closed.modified_count != 1:
+                continue
+            app = self.rt.store.c("applications").find_one({"_id": doc.get("application_id")})
+            if not app or app.get("status") in ("submitted", "handoff", "needs_verification") or not app.get("challenge_retry_active"):
+                continue
+            svc = self.rt.applications()
+            svc._set(
+                app["_id"],
+                "handoff",
+                reason="The later try stopped before a confirmation. Finish on the site yourself.",
+                next_action="Apply on the job site yourself, then record the confirmation text here.",
+                handoff_kind="human_check",
+            )
+            svc._notify(svc.apps.find_one({"_id": app["_id"]}), "human_check")
+
+    def _run_challenge_retry(self, doc: dict) -> None:
+        app_id = doc["application_id"]
+        updated = self.rt.store.c("applications").update_one(
+            {"_id": app_id, "status": "challenge_retry"},
+            {"$set": {"status": "authorized", "challenge_retry_active": True, "updated_at": utcnow()}},
+        )
+        if updated.modified_count != 1:
+            return
+        svc = self.rt.applications()
+        confirm_only = bool(doc.get("final_clicked"))
+        solver = None if confirm_only else self.rt.captcha_solver()
+
+        def run(plan):
+            host = plan.start_url.split("/")[2]
+            return self.rt.browser.run_plan(plan, site_key=host, captcha_solver=solver, hold=None, confirm_only=confirm_only)
+
+        svc.execute(app_id, self.name, run_adapter=run)
 
     def _start(self, run: dict) -> None:
         job_id = run["params"]["job_id"]

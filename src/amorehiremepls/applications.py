@@ -11,7 +11,7 @@ import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -148,7 +148,14 @@ PlanBuilder = Callable[[dict, dict, list[dict]], Plan]
 
 class ApplicationService:
     def __init__(
-        self, store: Store, profile: Profile, tailor: Tailor, actions: ActionStore, plan_builders: dict[str, PlanBuilder] | None = None, notifier: Any | None = None
+        self,
+        store: Store,
+        profile: Profile,
+        tailor: Tailor,
+        actions: ActionStore,
+        plan_builders: dict[str, PlanBuilder] | None = None,
+        notifier: Any | None = None,
+        challenge_retry_minutes: int = 0,
     ) -> None:
         self.store = store
         self.profile = profile
@@ -158,6 +165,7 @@ class ApplicationService:
         self.apps = store.c("applications")
         self.plan_builders = plan_builders or {}
         self.notifier = notifier
+        self.challenge_retry_minutes = challenge_retry_minutes
 
     def get_or_create(self, job_id: str) -> dict:
         app = self.apps.find_one({"job_id": job_id, "provenance.origin": "local"})
@@ -318,6 +326,9 @@ class ApplicationService:
         if app["status"] not in ("ready_for_review", "authorized", "executing", "needs_verification", "submitted", "failed"):
             return Outcome("denied", f"application is {app['status']}; not executable")
         job = self.jobs.get(app["job_id"])
+        pending = self.store.c("challenge_retries").find_one({"idempotency_key": f"challenge_retry:{job['_id']}", "status": {"$in": ["scheduled", "running"]}})
+        if pending and not app.get("challenge_retry_active"):
+            return Outcome("retry_scheduled", "one later try is waiting")
         pkg = app["review_package"]
         if app["status"] in ("ready_for_review", "authorized"):
             block = page_limit_block_reason(pkg.get("document"))
@@ -363,6 +374,8 @@ class ApplicationService:
         except ActionHandoff as exc:  # the action store already put the action back to `ready` with the evidence
             self.store.release("jobs", {"_id": job["_id"]}, worker, job["status"])
             ev = self._with_screenshots(job["_id"], app_id, exc.evidence)  # the challenge / login page capture becomes evidence too
+            if self._schedule_challenge_retry(app, job, ev):
+                return Outcome("retry_scheduled", "one later try is waiting", ev, action["_id"])
             nxt = (
                 "finish the human check and the submit on the site yourself, then record the confirmation"
                 if exc.evidence.get("challenge")
@@ -513,6 +526,51 @@ class ApplicationService:
             date_basis="user-reported date (America/Toronto)",
             sync={"state": "sync_pending"},
         )
+
+    def _schedule_challenge_retry(self, app: dict, job: dict, evidence: dict) -> bool:
+        """Wait, then one fresh session, before telling the owner. Never a second schedule.
+
+        A hold that is still open owns the page, so nothing is queued. A try that already clicked
+        submit is recorded as confirm-only: the later session looks for a confirmation and does not click.
+        Returns True when the owner should not be notified yet.
+        """
+        if not evidence.get("challenge") or self.challenge_retry_minutes <= 0 or app.get("challenge_retry_active"):
+            return False
+        from .human_check import active_hold
+
+        if active_hold(self.store, app["_id"]):
+            return True  # the open hold is the response; do not queue another try and do not notify yet
+        key = f"challenge_retry:{job['_id']}"
+        coll = self.store.c("challenge_retries")
+        existing = coll.find_one({"idempotency_key": key})
+        if existing:
+            return existing.get("status") in ("scheduled", "running")
+        due = utcnow() + timedelta(minutes=self.challenge_retry_minutes)
+        doc = {
+            "_id": new_id("chretry"),
+            "idempotency_key": key,
+            "application_id": app["_id"],
+            "job_id": job["_id"],
+            "material_hash": app.get("material_hash"),
+            "final_clicked": bool(evidence.get("final_clicked")),
+            "status": "scheduled",
+            "due_at": due,
+            "created_at": utcnow(),
+        }
+        if not self.store.insert_unique("challenge_retries", doc):
+            existing = coll.find_one({"idempotency_key": key})
+            return bool(existing and existing.get("status") in ("scheduled", "running"))
+        self._set(
+            app["_id"],
+            "challenge_retry",
+            reason="A check appeared. The app will try this once more later, then tell you if it still needs you.",
+            next_action="Nothing to do yet. You will be told if the later try still cannot finish.",
+            evidence=evidence,
+            challenge_retry_due=due,
+            challenge_retry_active=False,
+        )
+        self.store.audit("challenge_retry_scheduled", app["_id"], due_at=due.isoformat(), final_clicked=doc["final_clicked"])
+        return True
 
     def _notify(self, app: dict | None, state: str) -> None:
         """Best-effort owner alert. A delivery problem never changes the application result."""

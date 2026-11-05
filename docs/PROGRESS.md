@@ -182,6 +182,11 @@ All in `static/app.css` plus small template changes; no new routes, no JS framew
 - Mac: while the hold is active Chromium listens on `127.0.0.1` only (`AMORE_HUMAN_CHECK_CDP_PORT`, default 9222). The attach command is in `docs/troubleshooting.md`. The NAS worker is headless and that port is not published, so a hold there ends as a handoff the user finishes on the site.
 - Not live-verified. No application was submitted.
 
+## One later try before a notification (2026-11-05)
+
+- A human check schedules one fresh browser session after `AMORE_CHALLENGE_RETRY_MINUTES` (default 180, 0 sends the note immediately). The owner is not notified until that try finishes, unless a hold is still open. If the first try already clicked submit, the later session only looks for a confirmation and does not click. A second schedule is refused. A crashed later try is closed and the owner is told; it is not run again.
+- Not live-verified. No application was submitted.
+
 ## Exact next step
 
 Deploy this commit to the NAS (`scripts/deploy_nas.sh`). The skills-line fix is in this commit, so the deferred Faire regenerate can happen after this deploy. Then open the Faire application `app_1c0408f4d9f27059` (run `run_26577cda2433c89d` is waiting on the handoff interrupt from before the adapter existed) and press **Retry with the app**: the waiting task is cancelled, the Greenhouse question list is read from the Job Board API, a fresh package is prepared (expect "needs your answers" for the hybrid commitment, the familiarity and "how did you hear" questions), Joss answers and approves, and the worker submits through the new adapter. Watch for `handoff` with reason "Greenhouse asked for a human check" (reCAPTCHA Enterprise challenge) or `failed` with a form complaint (unknown live error markup): both leave nothing sent. The captcha switch stays off unless Joss turns it on under Settings → Applying.

@@ -463,7 +463,7 @@ def test_execute_passes_a_hold_only_when_the_wait_is_on(store, tmp_path, board):
     from amorehiremepls.runtime import RealServices
 
     svc, _job_doc, app = _prepared(store, tmp_path, board, variant="check")
-    rt = _runtime(store, tmp_path)
+    rt = _runtime(store, tmp_path, challenge_retry_minutes=0)
     seen: dict = {}
 
     def run_plan(plan, site_key="default", observe=True, captcha_solver=None, hold=None):
@@ -476,7 +476,7 @@ def test_execute_passes_a_hold_only_when_the_wait_is_on(store, tmp_path, board):
     assert rt.browser.config.cdp_port == 9222
     assert store.c("human_holds").count_documents({}) == 0  # the fake adapter never reached a check, so nothing was held
 
-    rt_off = _runtime(store, tmp_path, human_check_hold_minutes=0)
+    rt_off = _runtime(store, tmp_path, human_check_hold_minutes=0, challenge_retry_minutes=0)
     seen.clear()
     rt_off.browser.run_plan = run_plan
     app2 = svc.apps.find_one({"_id": app["_id"]})
@@ -548,3 +548,17 @@ def test_continue_rechecks_the_same_page_and_does_not_submit(store, tmp_path, bo
     assert len(greenhouse_site.GH_SUBMISSIONS) == before
     assert store.c("actions").count_documents({"idempotency_key": f"submit:{job['_id']}"}) == 1
     assert svc.actions.by_key(f"submit:{job['_id']}")["status"] == "ready"
+
+
+@skip_no_browser
+@pytest.mark.browser
+@pytest.mark.mongo
+def test_confirm_only_later_try_opens_the_page_and_does_not_submit(store, tmp_path, board):
+    svc, job, app = _prepared(store, tmp_path, board, variant="check")
+    app = svc.apps.find_one({"_id": app["_id"]})
+    _, adapter = board
+    plan = adapter.build_plan(job, {"apply_url": job["apply_url"]}, app["review_package"]["answers"])
+    before = len(greenhouse_site.GH_SUBMISSIONS)
+    with pytest.raises(HandoffRequired, match="no confirmation"):
+        _browser(tmp_path).run_plan(plan, site_key="gh", confirm_only=True)
+    assert len(greenhouse_site.GH_SUBMISSIONS) == before

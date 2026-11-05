@@ -253,7 +253,7 @@ def greeting(now: datetime | None = None) -> str:
 
 _TONES: dict[str, str] = {
     "ok": "submitted applied applied_historical synced succeeded active qualified ok completed done resolved present allowed",
-    "warn": "needs_review needs_input ready_for_review authorized handoff waiting paused sync_pending local_only committed_local prepared researched queued claimed pending unresolved",  # noqa: E501
+    "warn": "needs_review needs_input ready_for_review authorized handoff challenge_retry waiting paused sync_pending local_only committed_local prepared researched queued claimed pending unresolved",  # noqa: E501
     "bad": "needs_verification failed conflict blocked error cancelled canceled rejected expired revoked missing down skipped",
     "info": "new running executing draft imported reserved",
 }
@@ -279,6 +279,7 @@ STATUS_LABELS: dict[str, str] = {
     "ready_for_review": "Waiting for your approval",
     "needs_input": "Needs your answers",
     "authorized": "Approved, applying soon",
+    "challenge_retry": "Trying once more later",
     "executing": "Applying now",
     "handoff": "Finish on the site yourself",
     "needs_verification": "Result unclear, check it",
@@ -409,6 +410,7 @@ NEXT_ACTIONS: dict[str, str] = {
     "handoff": "Finish on the site",
     "needs_verification": "Check result",
     "authorized": "Open package",
+    "challenge_retry": "Nothing to do yet",
     "submitted": "Contact recruiters",
     "failed": "See what failed",
 }

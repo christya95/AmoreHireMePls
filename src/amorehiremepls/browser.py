@@ -207,7 +207,9 @@ class BrowserAdapter:
             return None
         return self.config.session_dir / f"{site_key}.storage.json"
 
-    def run_plan(self, plan: Plan, site_key: str = "default", observe: bool = True, captcha_solver: Any | None = None, hold: Any | None = None) -> dict[str, Any]:
+    def run_plan(
+        self, plan: Plan, site_key: str = "default", observe: bool = True, captcha_solver: Any | None = None, hold: Any | None = None, confirm_only: bool = False
+    ) -> dict[str, Any]:
         from playwright.sync_api import TimeoutError as PWTimeout
         from playwright.sync_api import sync_playwright
 
@@ -219,7 +221,8 @@ class BrowserAdapter:
         shots = self._shot_target(plan)
         state = self._state_path(site_key)
         # Debug port only while a hold may run, and only on localhost. A failed launch drops the port and continues.
-        cdp_port = int(self.config.cdp_port or 0) if hold is not None else 0
+        # A confirm-only later try never holds and never clicks.
+        cdp_port = int(self.config.cdp_port or 0) if hold is not None and not confirm_only else 0
         with sync_playwright() as pw:
             try:
                 browser = pw.chromium.launch(headless=self.config.headless, args=launch_args(cdp_port))
@@ -259,18 +262,21 @@ class BrowserAdapter:
                 page.goto(plan.start_url, wait_until="domcontentloaded")
                 self._detect_login(page, evidence, shots)
                 scope = self._scope_for(page, plan)
-                for i, step in enumerate(plan.steps):
-                    if step.final:
-                        # the filled-in review state exactly as it looked before the irreversible click
-                        self._snapshot(page, evidence, "summary", shots)
-                        evidence["final_clicked"] = True
-                        evidence["final_url_before"] = page.url
-                    self._do_step(scope, step, plan)
-                    evidence["steps_done"] = i + 1
-                    if step.type in ("click",) and not step.final:
-                        self._detect_login(page, evidence, shots)
-                        self._detect_validation_errors(scope, evidence, shots)
-                self._await_receipt(scope, plan, evidence, shots, solver, hold)
+                if confirm_only:
+                    # The first try already clicked. Look for a confirmation and do not click again.
+                    evidence["confirm_only"] = True
+                    evidence["final_clicked"] = False
+                    if not self._receipt_ready(scope, plan):
+                        challenge = self._detect_challenge(scope)
+                        self._snapshot(page, evidence, "challenge" if challenge else "ambiguous", shots)
+                        site = plan.site or "the job site"
+                        extra = {"url": page.url}
+                        if challenge:
+                            evidence["challenge"] = challenge["kind"]
+                            extra["challenge"] = challenge["kind"]
+                        raise HandoffRequired(f"{site} showed no confirmation on the later try", {**evidence, **extra})
+                else:
+                    self._run_steps(scope, plan, evidence, shots, solver, hold)
                 body = scope.body_text()[:4000]
                 final_url = scope.current_url()
                 evidence.update(receipt_text=body, final_url=final_url, observed_at=utcnow().isoformat())
@@ -300,6 +306,21 @@ class BrowserAdapter:
             finally:
                 context.close()
                 browser.close()
+
+    def _run_steps(self, scope: _Scope, plan: Plan, evidence: dict, shots: _ShotTarget, solver: Any | None, hold: Any | None) -> None:
+        page = scope.page
+        for i, step in enumerate(plan.steps):
+            if step.final:
+                # the filled-in review state exactly as it looked before the irreversible click
+                self._snapshot(page, evidence, "summary", shots)
+                evidence["final_clicked"] = True
+                evidence["final_url_before"] = page.url
+            self._do_step(scope, step, plan)
+            evidence["steps_done"] = i + 1
+            if step.type in ("click",) and not step.final:
+                self._detect_login(page, evidence, shots)
+                self._detect_validation_errors(scope, evidence, shots)
+        self._await_receipt(scope, plan, evidence, shots, solver, hold)
 
     # -- receipt / challenge loop -----------------------------------------------------------------------
     def _await_receipt(self, scope: _Scope, plan: Plan, evidence: dict, shots: _ShotTarget, solver: Any | None, hold: Any | None = None) -> None:

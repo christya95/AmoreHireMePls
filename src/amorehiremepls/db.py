@@ -67,6 +67,7 @@ INDEXES: dict[str, list[tuple[list[tuple[str, int]], dict[str, Any]]]] = {
     "imports": [([("source_commit", ASCENDING), ("source_path", ASCENDING)], {})],
     "notifications": [([("idempotency_key", ASCENDING)], {"unique": True})],
     "human_holds": [([("application_id", ASCENDING), ("status", ASCENDING)], {}), ([("started_at", ASCENDING)], {})],
+    "challenge_retries": [([("idempotency_key", ASCENDING)], {"unique": True}), ([("status", ASCENDING), ("due_at", ASCENDING)], {})],
 }
 
 
