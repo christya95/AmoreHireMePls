@@ -23,8 +23,8 @@ No private values here: field names and counts only. Keep under 120 lines; finis
 - Not verified: no live employer receipt exists yet for any ATS; nothing has ever been submitted by the app.
 - Data (live database through `ProfileStore`, values never in the repo): contact and address facts under the mapper keys,
   links, availability, notice period, work arrangements, compensation floor, five self identification facts (sensitive),
-  62 answers, 11 skills, 11 education rows. Profile version 7 per the chat record, saved with provenance `user:chat` and
-  `user:chatgpt-handoff` (the previous handoff wrote 8 after the import; the Profile page shows the current number).
+  62 answers, 11 skills, 11 education rows. Profile version 7 per the chat record (the previous handoff wrote 8; the Profile
+  page shows the current number).
 
 ## Decisions made this session
 
@@ -38,6 +38,9 @@ No private values here: field names and counts only. Keep under 120 lines; finis
 - Per user accounts: the admin role never expires, members get 365 days with top ups (agent design, owner approved the concept).
 - "Remove" a user means Turn off (reversible) or Delete permanently with a backup and a tombstone (agent).
 - Tracker sync keeps running for expired members (agent; owner to confirm, see open questions).
+- AI usage, token counts, pricing and spend are admin only: members never see the AI usage page, cost chips or per run
+  spend; the admin People page shows per person usage and cost; the owner views his own through the admin surface for
+  consistency (agent design, owner approved).
 - Profile version 7 saved through `ProfileStore` with provenance `user:chat` and `user:chatgpt-handoff`; values never in the
   repo (agent, from the owner's chat answers).
 
@@ -78,6 +81,8 @@ No private values here: field names and counts only. Keep under 120 lines; finis
    badge for members only, worker filters to active users, `amore migrate-users` makes the original operator admin with no
    expiry. Step order 1, 2, 4, 7, 5, 8, 9; `backup_user()` and `access_summary` can be drafted first. Waits for: item 2 and
    the owner's answer to question 6.
+   - Hide `/usage`, the usage KPIs on the Overview and the cost figures on run and application pages for `role=member`; add
+     a per person usage column and a usage detail view under `/admin`; keep per user budget enforcement unchanged.
 4. Deploy after each of items 1 to 3 and record the tag here and in `docs/PROGRESS.md`. Size: S. Plan: operating rule 3.
    Waits for: each item's tests and lint.
 5. After the first confirmed employer receipt: recruiter Connect note drafts per the owner's rule (in house recruiters at
@@ -99,8 +104,8 @@ No private values here: field names and counts only. Keep under 120 lines; finis
    lint pass.
 5. Secrets come from 1Password through `op run --env-file .env.references`; the CLI may block for minutes waiting on the
    desktop app; if `op run` fails, run `op signin` outside the sandbox first. Long lived processes (web, worker) start
-   detached and outside the sandbox; only one worker against the NAS database. The `/chat-handoff` skill lives in the
-   personal agent store; run it when the thresholds in it are met.
+   detached and outside the sandbox; only one worker against the NAS database. `/chat-handoff` (personal agent store) when
+   the conversation is compacted or passes about 25 turns.
 6. Never: retry a live application, send a message or grant an approval (those are the owner's clicks in the dashboard);
    print or log secrets or profile values (compare profiles by fingerprint, report counts); force push; commit `candidate/`
    (except README, `.gitignore`, `profile.example.toml`), `runtime/`, `.env` or `.env.references`.
@@ -112,5 +117,4 @@ No private values here: field names and counts only. Keep under 120 lines; finis
 - `src/amorehiremepls/candidate_profile.py` and `candidate/profile.example.toml`: the customization surface.
 - `src/amorehiremepls/ats/`: Greenhouse, Lever, Ashby adapters; `browser.py` runs their plans.
 - `scripts/deploy_nas.sh`, `deploy/nas/compose.yaml`, `docs/nas-deployment.md`: deploy variables and sequence.
-- `tests/test_regressions.py`, `tests/test_customization.py`: private token and profession neutrality guards.
-- `docs/capability-map.md`, `docs/troubleshooting.md`: what each capability does and how failures surface.
+- `tests/test_regressions.py`, `tests/test_customization.py`: private token and neutrality guards; `docs/capability-map.md`.
