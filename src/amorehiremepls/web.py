@@ -170,6 +170,9 @@ FLASHES = {
     "retry_started": ("The app will read the form again and prepare a fresh package. It waits for your approval before applying.", "ok"),
     "retry_unsupported": ("The app has no form filler for this job site yet, so there is nothing to retry. Finish on the site yourself.", "bad"),
     "retry_busy": ("A background task is working on this job right now. Wait for it to pause or finish.", "bad"),
+    "notify_sent": ("Test notification sent.", "ok"),
+    "notify_failed": ("The test notification could not be sent. Check the mail server settings and try again.", "bad"),
+    "notify_off": ("Nothing is set up to send a notification yet.", "bad"),
 }
 HOSTS_ENV_EXAMPLE = "AMORE_BROWSER_ALLOWED_HOSTS=boards.greenhouse.io,jobs.lever.co"
 
@@ -1402,6 +1405,8 @@ def create_app(rt: Runtime) -> FastAPI:
             captcha_autosolve=rt.captcha_autosolve_enabled(),
             captcha_attempts=rt.settings.captcha_max_attempts,
             captcha_env_default=rt.settings.captcha_autosolve,
+            notify_email=rt.notifier().email_ready(),
+            notify_webhook=rt.notifier().webhook_ready(),
         )
 
     @app.post("/settings/captcha")
@@ -1412,6 +1417,19 @@ def create_app(rt: Runtime) -> FastAPI:
         rt.store.set_control("captcha_autosolve", enabled)
         rt.store.audit("captcha_autosolve_changed", None, enabled=enabled)
         return RedirectResponse(f"/settings?ok={'captcha_on' if enabled else 'captcha_off'}", status_code=303)
+
+    @app.post("/settings/notify-test")
+    def settings_notify_test(request: Request, session: dict = Depends(require_session), csrf: str = Form(...)):
+        """Send one test note to the configured channels. The button is the authorization for that single send."""
+        require_csrf(request, session, csrf)
+        result = rt.notifier().send_test()
+        if result.get("reason") == "not_configured":
+            flash = "notify_off"
+        elif result.get("sent"):
+            flash = "notify_sent"
+        else:
+            flash = "notify_failed"
+        return RedirectResponse(f"/settings?ok={flash}", status_code=303)
 
     @app.post("/settings/checklist")
     def settings_checklist(request: Request, session: dict = Depends(require_session), csrf: str = Form(...), dismissed: str = Form("1"), next: str = Form("/")):

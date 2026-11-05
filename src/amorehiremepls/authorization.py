@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from .db import Store
 from .util import new_id, sha256_json, utcnow
 
-ScopeKind = Literal["application_submit", "outreach_first_contact", "connection_request", "follow_up", "email_send"]
+ScopeKind = Literal["application_submit", "outreach_first_contact", "connection_request", "follow_up", "email_send", "owner_notification"]
 
 
 class ScopeBinding(BaseModel):
@@ -111,6 +111,10 @@ class AuthorizationStore:
 
     def check(self, kind: ScopeKind, target_id: str, material: str, host: str | None = None, job: dict | None = None, has_material_unknowns: bool = False) -> Decision:
         """Find one active scope that authorizes exactly this action. Any mismatch denies."""
+        # Alerts go only to the address configured for this install (the owner), never to an employer or recruiter.
+        # Configuring that address is the authorization; there is no per-job approval to consume.
+        if kind == "owner_notification":
+            return Decision(allowed=True, reason="owner alert", scope_id=None)
         now = utcnow()
         for scope in self.active(kind):
             if scope.expires_at <= now:

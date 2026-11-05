@@ -65,6 +65,7 @@ INDEXES: dict[str, list[tuple[list[tuple[str, int]], dict[str, Any]]]] = {
     "controls": [([("key", ASCENDING)], {"unique": True})],
     "scheduler_slots": [([("slot_key", ASCENDING)], {"unique": True}), ([("created_at", ASCENDING)], {"expireAfterSeconds": 60 * 60 * 24 * 7})],
     "imports": [([("source_commit", ASCENDING), ("source_path", ASCENDING)], {})],
+    "notifications": [([("idempotency_key", ASCENDING)], {"unique": True})],
 }
 
 

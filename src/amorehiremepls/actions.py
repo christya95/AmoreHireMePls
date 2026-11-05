@@ -25,6 +25,7 @@ ACTION_SCOPE: dict[str, ScopeKind] = {
     "connection_request": "connection_request",
     "follow_up": "follow_up",
     "email_send": "email_send",
+    "owner_notification": "owner_notification",
 }
 
 

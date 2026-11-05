@@ -61,9 +61,14 @@ class Settings(BaseSettings):
 
     smtp_host: str = ""
     smtp_port: int = 587
-    smtp_username: str = ""
-    smtp_password: SecretStr = SecretStr("")
+    smtp_username: str = ""  # AMORE_SMTP_USERNAME, older name for the same login
+    smtp_user: str = ""  # AMORE_SMTP_USER, preferred; wins over smtp_username when both are set
+    smtp_password: SecretStr = SecretStr("")  # injected from 1Password; never written to .env
     smtp_from: str = ""
+    notify_email_to: str = ""
+    notify_webhook_url: str = ""
+    publish_url: str = ""  # full dashboard origin, e.g. http://192.168.2.49:8790
+    publish_host: str = ""  # used when publish_url is empty (NAS stack bind address)
 
     discovery_schedule: str = ""
     langsmith_tracing: bool = False
@@ -86,6 +91,21 @@ class Settings(BaseSettings):
     @property
     def provider_configured(self) -> bool:
         return bool(self.effective_model)
+
+    @property
+    def smtp_login(self) -> str:
+        """Mailbox login. `AMORE_SMTP_USER` wins; `AMORE_SMTP_USERNAME` remains for older outreach config."""
+        return self.smtp_user or self.smtp_username
+
+    def dashboard_base_url(self) -> str:
+        """Origin for links in notifications. `AMORE_PUBLISH_URL` wins, else `AMORE_PUBLISH_HOST` plus the port."""
+        explicit = (self.publish_url or "").strip().rstrip("/")
+        if explicit:
+            return explicit
+        host = (self.publish_host or "").strip()
+        if not host or host in {"0.0.0.0", "::", "[::]"}:
+            host = self.bind_host or "127.0.0.1"
+        return f"http://{host}:{self.port}"
 
     def mongo_client_kwargs(self) -> dict:
         kwargs: dict = {"serverSelectionTimeoutMS": 5000, "appname": "amorehiremepls"}

@@ -79,6 +79,18 @@
   </form>
 </div>
 
+<div class="card">
+  <div class="card-h"><h3>Notifications</h3><span class="sub">A short note when an application needs you, when the result is unclear, or when the employer site confirms it. The note names the job and links back here. It never includes your answers or your resume.</span></div>
+  <table class="kv compact">
+    <tr><td>Email</td><td>{{ 'Set up' if notify_email else 'Not set up' }}</td></tr>
+    <tr><td>Webhook</td><td>{{ 'Set up' if notify_webhook else 'Not set up' }}</td></tr>
+  </table>
+  <form method="post" action="/settings/notify-test" class="mt"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="secondary">Send test notification</button>
+  </form>
+  <p class="note">Email uses the address and mail server in the environment file. The mailbox password stays in 1Password and is never shown here.</p>
+</div>
+
 <div class="grid-2">
   <div class="card">
     <div class="card-h"><h3>Guidance</h3><span class="sub">The getting started card and the tips on each page remember when you hide them.</span></div>
@@ -93,6 +105,7 @@
     <table class="kv compact">
       <tr><td>Theme, accent, tint, name, avatar details, hidden tips</td><td>In the app database: <code>controls</code> collection, key <code>ui_settings</code>.</td></tr>
       <tr><td>Captcha switch</td><td>In the app database: <code>controls</code> collection, key <code>captcha_autosolve</code>. Environment default <code>AMORE_CAPTCHA_AUTOSOLVE</code>.</td></tr>
+      <tr><td>Notifications</td><td>Email and webhook come from the environment. Each note is remembered in <code>notifications</code> so the same event is not sent twice.</td></tr>
       <tr><td>Avatar file</td><td><code>AMORE_PRIVATE_DIR/avatar/</code>, shown through <code>/settings/avatar/image</code> after sign in. Never part of the code repository.</td></tr>
       <tr><td>Browser cookie</td><td><code>amore_ui</code> remembers theme, accent and tint so the first page and the sign in page look right. It holds nothing else.</td></tr>
     </table>

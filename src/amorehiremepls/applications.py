@@ -147,7 +147,9 @@ PlanBuilder = Callable[[dict, dict, list[dict]], Plan]
 
 
 class ApplicationService:
-    def __init__(self, store: Store, profile: Profile, tailor: Tailor, actions: ActionStore, plan_builders: dict[str, PlanBuilder] | None = None) -> None:
+    def __init__(
+        self, store: Store, profile: Profile, tailor: Tailor, actions: ActionStore, plan_builders: dict[str, PlanBuilder] | None = None, notifier: Any | None = None
+    ) -> None:
         self.store = store
         self.profile = profile
         self.tailor = tailor
@@ -155,6 +157,7 @@ class ApplicationService:
         self.jobs = JobStore(store)
         self.apps = store.c("applications")
         self.plan_builders = plan_builders or {}
+        self.notifier = notifier
 
     def get_or_create(self, job_id: str) -> dict:
         app = self.apps.find_one({"job_id": job_id, "provenance.origin": "local"})
@@ -333,6 +336,7 @@ class ApplicationService:
                 next_action="complete manually from the review package, then record the confirmation",
             )
             self.store.audit("application_handoff", app_id, host=host)
+            self._notify(self.apps.find_one({"_id": app_id}), "handoff")
             return Outcome("handoff", "manual completion required", action_id=None)
         if job["status"] == "executing" and job.get("reserved_by") == worker:
             reserved = job  # re-entry by the same worker after an interrupt/resume
@@ -364,8 +368,10 @@ class ApplicationService:
                 if exc.evidence.get("challenge")
                 else "refresh the site session from the Mac (amore browser login) or complete manually"
             )
-            self._set(app_id, "handoff", reason=str(exc), next_action=nxt, evidence=ev, handoff_kind="human_check" if exc.evidence.get("challenge") else "login")
+            kind = "human_check" if exc.evidence.get("challenge") else "handoff"
+            self._set(app_id, "handoff", reason=str(exc), next_action=nxt, evidence=ev, handoff_kind="human_check" if kind == "human_check" else "login")
             self.store.audit("application_handoff", app_id, host=host, challenge=exc.evidence.get("challenge"), captcha_attempts=len(exc.evidence.get("captcha_attempts") or []))
+            self._notify(self.apps.find_one({"_id": app_id}), kind)
             return Outcome("handoff", str(exc), ev, action["_id"])
         self._apply_outcome(app, job, outcome, worker)
         return outcome
@@ -399,10 +405,12 @@ class ApplicationService:
             from .sync import SyncOutbox
 
             SyncOutbox(self.store).enqueue(app_id, "record_submission")
+            self._notify(self.apps.find_one({"_id": app_id}), "submitted")
         elif outcome.status == "needs_verification":
             ev = self._with_screenshots(job["_id"], app_id, outcome.evidence)
             self._set(app_id, "needs_verification", reason=outcome.reason, evidence=ev, next_action="check the employer account or email, then record the result")
             self.store.release("jobs", {"_id": job["_id"]}, worker, "needs_verification")
+            self._notify(self.apps.find_one({"_id": app_id}), "needs_verification")
         elif outcome.status == "failed":
             nxt = "retry is allowed: the action returned to ready before any irreversible step" if outcome.retryable else "fix the reported problem and prepare again"
             ev = self._with_screenshots(job["_id"], app_id, outcome.evidence)
@@ -505,6 +513,17 @@ class ApplicationService:
             date_basis="user-reported date (America/Toronto)",
             sync={"state": "sync_pending"},
         )
+
+    def _notify(self, app: dict | None, state: str) -> None:
+        """Best-effort owner alert. A delivery problem never changes the application result."""
+        if self.notifier is None or app is None:
+            return
+        try:
+            job = self.jobs.get(app["job_id"]) or {"_id": app["job_id"], "employer": "", "title": ""}
+            run = self.store.c("runs").find_one({"kind": "application", "params.job_id": app["job_id"]}, sort=[("created_at", -1)])
+            self.notifier.notify(state=state, job=job, application=app, run_id=(run or {}).get("_id"))
+        except Exception:
+            log.exception("notification failed")
 
     def _builder_for(self, host: str | None, route: str | None, apply_url: str | None = None) -> PlanBuilder | None:
         if route and route in self.plan_builders:

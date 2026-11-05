@@ -91,7 +91,7 @@ class Runtime:
             {
                 "host": settings.smtp_host,
                 "port": settings.smtp_port,
-                "username": settings.smtp_username,
+                "username": settings.smtp_login,
                 "password": settings.smtp_password.get_secret_value(),
                 "from": settings.smtp_from,
             }
@@ -137,8 +137,13 @@ class Runtime:
     def tailor(self, run_id: str | None = None) -> Tailor:
         return Tailor(self.store, self.settings.artifact_dir, self.ai(run_id))
 
+    def notifier(self):
+        from .notify import Notifier
+
+        return Notifier(self.store, self.settings, self.actions)
+
     def applications(self, run_id: str | None = None, builders: dict | None = None) -> ApplicationService:
-        return ApplicationService(self.store, self.profile, self.tailor(run_id), self.actions, builders or {"generic_form": generic_plan_builder})
+        return ApplicationService(self.store, self.profile, self.tailor(run_id), self.actions, builders or {"generic_form": generic_plan_builder}, notifier=self.notifier())
 
     def outreach(self, run_id: str | None = None) -> OutreachService:
         return OutreachService(self.store, self.profile, self.ai(run_id), self.smtp)
