@@ -356,8 +356,8 @@ def test_src_contains_no_profession_city_employer_or_owner_literals():
             low = word.lower()
             if _sha(low) in hashes or low in banned_words:
                 hits.append((rel, low[:2] + "*" * (len(low) - 2)))
-    # the alias filters keep an older zone name only as an alias key, never as copy
-    hits = [h for h in hits if not (h[0].endswith("web.py") and h[1].startswith("to"))]
+    # the alias filters keep an older zone name only as an alias key, never as copy (they live in chrome.py)
+    hits = [h for h in hits if not (h[0].endswith(("web.py", "chrome.py")) and h[1].startswith("to"))]
     assert not hits, f"owner or profession literals in src/: {sorted(set(hits))}"
     # and the persona prompt is neutral
     persona = catalog.get("assess_fit").system_prompt.lower()
