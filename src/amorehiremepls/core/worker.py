@@ -13,6 +13,7 @@ import threading
 from datetime import datetime, timedelta
 from typing import Any
 
+from amorehiremepls.core.accounts import active_user_ids, user_scope
 from amorehiremepls.core.runtime import Runtime
 from amorehiremepls.core.util import local_now, local_zone, utcnow
 from amorehiremepls.jobs.discovery import SOURCES, SourceError
@@ -82,10 +83,24 @@ class Worker:
 
     def tick(self) -> dict[str, Any]:
         self.heartbeat()
-        self.rt.reload_profile()
-        done: dict[str, Any] = {"runs": 0, "sync": 0, "scheduled": 0}
+        done: dict[str, Any] = {"runs": 0, "sync": 0, "scheduled": 0, "logos": 0, "challenge_retries": 0}
         self.rt.auth.expire_stale()
         self.rt.actions.sweep_expired_leases()
+        # Tracker sync is not an access check. Expired and turned-off members still flush queued ledger items.
+        results = self.rt.sync.process_pending(owner=self.name)
+        done["sync"] = len(results)
+        ids = active_user_ids(self.rt.store)
+        if ids is None:
+            self.rt.reload_profile()
+            self._tick_owned(done)
+        else:
+            for uid in ids:
+                with user_scope(uid):
+                    self.rt.reload_profile()
+                    self._tick_owned(done)
+        return done
+
+    def _tick_owned(self, done: dict[str, Any]) -> None:
         for run in self.rt.store.c("runs").find({"status": "queued", "kind": "application"}).sort("created_at", 1).limit(self.rt.settings.worker_concurrency):
             if self.rt.store.emergency_stop_active():
                 break
@@ -102,12 +117,9 @@ class Worker:
             self.rt.store.update_run(run["_id"], requested=None, resume_payload=None)
             self.runner.resume(run["_id"], payload)
             done["runs"] += 1
-        results = self.rt.sync.process_pending(owner=self.name)
-        done["sync"] = len(results)
-        done["scheduled"] = self.run_schedule()
-        done["logos"] = self.refresh_logos()
-        done["challenge_retries"] = self.run_due_challenge_retries()
-        return done
+        done["scheduled"] += self.run_schedule()
+        done["logos"] += self.refresh_logos()
+        done["challenge_retries"] += self.run_due_challenge_retries()
 
     def refresh_logos(self, limit: int = 3) -> int:
         """Cheap periodic step: when the "Show company logos" option is on, fetch a few missing employer icons so

@@ -72,20 +72,25 @@ class SyncOutbox:
         }
         if not enabled:
             doc["note"] = "GitHub tracker is off (AMORE_TRACKER_ENABLED=false); recorded in the database only"
-            self.store.c("applications").update_one({"_id": application_id}, {"$set": {"sync.state": "not_applicable", "updated_at": utcnow()}})
+            self.store.db["applications"].update_one({"_id": application_id}, {"$set": {"sync.state": "not_applicable", "updated_at": utcnow()}})
         if not self.store.insert_unique("sync_outbox", doc):
             return self.coll.find_one({"application_id": application_id, "kind": kind})
         return doc
 
+    def _all(self):
+        """The ledger queue is not an access check. Expired and turned-off members still flush."""
+        return self.store.db["sync_outbox"]
+
     def pending(self, limit: int = 10) -> list[dict]:
         return list(
-            self.coll.find({"status": {"$in": ["sync_pending", "local_only", "committing", "committed_local"]}, "next_attempt_at": {"$lte": utcnow()}})
+            self._all()
+            .find({"status": {"$in": ["sync_pending", "local_only", "committing", "committed_local"]}, "next_attempt_at": {"$lte": utcnow()}})
             .sort("created_at", 1)
             .limit(limit)
         )
 
     def set(self, item_id: str, status: str, **fields: Any) -> None:
-        self.coll.update_one(
+        self._all().update_one(
             {"_id": item_id},
             {
                 "$set": {"status": status, "updated_at": utcnow(), **fields},
@@ -155,6 +160,10 @@ class SyncCoordinator:
         self.python = python or sys.executable
         self.outbox = SyncOutbox(store)
 
+    def _record(self, name: str):
+        """Application and job reads for the ledger ignore whoever is signed in, so an expired member's queued item still resolves."""
+        return self.store.db[name]
+
     # -- lock: one coordinator -----------------------------------------------------------------
     def _acquire(self, owner: str) -> bool:
         now = utcnow()
@@ -186,8 +195,8 @@ class SyncCoordinator:
             self._release(owner)
 
     def process_item(self, item: dict) -> dict:
-        app = self.store.c("applications").find_one({"_id": item["application_id"]})
-        job = self.store.c("jobs").find_one({"_id": app["job_id"]}) if app else None
+        app = self._record("applications").find_one({"_id": item["application_id"]})
+        job = self._record("jobs").find_one({"_id": app["job_id"]}) if app else None
         if not app or not job or app.get("status") != "submitted":
             self.outbox.set(item["_id"], "skipped", error="application not submitted")
             return {"id": item["_id"], "status": "skipped"}
@@ -199,7 +208,7 @@ class SyncCoordinator:
                 record = build_record(app, job)
                 self.outbox.set(item["_id"], "committing", record_id=record["id"])
                 sha = self._write_and_commit(app, record)
-                self.store.c("applications").update_one(
+                self._record("applications").update_one(
                     {"_id": app["_id"]}, {"$set": {"tracker_record_id": record["id"], "sync.commit_sha": sha, "sync.state": "committed_local", "updated_at": utcnow()}}
                 )
                 self.outbox.set(item["_id"], "committed_local", commit_sha=sha, record_id=record["id"])
@@ -211,14 +220,14 @@ class SyncCoordinator:
             return {"id": item["_id"], "status": item["status"]}
         except RecordConflict as exc:
             self.outbox.set(item["_id"], "conflict", error=str(exc))
-            self.store.c("applications").update_one({"_id": app["_id"]}, {"$set": {"sync.state": "conflict", "sync.error": str(exc)}})
+            self._record("applications").update_one({"_id": app["_id"]}, {"$set": {"sync.state": "conflict", "sync.error": str(exc)}})
             return {"id": item["_id"], "status": "conflict", "error": str(exc)}
         except (GitError, subprocess.SubprocessError, OSError) as exc:
             attempts = item.get("attempts", 0) + 1
             delay = min(2**attempts, 60)
             status = "local_only" if item.get("commit_sha") else "sync_pending"
             self.outbox.set(item["_id"], status, error=str(exc)[:400], attempts=attempts, next_attempt_at=utcnow() + timedelta(minutes=delay))
-            self.store.c("applications").update_one({"_id": app["_id"]}, {"$set": {"sync.state": status, "sync.error": str(exc)[:400]}})
+            self._record("applications").update_one({"_id": app["_id"]}, {"$set": {"sync.state": status, "sync.error": str(exc)[:400]}})
             return {"id": item["_id"], "status": status, "error": str(exc)[:200]}
 
     def _fetch_and_fast_forward(self) -> None:
@@ -327,7 +336,7 @@ class SyncCoordinator:
     def _push(self, item: dict, app: dict) -> dict:
         if not self.push_enabled:
             self.outbox.set(item["_id"], "local_only", error="push disabled by configuration (AMORE_TRACKER_PUSH_ENABLED=false)")
-            self.store.c("applications").update_one({"_id": app["_id"]}, {"$set": {"sync.state": "local_only"}})
+            self._record("applications").update_one({"_id": app["_id"]}, {"$set": {"sync.state": "local_only"}})
             return {"id": item["_id"], "status": "local_only"}
         try:
             git(self.root, "push", self.remote, f"HEAD:{self.branch}")
@@ -340,7 +349,7 @@ class SyncCoordinator:
                 raise
         sha = git(self.root, "rev-parse", "HEAD")
         self.outbox.set(item["_id"], "synced", commit_sha=sha)
-        self.store.c("applications").update_one({"_id": app["_id"]}, {"$set": {"sync.state": "synced", "sync.commit_sha": sha, "sync.synced_at": utcnow()}})
+        self._record("applications").update_one({"_id": app["_id"]}, {"$set": {"sync.state": "synced", "sync.commit_sha": sha, "sync.synced_at": utcnow()}})
         self.store.audit("tracker_synced", app["_id"], commit=sha, record_id=item.get("record_id"))
         return {"id": item["_id"], "status": "synced", "commit": sha}
 
@@ -348,7 +357,7 @@ class SyncCoordinator:
     def reconcile_item(self, item: dict) -> dict:
         """Called for items left in `committing` by a crash: decide from the clone what actually happened."""
         record_id = item.get("record_id")
-        app = self.store.c("applications").find_one({"_id": item["application_id"]})
+        app = self._record("applications").find_one({"_id": item["application_id"]})
         in_data = self._record_exists_with_same_artifacts(record_id, None) if record_id else False
         committed = False
         if in_data:
@@ -356,15 +365,15 @@ class SyncCoordinator:
         if in_data and committed:
             sha = git(self.root, "log", "-1", "--format=%H", "--", f"records/{record_id}.md") or git(self.root, "rev-parse", "HEAD")
             self.outbox.set(item["_id"], "committed_local", commit_sha=sha, note="recovered: commit found in clone")
-            self.store.c("applications").update_one({"_id": app["_id"]}, {"$set": {"tracker_record_id": record_id, "sync.commit_sha": sha, "sync.state": "committed_local"}})
-            return self._push(self.outbox.coll.find_one({"_id": item["_id"]}), app)
+            self._record("applications").update_one({"_id": app["_id"]}, {"$set": {"tracker_record_id": record_id, "sync.commit_sha": sha, "sync.state": "committed_local"}})
+            return self._push(self.outbox._all().find_one({"_id": item["_id"]}), app)
         if in_data and not committed:
             # files written but not committed: finish the commit without re-adding the record
             git(self.root, "add", "--", *[p for p in TRACKER_PATHS if (self.root / p).exists()])
             git(self.root, "commit", "-q", "-m", f"Record confirmed application {record_id}")
             sha = git(self.root, "rev-parse", "HEAD")
             self.outbox.set(item["_id"], "committed_local", commit_sha=sha, note="recovered: completed interrupted commit")
-            return self._push(self.outbox.coll.find_one({"_id": item["_id"]}), app)
+            return self._push(self.outbox._all().find_one({"_id": item["_id"]}), app)
         # nothing landed: discard partial working-tree changes to tracker paths and retry from scratch
         if git(self.root, "status", "--porcelain", "--", *TRACKER_PATHS):
             git(self.root, "checkout", "--", *[p for p in TRACKER_PATHS if (self.root / p).exists()])
@@ -375,13 +384,13 @@ class SyncCoordinator:
 
     def reconcile_all(self) -> list[dict]:
         out = []
-        for item in self.outbox.coll.find({"status": "committing"}):
+        for item in self.outbox._all().find({"status": "committing"}):
             out.append(self.reconcile_item(item))
         for item in self.outbox.coll.find({"status": {"$in": ["local_only", "committed_local"]}}):
             sha = item.get("commit_sha")
             if sha and self._remote_has(sha):
                 self.outbox.set(item["_id"], "synced", note="recovered: remote already has the commit")
-                self.store.c("applications").update_one({"_id": item["application_id"]}, {"$set": {"sync.state": "synced", "sync.commit_sha": sha}})
+                self._record("applications").update_one({"_id": item["application_id"]}, {"$set": {"sync.state": "synced", "sync.commit_sha": sha}})
                 out.append({"id": item["_id"], "status": "synced"})
         return out
 

@@ -51,6 +51,10 @@ def register(app, rt, ui_store, require_session, render) -> None:
         ]
         usage = next(iter(s.c("usage").aggregate(usage_pipeline)), {})
         usage_month = next(iter(s.c("usage").aggregate([{"$match": {"created_at": {"$gte": month_start}}}, *usage_pipeline])), {})
+        kpis = overview_kpis(counts, usage_month)
+        if session.get("role") == "member":
+            kpis = [k for k in kpis if k["href"] != "/usage"]
+            usage = {}
         return render(
             request,
             "index.html",
@@ -59,7 +63,7 @@ def register(app, rt, ui_store, require_session, render) -> None:
             runs=runs,
             usage=usage,
             usage_month=usage_month,
-            kpis=overview_kpis(counts, usage_month),
+            kpis=kpis,
             chart=applications_chart(),
             pipeline=jobs_donut(counts["jobs"]),
             attention=attention_items(),

@@ -70,6 +70,24 @@ def worker_health():
     raise typer.Exit(0 if ok else 1)
 
 
+@app.command("migrate-users")
+def migrate_users_cmd():
+    """Create the admin account (no expiry) and stamp existing records with that person. Safe to run again.
+
+    Prints counts only. The sign-in password is the current dashboard password."""
+    from amorehiremepls.core.accounts import AccountError, migrate_users
+    from amorehiremepls.web.ui_settings import UISettingsStore, resolve_display_name
+
+    rt = _rt()
+    name = resolve_display_name(UISettingsStore(rt.store).load(), rt.profile)
+    try:
+        report = migrate_users(rt.store, rt.settings.app_password.get_secret_value(), name)
+    except AccountError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    _echo(report)
+
+
 @app.command("setup-db")
 def setup_db():
     """Create indexes and verify the checkpointer against the configured MongoDB."""

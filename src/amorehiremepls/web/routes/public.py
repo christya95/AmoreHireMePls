@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from amorehiremepls.core.accounts import account_is_active, authenticate
 from amorehiremepls.web.chrome import (
     BRAND_DIR,
     SESSION_COOKIE,
@@ -63,16 +64,44 @@ def register(app, rt, serializer, require_session, require_csrf) -> None:
         return render_login(request, None)
 
     @app.post("/login")
-    def login(request: Request, password: str = Form(...)):
-        expected = rt.settings.app_password.get_secret_value()
-        if len(expected) < 12 or not hmac.compare_digest(expected, password):
+    def login(request: Request, password: str = Form(...), login_name: str = Form("")):
+        result = authenticate(rt.store, password, login_name)
+        if result.reason == "no_accounts":
+            expected = rt.settings.app_password.get_secret_value()
+            if len(expected) < 12 or not hmac.compare_digest(expected, password):
+                rt.store.audit("login_failed", None, ip=request.client.host if request.client else None)
+                return render_login(request, "Invalid password", status_code=401)
+            identity = {"user": "owner", "role": "admin"}
+            dest = "/"
+        elif result.reason == "name_required":
+            return render_login(request, "More than one person uses that password. Enter your sign-in name.", status_code=401)
+        elif result.reason != "ok" or result.user is None:
             rt.store.audit("login_failed", None, ip=request.client.host if request.client else None)
             return render_login(request, "Invalid password", status_code=401)
-        token = serializer.dumps({"user": "owner", "csrf": secrets.token_urlsafe(24), "at": utcnow().isoformat()})
-        resp = RedirectResponse("/", status_code=303)
+        else:
+            identity = {"user": result.user["_id"], "role": result.user.get("role") or "member"}
+            dest = "/" if account_is_active(result.user) else "/access-ended"
+        token = serializer.dumps({**identity, "csrf": secrets.token_urlsafe(24), "at": utcnow().isoformat()})
+        resp = RedirectResponse(dest, status_code=303)
         resp.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict", secure=rt.settings.secure_cookies, max_age=SESSION_MAX_AGE)
-        rt.store.audit("login", "owner")
+        rt.store.audit("login", identity["user"])
         return resp
+
+    @app.get("/access-ended", response_class=HTMLResponse)
+    def access_ended(request: Request, session: dict = Depends(require_session)):
+        user = rt.store.db["users"].find_one({"_id": session.get("user")}) if str(session.get("user") or "").startswith("user_") else None
+        turned_off = bool(user and user.get("status") == "off")
+        theme, accent, tint = _parse_ui_cookie(request.cookies.get(UI_COOKIE))
+        ctx = {
+            "request": request,
+            "csrf": session.get("csrf", ""),
+            "turned_off": turned_off,
+            "theme": theme,
+            "accent": accent,
+            "tint": tint,
+            "nonce": secrets.token_urlsafe(12),
+        }
+        return TEMPLATES.TemplateResponse(request, "access_ended.html", ctx)
 
     @app.post("/logout")
     def logout(request: Request, session: dict = Depends(require_session), csrf: str = Form(...)):

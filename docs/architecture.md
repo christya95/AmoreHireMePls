@@ -12,7 +12,7 @@ The installable package is still `amorehiremepls`. Imports are absolute (`from a
 | `apply` | Tailoring, form answers, the browser, captcha, and `apply/ats/` (Greenhouse, Lever, Ashby). |
 | `records` | The tracker clone and the sync outbox. One writer. |
 | `outreach` | Recipient identity and drafted messages. Sending stays behind an authorization scope. |
-| `web` | FastAPI dashboard, Jinja templates, local CSS and JS, UI copy, and the CLI. `web/chrome.py` holds templates and page helpers. `web/routes/` is one module per area of the site. `create_app` owns the session, CSRF and the render closure, then registers those modules. |
+| `web` | FastAPI dashboard, Jinja templates, local CSS and JS, UI copy, and the CLI. `web/chrome.py` holds templates and page helpers. `web/routes/` is one module per area of the site. `create_app` owns the session, CSRF and the render closure, then registers those modules. A signed-in person is bound with `user_scope` for that request. `core/accounts.py` stores people in the same database (`users`: role, access_until, status, argon2id password). Owned records carry `user_id`. Admin access does not expire; a member has 365 days. An expired or turned-off member is not worked, and tracker sync still flushes their queued ledger items. |
 
 A new site adapter goes in `apply/ats/`, is registered from `apply/ats/__init__.py`, and returns a browser plan. Extend `apply/browser.py` for a new kind of step. Do not click a specific site's layout from a route.
 

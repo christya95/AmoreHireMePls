@@ -1,0 +1,35 @@
+{% extends "base.html" %}{% block content %}
+<div class="stack">
+<div class="page-head"><div><h1>{{ login }}</h1><p>{% if role == 'admin' %}Admin. Access does not end.{% elif status == 'off' %}Turned off.{% elif expired %}Access ended.{% else %}{{ days_left }} days of access left.{% endif %} Saving to the GitHub tracker keeps running either way.</p></div>
+  <a class="btn secondary sm" href="/admin">All people</a></div>
+
+<div class="card">
+  <div class="card-h"><h3>Extend, turn off, or delete</h3></div>
+  <div class="actions">
+    {% if role != 'admin' %}<form method="post" action="/admin/people/{{ user_id }}/extend" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><label class="inline">Days <input name="days" type="number" value="365" min="1" max="3650" class="narrow"></label><button>Extend access</button></form>{% endif %}
+    {% if status == 'active' %}<form method="post" action="/admin/people/{{ user_id }}/status" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="status" value="off"><button class="secondary">Turn off</button></form>
+    {% elif status == 'off' %}<form method="post" action="/admin/people/{{ user_id }}/status" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="status" value="active"><button class="secondary">Turn on</button></form>{% endif %}
+  </div>
+  <form method="post" action="/admin/people/{{ user_id }}/delete" class="stack gap-s mt">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="field"><label>Type delete to remove this person forever</label><input name="confirm" autocomplete="off"></div>
+    <button class="danger">Delete permanently</button>
+    <small>A backup is saved first. The sign-in stops working. Queued tracker items already saved stay in the GitHub tracker.</small>
+  </form>
+</div>
+
+<div class="card flush">
+  <div class="card-h"><h3>AI use for this person</h3></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>When</th><th>Step</th><th>Model</th><th class="right">Words in / out</th><th class="right">Known cost (USD)</th></tr></thead>
+    <tbody>{% for r in rows %}<tr>
+      <td class="nowrap">{{ r.created_at|local }}</td>
+      <td>{{ r.skill }}</td>
+      <td>{{ r.model }}</td>
+      <td class="right">{{ r.input_tokens }} / {{ r.output_tokens }}</td>
+      <td class="right">{{ '%.5f'|format(r.cost_usd) if r.cost_known and r.cost_usd is not none else 'unknown' }}</td>
+    </tr>{% else %}<tr><td colspan="5"><div class="empty">No AI calls for this person yet.</div></td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+</div>
+{% endblock %}

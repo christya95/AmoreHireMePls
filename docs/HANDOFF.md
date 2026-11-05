@@ -69,15 +69,9 @@ No private values here: field names and counts only. Keep under 120 lines; finis
    Deployed as `68c7a2576966`.
 2. Done on `main` (see `docs/PROGRESS.md`, "Directory packages", and `docs/architecture.md`): move `9e9413d`, route split
    `1ea2bc5`. No list of 22 high-value comments exists in the repo, so none were added. Deployed as `4fce6fdef10d`.
-3. Per user accounts with an admin role and 365 day access. Size: L. Plan: single database plus `user_id` through a
-   `ScopedStore`, argon2id passwords, `users` collection (`role`, `access_until`, `status`), `require_session` gate to
-   `/access-ended`, People page under `/admin` (extend, set password, turn off, delete with backup and tombstone), Overview
-   badge for members only, worker filters to active users, `amore migrate-users` makes the original operator admin with no
-   expiry. Step order 1, 2, 4, 7, 5, 8, 9 was not written out anywhere else; implement ScopedStore, then the session gate,
-   the People page, worker filtering, then admin-only usage. `backup_user()` and `access_summary` land with the store.
-   Question 6 is answered: sync keeps running. Item 2 is deployed.
-   - Hide `/usage`, the usage KPIs on the Overview and the cost figures on run and application pages for `role=member`; add
-     a per person usage column and a usage detail view under `/admin`; keep per user budget enforcement unchanged.
+3. Done on `main` (see `docs/PROGRESS.md`, "Per-user accounts"). One database, `user_id` scope, argon2id, People under
+   `/admin`, member badge, worker skips expired and turned-off people, tracker sync still runs for them, members do not
+   see AI cost. Run `amore migrate-users` once after deploy. Not deployed yet.
 4. Deploy after each of items 1 to 3 and record the tag here and in `docs/PROGRESS.md`. Size: S. Plan: operating rule 3.
    Waits for: each item's tests and lint.
 5. After the first confirmed employer receipt: recruiter Connect note drafts per the owner's rule (in house recruiters at

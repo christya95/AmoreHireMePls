@@ -140,6 +140,9 @@ PAGE_TITLES = {
     "history.html": "Past applications",
     "sync.html": "GitHub tracker",
     "usage.html": "AI usage and cost",
+    "people.html": "People",
+    "person.html": "Person",
+    "access_ended.html": "Access ended",
     "profile.html": "Your profile",
     "authorizations.html": "Approvals",
     "settings.html": "Settings",
@@ -157,6 +160,7 @@ NAV = [
     ("/sync", "GitHub tracker", "sync"),
     ("/usage", "AI usage", "usage"),
     ("Account", None, None),
+    ("/admin", "People", "profile"),
     ("/authorizations", "Approvals", "auth"),
     ("/profile", "Your profile", "profile"),
     ("/settings", "Settings", "settings"),
@@ -197,6 +201,13 @@ FLASHES = {
     "toml_loaded": ("Your profile file was loaded. The counts are on the profile file card.", "ok"),
     "toml_invalid": ("The profile file could not be read. Nothing was changed; the reason is on the profile file card.", "bad"),
     "preferences_saved": ("Your rules were saved.", "ok"),
+    "person_added": ("That person can sign in. They have 365 days of access.", "ok"),
+    "access_extended": ("Access was extended.", "ok"),
+    "password_set": ("The password was changed.", "ok"),
+    "person_off": ("That person is turned off. Their queued tracker items still save.", "ok"),
+    "person_on": ("That person is turned back on.", "ok"),
+    "person_deleted": ("That person was deleted. A backup was saved first.", "ok"),
+    "person_refused": ("That change was not made.", "bad"),
 }
 HOSTS_ENV_EXAMPLE = "AMORE_BROWSER_ALLOWED_HOSTS=boards.greenhouse.io,jobs.lever.co"
 
@@ -214,7 +225,7 @@ def _parse_ui_cookie(raw: str | None) -> tuple[str, str, str]:
     return theme, accent, tint
 
 
-def _nav(path: str, attention: int) -> list[dict]:
+def _nav(path: str, attention: int, show_usage: bool = True, show_admin: bool = True) -> list[dict]:
     items: list[dict] = []
     best = None
     for alias, target in NAV_ALIASES.items():
@@ -223,12 +234,36 @@ def _nav(path: str, attention: int) -> list[dict]:
     for href, _, icon in NAV:
         if icon and (path == href or (href != "/" and path.startswith(href + "/"))) and (best is None or len(href) > len(best)):
             best = href
+    hidden = set()
+    if not show_usage:
+        hidden.add("/usage")
+    if not show_admin:
+        hidden.add("/admin")
     for href, label, icon in NAV:
+        if href in hidden:
+            continue
         if icon is None:
             items.append({"label": href, "label_only": True})
             continue
         items.append({"href": href, "label": label, "icon": icon, "active": href == best, "count": attention if href == "/applications" else 0})
     return items
+
+
+_HIDDEN_COST_KEYS = {"cost_usd", "cost_known", "input_tokens", "output_tokens", "cached_tokens", "usage"}
+
+
+def without_costs(value: Any) -> Any:
+    """Drop token counts and prices from a value shown to a member. The stored record is not changed."""
+    if isinstance(value, dict):
+        return {k: without_costs(v) for k, v in value.items() if k not in _HIDDEN_COST_KEYS}
+    if isinstance(value, list):
+        return [without_costs(item) for item in value]
+    return value
+
+
+def show_usage_for(session: dict | None) -> bool:
+    """Members never see AI usage, token counts or cost. A missing role is the original single operator, who does."""
+    return (session or {}).get("role") != "member"
 
 
 _WAIT_LINE = {

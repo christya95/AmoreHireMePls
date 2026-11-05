@@ -39,6 +39,7 @@
   {% with size='lg' %}{% include "_avatar.html" %}{% endwith %}
   <div>
     <h1>{{ greeting }}{% if display_name %}, {{ display_name }}{% endif %}</h1>
+    {% if access_badge %}<p><span class="pill warn">{{ access_badge }}</span></p>{% endif %}
     <p>{% if attention %}{{ attention|length }} item{{ 's' if attention|length != 1 }} need{{ '' if attention|length != 1 else 's' }} your attention.{% else %}Nothing is waiting on you right now.{% endif %}
     {{ counts.jobs.get('new', 0) }} new job{{ 's' if counts.jobs.get('new', 0) != 1 }} to look at · job search {{ schedule }}.</p>
   </div>
@@ -112,7 +113,7 @@
         <form method="post" action="/provider/check" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="next" value="/"><button class="ghost xs">Check now</button></form></td></tr>
       <tr><td>Base resume</td><td><span class="pill {{ 'ok' if base_resume else 'bad' }}">{{ 'chosen' if base_resume else 'not chosen' }}</span></td></tr>
       <tr><td>Job search</td><td>{{ schedule }}</td></tr>
-      <tr><td>AI use (all time)</td><td>{{ usage.calls or 0 }} calls · ${{ '%.4f'|format(usage.cost or 0) }} known{% if usage.unknown %} · <span class="pill warn">{{ usage.unknown }} unknown</span>{% endif %}</td></tr>
+      {% if show_usage %}<tr><td>AI use (all time)</td><td>{{ usage.calls or 0 }} calls · ${{ '%.4f'|format(usage.cost or 0) }} known{% if usage.unknown %} · <span class="pill warn">{{ usage.unknown }} unknown</span>{% endif %}</td></tr>{% endif %}
     </table>
     {% if missing %}<p class="note mt">Still missing from your profile: {{ missing|join(', ') }}. <a href="/profile">Complete your profile</a>.</p>{% endif %}
   </div>

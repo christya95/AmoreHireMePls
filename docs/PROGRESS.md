@@ -283,9 +283,21 @@ Queue item 2. Preflight was already recorded: the NAS LangGraph checkpoints hold
 - **Docs.** `docs/architecture.md` describes the packages and the docstring rule. No list of 22 high-value comments exists in the repo, `CURSOR_PROMPT.md` or this file, so none were invented. Package markers carry a one-line docstring. Full suite **336 passed**, ruff clean.
 - **Deployed.** `lepia/amorehiremepls:4fce6fdef10d` (commit `4fce6fd`) on the NAS stack. Init exited 0, web and worker healthy, `/health` 200, Overview greeting shows the display name. No application was retried and nothing was sent.
 
+## Per-user accounts (2026-11-05, 13:26–14:40 Toronto)
+
+Queue item 3. Owner decision recorded first (`0a57466`): tracker sync keeps running for an expired member. No numbered step list existed beyond the handoff's "1, 2, 4, 7, 5, 8, 9", so the work landed as one store, then the session gate, the People page, worker filtering, and admin-only usage.
+
+- **Accounts.** `core/accounts.py`. One database. `users` holds `role` (`admin` or `member`), `access_until`, `status` (`active`, `off`, or `deleted` with a tombstone). Passwords are argon2id. Admin access does not expire. A member gets 365 days, and extend adds days on top of whatever is left. `amore migrate-users` creates the admin from the current dashboard password and the display name already on the profile, and stamps ownerless records with that person. It prints counts only. The last admin cannot be turned off or deleted.
+- **Scope.** Owned collections are read and written through `user_id` while a request or a worker pass is bound with `user_scope`. With no accounts yet, behaviour stays the single operator. `backup_user()` writes a private JSON file before `delete_user()` removes that person's records and leaves a tombstone with no password.
+- **Sign-in.** An expired or turned-off member can sign in and only reaches `/access-ended`. Logout still works. A password that matches one account needs no sign-in name, so the current dashboard password keeps working after migration.
+- **People.** `/admin` lists people, AI calls and known cost, and can add a member, extend access, set a password, turn access off or on, or delete. The detail page is `/admin/people/<id>`.
+- **Worker.** Runs, discovery, logos and the later human-check try are limited to active admins and members whose access has not ended. `process_pending` reads the outbox and the application records without that filter, so an expired or turned-off member's queued tracker items still flush.
+- **Usage.** Members do not see `/usage`, the Overview cost card, the "AI use" row, or cost and token figures on task and application pages. Admins see per-person cost on People, including their own. Budgets are unchanged.
+- **Tests.** `tests/test_accounts.py` (6). Full suite 342 passed, ruff clean. Not deployed yet.
+
 ## Exact next step
 
-Owner decision 2026-11-05: tracker sync keeps running for an expired member. Queue item 3 (per-user accounts) is unblocked. Queue item 2 is deployed as `lepia/amorehiremepls:4fce6fdef10d`.
+Deploy queue item 3 and record the image tag here and in `docs/HANDOFF.md`. Queue item 2 is deployed as `lepia/amorehiremepls:4fce6fdef10d`. Do not start recruiter notes: there is still no confirmed employer receipt.
 
 Greenhouse, Lever, and Ashby form filling, owner notifications, the human-check hold, and one later try are fixture-tested only. None of those paths has been live-submitted. Do not retry the Faire application or mark the BMO job closed; those are owner decisions (handoff questions 4 and 5).
 

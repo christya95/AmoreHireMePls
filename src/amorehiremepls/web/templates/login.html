@@ -19,7 +19,8 @@
   <p class="muted">Your private job search helper</p>
   {% if error %}<div class="flash bad mt">{{ error }}</div>{% endif %}
   <form method="post" action="/login">
-    <div class="field"><label for="password">Password</label><input id="password" type="password" name="password" autocomplete="current-password" autofocus required></div>
+    <div class="field"><label for="login_name">Sign-in name</label><input id="login_name" name="login_name" autocomplete="username" placeholder="Only needed when more than one person signs in"></div>
+    <div class="field"><label for="password">Password</label><input id="password" type="password" name="password" autocomplete="current-password" required></div>
     <button>Sign in</button>
     <small>Only reachable from this computer, your home network or your VPN. Nothing here is public.</small>
   </form>

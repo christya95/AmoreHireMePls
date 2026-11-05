@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from amorehiremepls.core.accounts import access_summary, account_is_active, user_scope
 from amorehiremepls.web.chrome import (
     ATTENTION_STATUSES,
     BRAND_DIR,
@@ -38,11 +39,13 @@ from amorehiremepls.web.chrome import (
     resolve_display_name,
     saved_form_inputs,
     secrets,
+    show_usage_for,
     status,
     urlsplit,
     utcnow,
     worker_healthy,
 )
+from amorehiremepls.web.routes.admin import register as register_admin
 from amorehiremepls.web.routes.applications import register as register_applications
 from amorehiremepls.web.routes.authorizations import register as register_authorizations
 from amorehiremepls.web.routes.controls import register as register_controls
@@ -71,6 +74,16 @@ def create_app(rt: Runtime) -> FastAPI:
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     ui_store = UISettingsStore(rt.store)
 
+    @app.middleware("http")
+    async def bind_user(request: Request, call_next):
+        session = read_session(request)
+        uid = str((session or {}).get("user") or "")
+        uid = uid if uid.startswith("user_") else None
+        with user_scope(uid):
+            if uid:
+                rt.reload_profile()
+            return await call_next(request)
+
     # -- auth helpers ---------------------------------------------------------------------
     def read_session(request: Request) -> dict | None:
         raw = request.cookies.get(SESSION_COOKIE)
@@ -85,6 +98,20 @@ def create_app(rt: Runtime) -> FastAPI:
         s = read_session(request)
         if not s:
             raise HTTPException(status_code=status.HTTP_303_SEE_OTHER, headers={"Location": "/login"})
+        user_id = str(s.get("user") or "")
+        if user_id.startswith("user_"):
+            user = rt.store.db["users"].find_one({"_id": user_id})
+            if user is None or user.get("status") == "deleted":
+                raise HTTPException(status_code=status.HTTP_303_SEE_OTHER, headers={"Location": "/login"})
+            allowed = request.url.path in ("/access-ended", "/logout")
+            if not account_is_active(user) and not allowed:
+                raise HTTPException(status_code=status.HTTP_303_SEE_OTHER, headers={"Location": "/access-ended"})
+        return s
+
+    def require_admin(request: Request) -> dict:
+        s = require_session(request)
+        if not show_usage_for(s):
+            raise HTTPException(status_code=status.HTTP_303_SEE_OTHER, headers={"Location": "/"})
         return s
 
     def require_csrf(request: Request, session: dict, token: str | None) -> None:
@@ -111,6 +138,15 @@ def create_app(rt: Runtime) -> FastAPI:
         ui = ui_store.load()
         name = resolve_display_name(ui, rt.profile)
         health = rt.health()
+        role = (session or {}).get("role") or "admin"
+        show_usage = show_usage_for(session)
+        user_doc = None
+        user_id = str((session or {}).get("user") or "")
+        if user_id.startswith("user_"):
+            user_doc = rt.store.db["users"].find_one({"_id": user_id})
+        summary = access_summary(user_doc) if user_doc else None
+        if not name and user_doc:
+            name = (user_doc.get("display_name") or "").strip()
         attention = rt.store.c("applications").count_documents({"status": {"$in": list(ATTENTION_STATUSES)}, "provenance.origin": "local"}) if health.get("ok") else 0
         flash_key = request.query_params.get("ok") or request.query_params.get("err")
         flash, flash_tone = FLASHES.get(flash_key or "", (None, None))
@@ -123,7 +159,9 @@ def create_app(rt: Runtime) -> FastAPI:
             "base_resume": rt.profile.base_resume,
             "open_questions": open_questions(),
             "title": PAGE_TITLES.get(template, "AmoreHireMePls"),
-            "nav": _nav(request.url.path, attention),
+            "nav": _nav(request.url.path, attention, show_usage=show_usage, show_admin=role != "member"),
+            "show_usage": show_usage,
+            "access_badge": summary["badge"] if summary and role == "member" else None,
             "health": health,
             "worker_ok": worker_healthy(rt) if health.get("ok") else False,
             "ui": ui,
@@ -161,6 +199,7 @@ def create_app(rt: Runtime) -> FastAPI:
         return q
 
     register_public(app=app, rt=rt, serializer=serializer, require_session=require_session, require_csrf=require_csrf)
+    register_admin(app=app, rt=rt, require_admin=require_admin, require_csrf=require_csrf, render=render)
     register_overview(app=app, rt=rt, ui_store=ui_store, require_session=require_session, render=render)
     register_controls(app=app, rt=rt, require_session=require_session, require_csrf=require_csrf, render=render)
     register_profile(app=app, rt=rt, require_session=require_session, require_csrf=require_csrf, safe_next=safe_next, render=render)

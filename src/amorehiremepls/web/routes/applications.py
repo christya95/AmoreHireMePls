@@ -38,6 +38,12 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         from amorehiremepls.core.human_check import active_hold
 
         runs = list(rt.store.c("runs").find({"params.job_id": a["job_id"]}).sort("created_at", -1))
+        if session.get("role") == "member":
+            from amorehiremepls.web.chrome import without_costs
+
+            a = without_costs(a)
+            action = without_costs(action) if action else action
+            runs = without_costs(runs)
         ctx = dict(
             a=a,
             job=job,

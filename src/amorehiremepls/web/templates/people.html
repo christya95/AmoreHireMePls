@@ -1,0 +1,54 @@
+{% extends "base.html" %}{% block content %}
+<div class="stack">
+<div class="page-head"><div><h1>People</h1><p>Who can sign in, how long they have, and what the AI has cost for each person. You see your own use here too.</p></div></div>
+
+{% if not migrated %}
+<div class="card"><p>No accounts yet. On this computer run <code>amore migrate-users</code> once. That keeps the current dashboard password and makes this sign-in an admin with no end date.</p></div>
+{% else %}
+<div class="card flush">
+  <div class="table-wrap"><table>
+    <thead><tr><th>Sign-in name</th><th>Role</th><th>Access</th><th class="right">AI calls</th><th class="right">Known cost (USD)</th><th></th></tr></thead>
+    <tbody>
+    {% for p in people %}
+    <tr>
+      <td><a href="/admin/people/{{ p.id }}">{{ p.login }}</a></td>
+      <td>{{ 'Admin' if p.role == 'admin' else 'Member' }}</td>
+      <td>{% if p.role == 'admin' %}No end date{% elif p.status == 'off' %}Turned off{% elif p.expired %}Ended{% else %}{{ p.days_left }} days left{% endif %}</td>
+      <td class="right">{{ p.calls }}</td>
+      <td class="right">{{ '%.4f'|format(p.cost) }}{% if p.unknown %} <span class="pill warn">{{ p.unknown }} unknown</span>{% endif %}</td>
+      <td class="right nowrap">
+        {% if p.role != 'admin' %}<form method="post" action="/admin/people/{{ p.id }}/extend" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="days" value="365"><button class="ghost sm">Add 365 days</button></form>{% endif %}
+        {% if p.status == 'active' %}<form method="post" action="/admin/people/{{ p.id }}/status" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="status" value="off"><button class="ghost sm">Turn off</button></form>
+        {% elif p.status == 'off' %}<form method="post" action="/admin/people/{{ p.id }}/status" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="status" value="active"><button class="ghost sm">Turn on</button></form>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <div class="card-h"><h3>Add a person</h3></div>
+    <form method="post" action="/admin/people" class="stack gap-s">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="field"><label>Sign-in name</label><input name="login" required autocomplete="off"></div>
+      <div class="field"><label>Password</label><input name="password" type="password" required autocomplete="new-password" minlength="12"></div>
+      <div class="field"><label>Name to show (optional)</label><input name="display_name" autocomplete="off"></div>
+      <button>Add person</button>
+      <small>A new person gets 365 days. The password must be at least 12 characters.</small>
+    </form>
+  </div>
+  <div class="card">
+    <div class="card-h"><h3>Change a password</h3></div>
+    <form method="post" action="/admin/people/password" class="stack gap-s">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="field"><label>Person</label><select name="user_id">{% for p in people %}<option value="{{ p.id }}">{{ p.login }}</option>{% endfor %}</select></div>
+      <div class="field"><label>New password</label><input name="password" type="password" required autocomplete="new-password" minlength="12"></div>
+      <button class="secondary">Set password</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+</div>
+{% endblock %}

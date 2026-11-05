@@ -26,13 +26,13 @@
 {% endif %}
 
 <div class="grid-2">
-  <div class="card"><div class="card-h"><h3>AI use</h3></div>
+  {% if show_usage %}<div class="card"><div class="card-h"><h3>AI use</h3></div>
     <table class="kv compact">
       <tr><td>Calls</td><td>{{ run.usage.calls }}</td></tr>
       <tr><td>Words in / out / reused</td><td>{{ run.usage.input_tokens }} / {{ run.usage.output_tokens }} / {{ run.usage.cached_tokens }} <code class="raw">tokens</code></td></tr>
       <tr><td>Steps</td><td>{{ run.usage.tool_steps }}</td></tr>
       <tr><td>Cost</td><td>{% if run.usage.cost_known %}${{ '%.4f'|format(run.usage.cost_usd or 0) }}{% else %}<span class="pill warn">unknown</span>{% endif %}</td></tr>
-    </table></div>
+    </table></div>{% endif %}
   <div class="card"><div class="card-h"><h3>Result</h3></div>{% if run.summary %}<pre>{{ run.summary|json }}</pre>{% else %}<p class="note">No result yet.</p>{% endif %}</div>
 </div>
 

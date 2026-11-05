@@ -72,4 +72,8 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         run = rt.store.c("runs").find_one({"_id": run_id})
         if not run:
             raise HTTPException(404)
+        if session.get("role") == "member":
+            from amorehiremepls.web.chrome import without_costs
+
+            run = {**run, "summary": without_costs(run.get("summary")), "events": without_costs(run.get("events") or []), "usage": {}}
         return render(request, "run.html", session, run=run)

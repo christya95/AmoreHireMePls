@@ -32,6 +32,8 @@ def register(app, rt, require_session, require_csrf, render) -> None:
 
     @app.get("/usage", response_class=HTMLResponse)
     def usage(request: Request, session: dict = Depends(require_session)):
+        if session.get("role") == "member":
+            return RedirectResponse("/", status_code=303)
         rows = list(rt.store.c("usage").find().sort("created_at", -1).limit(200))
         by_skill = list(
             rt.store.c("usage").aggregate(
