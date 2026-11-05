@@ -281,11 +281,11 @@ Queue item 2. Preflight was already recorded: the NAS LangGraph checkpoints hold
 - **Move (`9e9413d`).** `git mv` into `core/`, `candidate/`, `jobs/`, `apply/` (including `ats/`), `records/`, `outreach/`, `web/` (including `templates/` and `static/`). Imports are absolute. The `amore` command is `amorehiremepls.web.cli:app`. Ruff's per-file ignore for the copy tables moved with `web/ui_settings.py`. Test paths for `static/` and `templates/` point at `web/`. Employer logos live in `jobs/` because the worker fetches them for job cards.
 - **Routes (`1ea2bc5`).** `create_app` still owns the session, CSRF and render closure. Each area of the site is a `register` function in `web/routes/`. Shared template state is `web/chrome.py`. Screenshot grouping shared by the job, application and documents pages is `web/shots.py`.
 - **Docs.** `docs/architecture.md` describes the packages and the docstring rule. No list of 22 high-value comments exists in the repo, `CURSOR_PROMPT.md` or this file, so none were invented. Package markers carry a one-line docstring. Full suite **336 passed**, ruff clean.
-- **Not deployed yet.** The NAS image is still `lepia/amorehiremepls:68c7a2576966`. Deploy is the next step. No application was retried and nothing was sent.
+- **Deployed.** `lepia/amorehiremepls:4fce6fdef10d` (commit `4fce6fd`) on the NAS stack. Init exited 0, web and worker healthy, `/health` 200, Overview greeting shows the display name. No application was retried and nothing was sent.
 
 ## Exact next step
 
-Deploy queue item 2 from `origin/main` with operating rule 3 in `docs/HANDOFF.md`, then record the 12-character image tag here and in the handoff. Do not start per-user accounts (queue item 3) until the owner answers handoff question 6 (whether tracker sync pauses for an expired member).
+Do not start per-user accounts (queue item 3) until the owner answers handoff question 6 (whether tracker sync pauses for an expired member). Queue item 2 is deployed as `lepia/amorehiremepls:4fce6fdef10d`.
 
 Greenhouse, Lever, and Ashby form filling, owner notifications, the human-check hold, and one later try are fixture-tested only. None of those paths has been live-submitted. Do not retry the Faire application or mark the BMO job closed; those are owner decisions (handoff questions 4 and 5).
 

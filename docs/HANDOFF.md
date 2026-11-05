@@ -5,9 +5,9 @@ No private values here: field names and counts only. Keep under 120 lines; finis
 
 ## State now
 
-- Deployed: NAS Portainer stack `amorehiremepls`, image `lepia/amorehiremepls:68c7a2576966` (queue item 1). Web and worker
+- Deployed: NAS Portainer stack `amorehiremepls`, image `lepia/amorehiremepls:4fce6fdef10d` (queue item 2). Web and worker
   healthy, dashboard `http://192.168.2.49:8790` (`/health` 200, Overview greeting shows the display name, tracker on).
-  Queue item 2 is on `main` and is not deployed yet.
+  `origin/main` is this docs commit ahead of the deployed tag.
 - Live and used for real: profile store, base resume registration, tracker preview/import (nothing pushed), discovery by URL,
   model check through `op run`, deterministic tailoring with a 2 page PDF, review package and approval gates, honest
   application status plus the Updates list on the Overview (built from stored events, no model call), fit check with resume
@@ -68,7 +68,7 @@ No private values here: field names and counts only. Keep under 120 lines; finis
    until each saved answer carries a `question_pattern` (Profile page or `profile.toml` `match`); see question 9.
    Deployed as `68c7a2576966`.
 2. Done on `main` (see `docs/PROGRESS.md`, "Directory packages", and `docs/architecture.md`): move `9e9413d`, route split
-   `1ea2bc5`. No list of 22 high-value comments exists in the repo, so none were added. Not deployed yet.
+   `1ea2bc5`. No list of 22 high-value comments exists in the repo, so none were added. Deployed as `4fce6fdef10d`.
 3. Per user accounts with an admin role and 365 day access. Size: L. Plan: single database plus `user_id` through a
    `ScopedStore`, argon2id passwords, `users` collection (`role`, `access_until`, `status`), `require_session` gate to
    `/access-ended`, People page under `/admin` (extend, set password, turn off, delete with backup and tombstone), Overview
