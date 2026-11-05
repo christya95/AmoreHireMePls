@@ -437,3 +437,114 @@ def test_scan_fields_prefers_the_board_api_and_marks_the_route(store, tmp_path, 
     job = JobStore(store).get(job["_id"])
     assert job["apply_route"] == "greenhouse" and job["form_plan"]["source"] == "greenhouse_job_board_api" and job["form_plan"]["external_job_id"] == "123456"
     assert RealServices(rt).scan_fields(job) == fields  # cached on the job
+
+
+def _runtime(store, tmp_path, **over):
+    from amorehiremepls.config import Settings
+    from amorehiremepls.runtime import Runtime
+    from tests.conftest import TEST_MONGO_URI
+
+    s = Settings(
+        mongodb_uri=TEST_MONGO_URI,
+        mongodb_database=store.db.name,
+        artifact_dir=tmp_path / "a",
+        private_dir=tmp_path / "p",
+        log_dir=tmp_path / "l",
+        tracker_clone_dir=tmp_path / "clone",
+        _env_file=None,
+        **over,
+    )
+    return Runtime(s, store=store, provider=FakeProvider())
+
+
+@pytest.mark.mongo
+def test_execute_passes_a_hold_only_when_the_wait_is_on(store, tmp_path, board):
+    """The live path holds the same page. Turning the wait off leaves the immediate handoff."""
+    from amorehiremepls.runtime import RealServices
+
+    svc, _job_doc, app = _prepared(store, tmp_path, board, variant="check")
+    rt = _runtime(store, tmp_path)
+    seen: dict = {}
+
+    def run_plan(plan, site_key="default", observe=True, captcha_solver=None, hold=None):
+        seen["hold"] = hold
+        raise HandoffRequired("Greenhouse asked for a human check", {"challenge": "text_captcha", "url": plan.start_url})
+
+    rt.browser.run_plan = run_plan
+    out = RealServices(rt).execute(app["_id"], "w1")
+    assert out["status"] == "handoff" and seen["hold"] is not None and seen["hold"].minutes == 30
+    assert rt.browser.config.cdp_port == 9222
+    assert store.c("human_holds").count_documents({}) == 0  # the fake adapter never reached a check, so nothing was held
+
+    rt_off = _runtime(store, tmp_path, human_check_hold_minutes=0)
+    seen.clear()
+    rt_off.browser.run_plan = run_plan
+    app2 = svc.apps.find_one({"_id": app["_id"]})
+    svc.apps.update_one({"_id": app["_id"]}, {"$set": {"status": "authorized"}})
+    out_off = RealServices(rt_off).execute(app2["_id"], "w1")
+    assert out_off["status"] == "handoff" and seen["hold"] is None
+
+
+@skip_no_browser
+@pytest.mark.browser
+@pytest.mark.mongo
+def test_human_check_hold_times_out_into_a_handoff_without_a_second_submit(store, tmp_path, board):
+    from amorehiremepls.config import Settings
+    from amorehiremepls.human_check import HumanHold
+
+    svc, job, app = _prepared(store, tmp_path, board, variant="check")
+    before = len(greenhouse_site.GH_SUBMISSIONS)
+    hold = HumanHold(store, svc.actions, Settings(_env_file=None, human_check_hold_minutes=1), app["_id"], job["_id"], "w1", poll_seconds=0.2)
+    hold.minutes = 0.05  # three seconds; the fixture check never confirms on its own
+    out = svc.execute(app["_id"], "w1", lambda plan: _browser(tmp_path).run_plan(plan, site_key="gh", hold=hold))
+    assert out.status == "handoff" and out.evidence.get("hold") == "timeout"
+    assert len(greenhouse_site.GH_SUBMISSIONS) == before
+    doc = store.c("human_holds").find_one({"application_id": app["_id"]})
+    assert doc["status"] == "timeout" and doc["idempotency_key"] == f"submit:{job['_id']}"
+    assert svc.actions.by_key(f"submit:{job['_id']}")["status"] == "ready"
+
+
+@skip_no_browser
+@pytest.mark.browser
+@pytest.mark.mongo
+def test_continue_rechecks_the_same_page_and_does_not_submit(store, tmp_path, board):
+    import threading
+    import time
+
+    from amorehiremepls.config import Settings
+    from amorehiremepls.human_check import HumanHold, active_hold, request_continue
+
+    svc, job, app = _prepared(store, tmp_path, board, variant="check")
+    before = len(greenhouse_site.GH_SUBMISSIONS)
+    hold = HumanHold(store, svc.actions, Settings(_env_file=None, human_check_hold_minutes=1), app["_id"], job["_id"], "w1", poll_seconds=0.2)
+    box: dict = {}
+
+    def run():
+        try:
+            box["out"] = svc.execute(app["_id"], "w1", lambda plan: _browser(tmp_path).run_plan(plan, site_key="gh", hold=hold))
+        except Exception as exc:  # surfaced below; the hold must not be left running
+            box["err"] = exc
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    continued = False
+    for _ in range(80):
+        if active_hold(store, app["_id"]):
+            assert request_continue(store, svc.apps.find_one({"_id": app["_id"]})) == "ok"
+            continued = True
+            break
+        if "out" in box or "err" in box:
+            break
+        time.sleep(0.25)
+    for _ in range(80):
+        if "out" in box or "err" in box:
+            break
+        time.sleep(0.25)
+    worker.join(70)
+    assert continued, box
+    assert "err" not in box, box.get("err")
+    out = box["out"]
+    assert out.status == "handoff" and out.evidence.get("hold") != "timeout"
+    assert len(greenhouse_site.GH_SUBMISSIONS) == before
+    assert store.c("actions").count_documents({"idempotency_key": f"submit:{job['_id']}"}) == 1
+    assert svc.actions.by_key(f"submit:{job['_id']}")["status"] == "ready"

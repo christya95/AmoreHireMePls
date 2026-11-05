@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     # recorded. Joss accepted the platform-terms risk on 2026-11-05. Overridable from Settings (control `captcha_autosolve`).
     captcha_autosolve: bool = False
     captcha_max_attempts: int = Field(default=3, ge=1, le=5)
+    # How long the worker keeps the browser open after a human check so Continue can resume the same page.
+    # 0 turns the hold off (immediate handoff). The worker is single-browser, so other jobs wait during a hold.
+    human_check_hold_minutes: int = Field(default=30, ge=0, le=180)
+    # Localhost-only Chromium debug port while a hold is active. 0 disables it. Not reachable on the NAS.
+    human_check_cdp_port: int = Field(default=9222, ge=0, le=65535)
 
     smtp_host: str = ""
     smtp_port: int = 587

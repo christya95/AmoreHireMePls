@@ -459,7 +459,7 @@ GLOSSARY: dict[str, tuple[str, str, str]] = {
     ),
     "human_check": (
         "Human check",
-        "A captcha or similar check the site shows before it accepts the form. By default the app stops and asks you to finish it on the site. Under Settings you can let the app try simple picture checks itself; some sites forbid that.",
+        "A captcha or similar check. The app can hold the page so you can finish it and press Continue. If you cannot see the page, it asks you to finish on the site after the wait. Under Settings you can let the app try simple picture checks itself; some sites forbid that.",
         "captcha",
     ),
     "emergency_stop": (

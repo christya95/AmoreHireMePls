@@ -19,7 +19,15 @@
     </div>
     <div class="actions"><a class="btn secondary sm" href="/jobs/{{ job._id }}">Open the job</a>{% if pkg %}<a class="btn secondary sm" href="{{ pkg.apply_url }}" target="_blank" rel="noopener">Apply page ↗</a>{% endif %}</div>
   </div>
-  {% if step %}<div class="next-action mt"><div class="body"><small class="muted">What to do now</small><strong>{{ step[0] }}</strong></div>{% if step[1] %}<a class="btn" href="{{ step[1] }}"><svg class="icon"><use href="#i-arrow"/></svg>{{ a.status|verb }}</a>{% endif %}</div>{% endif %}
+  {% if hold %}
+  <div class="next-action mt attention" id="human-check">
+    <div class="body"><small class="muted">What to do now</small><strong>Human check needed</strong>
+      <p>The page is being held{% if hold.cdp_port %} on this computer at 127.0.0.1:{{ hold.cdp_port }}{% endif %}. If you can open it, finish the check, then press Continue. Continue uses the same approval and does not send the form again.</p>
+      <p>If you cannot open the page, wait. When the time is up you will be asked to finish on the site yourself.</p>
+    </div>
+    <form method="post" action="/applications/{{ a._id }}/continue"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}"><button>Continue</button></form>
+  </div>
+  {% elif step %}<div class="next-action mt"><div class="body"><small class="muted">What to do now</small><strong>{{ step[0] }}</strong></div>{% if step[1] %}<a class="btn" href="{{ step[1] }}"><svg class="icon"><use href="#i-arrow"/></svg>{{ a.status|verb }}</a>{% endif %}</div>{% endif %}
 </div>
 
 {% if pkg %}

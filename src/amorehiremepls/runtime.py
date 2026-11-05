@@ -84,6 +84,7 @@ class Runtime:
                 artifact_dir=settings.artifact_dir,
                 resource_hosts=settings.resource_hosts,
                 captcha_max_attempts=settings.captcha_max_attempts,
+                cdp_port=settings.human_check_cdp_port,
             )
         )
         self.sync = SyncCoordinator(self.store, settings.tracker_clone_dir, settings.tracker_remote, settings.tracker_branch, settings.tracker_push_enabled)
@@ -240,7 +241,18 @@ class RealServices:
     def execute(self, application_id: str, worker: str) -> dict:
         svc = self.rt.applications()
         solver = self.rt.captcha_solver()  # None unless Joss switched the automatic captcha step on
-        out = svc.execute(application_id, worker, run_adapter=lambda plan: self.rt.browser.run_plan(plan, site_key=plan.start_url.split("/")[2], captcha_solver=solver))
+        app = self.rt.store.c("applications").find_one({"_id": application_id}) or {}
+        hold = None
+        if self.rt.settings.human_check_hold_minutes > 0 and app.get("job_id"):
+            from .human_check import HumanHold
+
+            hold = HumanHold(self.rt.store, self.rt.actions, self.rt.settings, application_id, app["job_id"], worker)
+
+        def run(plan):
+            # The hold, when a check appears, keeps this same browser page. It does not start a second submit.
+            return self.rt.browser.run_plan(plan, site_key=plan.start_url.split("/")[2], captcha_solver=solver, hold=hold)
+
+        out = svc.execute(application_id, worker, run_adapter=run)
         return {"status": out.status, "reason": out.reason, "evidence": out.evidence, "action_id": out.action_id}
 
     def record_manual(self, application_id: str, manual: dict) -> dict:

@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import timedelta
 
 from .authorization import AuthorizationStore, Decision, ScopeKind
 from .db import Store
@@ -196,6 +197,14 @@ class ActionStore:
         if swept:
             self.store.audit("action_lease_expired", action["_id"], owner=action.get("reserved_by"))
         return swept
+
+    def extend_lease(self, action_id: str, owner: str, seconds: int = 180) -> None:
+        """Keep an in-progress action from being swept while a human-check hold is still watching the same page."""
+        now = utcnow()
+        self.coll.update_one(
+            {"_id": action_id, "status": "executing", "reserved_by": owner},
+            {"$set": {"reserved_until": now + timedelta(seconds=seconds), "updated_at": now}},
+        )
 
     def sweep_expired_leases(self) -> int:
         """Worker housekeeping: expired `executing` leases become needs_verification, never re-runs."""

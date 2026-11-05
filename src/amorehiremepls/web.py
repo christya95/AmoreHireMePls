@@ -170,6 +170,9 @@ FLASHES = {
     "retry_started": ("The app will read the form again and prepare a fresh package. It waits for your approval before applying.", "ok"),
     "retry_unsupported": ("The app has no form filler for this job site yet, so there is nothing to retry. Finish on the site yourself.", "bad"),
     "retry_busy": ("A background task is working on this job right now. Wait for it to pause or finish.", "bad"),
+    "continue_ok": ("Continue received. The same page will be checked again. The form is not sent a second time.", "ok"),
+    "continue_missing": ("That check is no longer being held.", "bad"),
+    "continue_changed": ("The package changed, so Continue was refused.", "bad"),
     "notify_sent": ("Test notification sent.", "ok"),
     "notify_failed": ("The test notification could not be sent. Check the mail server settings and try again.", "bad"),
     "notify_off": ("Nothing is set up to send a notification yet.", "bad"),
@@ -578,6 +581,23 @@ def create_app(rt: Runtime) -> FastAPI:
 
         def item(title: str, detail: str, hint: str, tone: str, icon: str, href: str, action: str) -> dict:
             return {"title": title, "detail": detail, "hint": hint, "tone": tone, "icon": icon, "href": href, "action": action}
+
+        fresh = utcnow() - timedelta(seconds=20)
+        holds = list(s.c("human_holds").find({"status": "holding", "heartbeat_at": {"$gte": fresh}}).sort("started_at", -1).limit(8))
+        hold_jobs = {j["_id"]: j for j in s.c("jobs").find({"_id": {"$in": [h["job_id"] for h in holds]}}, {"employer": 1, "title": 1})}
+        for hold in holds:
+            j = hold_jobs.get(hold["job_id"], {})
+            items.append(
+                item(
+                    "Human check needed",
+                    f"{j.get('employer', '?')} · {j.get('title', '')}",
+                    "Finish the check if you can see the page, then press Continue. If you cannot see it, wait.",
+                    "warn",
+                    "alert",
+                    f"/applications/{hold['application_id']}",
+                    "Continue",
+                )
+            )
 
         apps = list(s.c("applications").find({"status": {"$in": list(ATTENTION_STATUSES)}, "provenance.origin": "local"}).sort("updated_at", -1).limit(12))
         jobs = {j["_id"]: j for j in s.c("jobs").find({"_id": {"$in": [a["job_id"] for a in apps]}}, {"employer": 1, "title": 1})}
@@ -1041,8 +1061,18 @@ def create_app(rt: Runtime) -> FastAPI:
 
         site_adapter = adapter_for((a.get("review_package") or {}).get("apply_url") or job.get("apply_url") or job.get("posting_url"))
         can_retry = site_adapter is not None and a["status"] in ("handoff", "failed")
+        from .human_check import active_hold
+
         ctx = dict(
-            a=a, job=job, scopes=scopes, action=action, doc_art=doc_art, shots=evidence_shots(a), can_retry=can_retry, site_label=site_adapter.site_label if site_adapter else None
+            a=a,
+            job=job,
+            scopes=scopes,
+            action=action,
+            doc_art=doc_art,
+            shots=evidence_shots(a),
+            can_retry=can_retry,
+            site_label=site_adapter.site_label if site_adapter else None,
+            hold=active_hold(rt.store, app_id),
         )
         return render(request, "application.html", session, **ctx)
 
@@ -1121,6 +1151,20 @@ def create_app(rt: Runtime) -> FastAPI:
         run = rt.store.create_run("application", {"job_id": job["_id"], "retry_of": app_id})
         rt.store.audit("application_retry", app_id, run_id=run["_id"])
         return RedirectResponse(f"/applications/{app_id}?ok=retry_started", status_code=303)
+
+    @app.post("/applications/{app_id}/continue")
+    def application_continue(request: Request, app_id: str, session: dict = Depends(require_session), csrf: str = Form(...), material_hash: str = Form(...)):
+        """Resume a held human check on the same page and the same approval. Does not submit again."""
+        require_csrf(request, session, csrf)
+        from .human_check import request_continue
+
+        a = rt.store.c("applications").find_one({"_id": app_id})
+        if not a or a.get("material_hash") != material_hash:
+            raise HTTPException(409, "package changed; refresh and review again")
+        result = request_continue(rt.store, a)
+        flash = {"ok": "continue_ok", "missing": "continue_missing", "changed": "continue_changed"}[result]
+        code = "ok" if result == "ok" else "err"
+        return RedirectResponse(f"/applications/{app_id}?{code}={flash}", status_code=303)
 
     @app.post("/applications/{app_id}/reconcile")
     def application_reconcile(

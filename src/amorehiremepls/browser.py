@@ -138,6 +138,7 @@ class BrowserConfig:
     artifact_dir: Path | None = None  # screenshots go to <artifact_dir>/jobs/<job_id>/screenshots/
     resource_hosts: set[str] = field(default_factory=set)  # sub-resource hosts allowed on every plan
     captcha_max_attempts: int = 3
+    cdp_port: int = 0  # localhost debug port, used only while a human-check hold is active
 
 
 @dataclass
@@ -206,17 +207,28 @@ class BrowserAdapter:
             return None
         return self.config.session_dir / f"{site_key}.storage.json"
 
-    def run_plan(self, plan: Plan, site_key: str = "default", observe: bool = True, captcha_solver: Any | None = None) -> dict[str, Any]:
+    def run_plan(self, plan: Plan, site_key: str = "default", observe: bool = True, captcha_solver: Any | None = None, hold: Any | None = None) -> dict[str, Any]:
         from playwright.sync_api import TimeoutError as PWTimeout
         from playwright.sync_api import sync_playwright
+
+        from .human_check import launch_args
 
         self._check_host(plan.start_url)
         solver = captcha_solver if captcha_solver is not None else self.captcha_solver
         evidence: dict[str, Any] = {"started_at": utcnow().isoformat(), "steps_done": 0, "final_clicked": False}
         shots = self._shot_target(plan)
         state = self._state_path(site_key)
+        # Debug port only while a hold may run, and only on localhost. A failed launch drops the port and continues.
+        cdp_port = int(self.config.cdp_port or 0) if hold is not None else 0
         with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=self.config.headless, args=["--disable-dev-shm-usage"])
+            try:
+                browser = pw.chromium.launch(headless=self.config.headless, args=launch_args(cdp_port))
+            except Exception:
+                if not cdp_port:
+                    raise
+                cdp_port = 0
+                browser = pw.chromium.launch(headless=self.config.headless, args=launch_args(0))
+            evidence["cdp_port"] = cdp_port or None
             ctx_kwargs: dict[str, Any] = {"accept_downloads": False, "viewport": {"width": 1280, "height": 900}}
             if state and state.exists():
                 ctx_kwargs["storage_state"] = str(state)
@@ -258,7 +270,7 @@ class BrowserAdapter:
                     if step.type in ("click",) and not step.final:
                         self._detect_login(page, evidence, shots)
                         self._detect_validation_errors(scope, evidence, shots)
-                self._await_receipt(scope, plan, evidence, shots, solver)
+                self._await_receipt(scope, plan, evidence, shots, solver, hold)
                 body = scope.body_text()[:4000]
                 final_url = scope.current_url()
                 evidence.update(receipt_text=body, final_url=final_url, observed_at=utcnow().isoformat())
@@ -290,19 +302,14 @@ class BrowserAdapter:
                 browser.close()
 
     # -- receipt / challenge loop -----------------------------------------------------------------------
-    def _await_receipt(self, scope: _Scope, plan: Plan, evidence: dict, shots: _ShotTarget, solver: Any | None) -> None:
+    def _await_receipt(self, scope: _Scope, plan: Plan, evidence: dict, shots: _ShotTarget, solver: Any | None, hold: Any | None = None) -> None:
         """After the final click: wait for the confirmation, but stop early on a human check or a validation error."""
         page = scope.page
         timeout_ms = plan.steps[-1].timeout_ms if plan.steps else 15000
-        patterns = [re.compile(p, re.I) for p in (plan.receipt_patterns or [re.escape(plan.receipt_text)]) if p]
-        url_re = re.compile(plan.receipt_url_pattern, re.I) if plan.receipt_url_pattern else None
         deadline = time.monotonic() + timeout_ms / 1000
         attempts = 0
         while True:
-            if url_re and url_re.search(scope.current_url()):
-                return
-            body = scope.body_text()
-            if any(p.search(body) for p in patterns):
+            if self._receipt_ready(scope, plan):
                 return
             challenge = self._detect_challenge(scope)
             if challenge:
@@ -316,6 +323,17 @@ class BrowserAdapter:
                         continue
                     if attempts < self.config.captcha_max_attempts and self._detect_challenge(scope):
                         continue
+                if hold is not None and not evidence.get("human_hold_done"):
+                    # One hold on this page. Continue re-checks the receipt and never clicks submit again.
+                    evidence["human_hold_done"] = True
+                    outcome = self._hold_page(scope, plan, hold, evidence.get("cdp_port"))
+                    if outcome == "timeout":
+                        hold.finish("timeout")
+                        site = plan.site or "the job site"
+                        raise HandoffRequired(f"{site} asked for a human check", {**evidence, "url": page.url, "challenge": challenge["kind"], "hold": "timeout"})
+                    hold.finish("continued")
+                    deadline = time.monotonic() + timeout_ms / 1000
+                    continue
                 site = plan.site or "the job site"
                 raise HandoffRequired(f"{site} asked for a human check", {**evidence, "url": page.url, "challenge": challenge["kind"]})
             errs = self._validation_errors(scope)
@@ -327,6 +345,26 @@ class BrowserAdapter:
                 self._snapshot(page, evidence, "ambiguous", shots)
                 raise AmbiguousOutcome("receipt not observed before timeout after final action", evidence)
             page.wait_for_timeout(250)
+
+    def _receipt_ready(self, scope: _Scope, plan: Plan) -> bool:
+        patterns = [re.compile(p, re.I) for p in (plan.receipt_patterns or [re.escape(plan.receipt_text)]) if p]
+        url_re = re.compile(plan.receipt_url_pattern, re.I) if plan.receipt_url_pattern else None
+        if url_re and url_re.search(scope.current_url()):
+            return True
+        return any(p.search(scope.body_text()) for p in patterns)
+
+    def _hold_page(self, scope: _Scope, plan: Plan, hold: Any, cdp_port: int | None) -> str:
+        """Keep the page open until Continue, a confirmation, or the hold deadline. Does not click."""
+        from .human_check import run_hold
+
+        return run_hold(
+            minutes=hold.minutes,
+            poll_seconds=hold.poll_seconds,
+            sleep=lambda seconds: scope.page.wait_for_timeout(int(seconds * 1000)),
+            heartbeat=lambda: hold.heartbeat({"cdp_port": cdp_port}),
+            continue_requested=hold.continue_requested,
+            receipt_visible=lambda: self._receipt_ready(scope, plan),
+        )
 
     def _try_solve(self, scope: _Scope, challenge: dict, solver: Any, evidence: dict, attempt: int) -> bool:
         """One bounded solver attempt against a simple challenge widget. Records the attempt either way."""
