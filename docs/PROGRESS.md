@@ -48,9 +48,15 @@ Keep this file current. A later session should be able to continue from the "Exa
 - `uv run ruff check src tests` and `ruff format --check`: clean. `docker compose config`: valid. Chromium + LibreOffice verified inside the hardened container.
 - Live: nothing. No application submitted, no message sent, no tracker push, no NAS deployment of the app containers.
 
+## Running on the Mac against the NAS database (2026-11-05)
+
+- Vault `AmoreHireMePls` now holds `OpenAI API Key`, `NAS MongoDB App User`, `Dashboard Password`, `App Session Secret`. `.env` (non-secret settings) and `.env.references` (`op://` references only) exist locally, gitignored.
+- NAS database `amorehiremepls` set up and populated: profile (11 facts, 4 answers, 2 education, 4 employment incl. 3 internships, 1 unknown), base resume sha `44b2edba…`, tracker import 39 records / 38 jobs / 1 duplicate identity / 0 conflicts (no push), plus the Faire posting (`needs_review`). 39 jobs total.
+- `amore web` (http://127.0.0.1:8790) and `amore worker` run detached through `op run`; PID files and logs under `runtime/logs/`. Start/stop commands in `README.md`. Dev Mongo container kept as a local copy only.
+- Page latency over Tailscale: 20 to 80 ms, `/history` about 400 ms.
+
 ## Remaining / not done
 
-- 1Password items still to create in `AmoreHireMePls`: `Dashboard Password`, `App Session Secret` (names/fields in `config/op.env.example`).
 - `config/pricing.json` prices for `gpt-5.4-mini` (and any other model used); until filled every cost reads "unknown".
 - Deploy the app containers to the NAS (needs SSH enabled in UGOS for the rsync/build window) or run the app on the Mac against the NAS database (works today).
 - Tailscale ACL limiting `tcp:27017` on the NAS to Joss's devices (observation: port is open to the whole tailnet, auth required).
@@ -64,4 +70,4 @@ Keep this file current. A later session should be able to continue from the "Exa
 
 ## Exact next step
 
-Create the two remaining vault items, fill `config/pricing.json` for `gpt-5.4-mini`, then run the app on the Mac against the NAS database: `.env` with `AMORE_MODEL=gpt-5.4-mini`, `AMORE_MONGODB_URI=mongodb://100.90.96.81:27017/?directConnection=true`, `AMORE_MONGODB_AUTH_SOURCE=amorehiremepls`; `op run --env-file .env.references -- uv run amore setup-db`, re-run `amore profile import` + `amore profile base-resume` + `amore tracker import` against it (the dev Mongo data is local only), start web + worker through `op run`, and review the Faire package in the dashboard. Deploy containers to the NAS once SSH is enabled.
+Joss logs in to http://127.0.0.1:8790, reviews the Faire package, sets `AMORE_BROWSER_ALLOWED_HOSTS` for the ATS hosts he wants scanned, answers the role-family question, fills `config/pricing.json` for `gpt-5.4-mini`, and grants the first authorization scope in the dashboard when ready. Deploy containers to the NAS once SSH is enabled.
