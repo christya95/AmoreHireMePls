@@ -99,6 +99,7 @@ def test_retry_with_the_app_closes_the_waiting_task_and_rereads_the_form(client)
     job_id, app_id, run_id = _handoff_app(rt)
     page = client.get(f"/applications/{app_id}").text
     assert "Retry with the app" in page and "human check" in page and "Greenhouse" in page
+    assert '<button class="secondary"' not in page.split("Retry with the app", 1)[0][-120:]
     r = client.post(f"/applications/{app_id}/retry", data={"csrf": csrf})
     assert r.status_code == 303 and r.headers["location"].endswith("ok=retry_started")
     job = rt.store.c("jobs").find_one({"_id": job_id})

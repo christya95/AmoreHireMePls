@@ -271,6 +271,12 @@ class GreenhouseAdapter:
             if a.value is None and not a.sensitive and not f.required and a.reason.startswith("no confirmed fact"):
                 a.needs_input, a.reason = False, "optional question left blank; add an answer if you want one"
             out.append(a)
+        by_id = {f.id: f for f in fields}
+        for a in out:
+            src = by_id.get(a.field_id)
+            if src is not None:
+                a.required = bool(src.required)
+                a.options = list(src.options)
         order = {f.id: i for i, f in enumerate(fields)}
         return sorted(out, key=lambda a: order.get(a.field_id, 0))
 

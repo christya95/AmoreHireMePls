@@ -74,6 +74,8 @@ class Answer:
     needs_input: bool
     reason: str = ""
     sensitive: bool = False
+    required: bool = False
+    options: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return self.__dict__.copy()
@@ -140,6 +142,12 @@ def map_answers(
                 continue
             value = match
         answers.append(Answer(f.id, label, value, [fact.id] if fact else [], needs_input=value is None, reason="" if value else f"fact '{key}' unknown"))
+    by_id = {f.id: f for f in fields}
+    for a in answers:
+        src = by_id.get(a.field_id)
+        if src is not None:
+            a.required = bool(src.required)
+            a.options = list(src.options)
     return answers
 
 
@@ -306,9 +314,22 @@ class ApplicationService:
         app = self.apps.find_one({"_id": app_id})
         pkg = app["review_package"]
         for a in pkg["answers"]:
-            if a["field_id"] in values:
-                a["value"], a["needs_input"], a["fact_ids"], a["reason"] = values[a["field_id"]], False, ["user:input"], "supplied by Joss"
-        pkg["outstanding"] = [u for u in pkg["outstanding"] if not any(u == f"answer needed: {a['label']}" for a in pkg["answers"] if not a["needs_input"])]
+            if a["field_id"] not in values or a.get("fact_ids") == ["artifact"]:
+                continue
+            new = str(values[a["field_id"]]).strip()
+            old = a.get("value") or ""
+            if new == old:
+                continue
+            if not new:
+                a["value"] = None
+                a["needs_input"] = bool(a.get("required"))
+                a["fact_ids"] = ["user:input"]
+                a["reason"] = "cleared by Joss" if a.get("required") else "left blank"
+            else:
+                a["value"], a["needs_input"], a["fact_ids"], a["reason"] = new, False, ["user:input"], ("edited by Joss" if old else "supplied by Joss")
+        kept = [u for u in pkg.get("outstanding") or [] if not str(u).startswith("answer needed:")]
+        needed = [f"answer needed: {a['label']}" for a in pkg["answers"] if a.get("needs_input") and not a.get("sensitive")]
+        pkg["outstanding"] = sorted(set(kept + needed))
         doc_hashes = [h for h in [(pkg.get("document") or {}).get("sha256"), (pkg.get("document") or {}).get("pdf_sha256")] if h]
         mhash = material_hash(
             answers=[(a["field_id"], a["value"]) for a in pkg["answers"] if not a["needs_input"]],

@@ -77,6 +77,22 @@ def _job(store, **over):
     return jobs.get(job["_id"])
 
 
+def test_supply_inputs_replaces_an_existing_answer_and_keeps_unchanged_ones(store, tmp_path):
+    svc = _service(store, tmp_path, _profile(tmp_path))
+    app = svc.prepare(_job(store)["_id"], FIELDS)
+    app = svc.supply_inputs(app["_id"], {"why": "I enjoy building reliable backend services."})
+    before = app["material_hash"]
+    answers = {a["field_id"]: a for a in app["review_package"]["answers"]}
+    assert "Yes, I am authorized" in answers["wa"]["options"] and answers["why"]["required"]
+    app = svc.supply_inputs(app["_id"], {"why": "I enjoy building reliable backend services.", "fn": "Jordan"})
+    answers = {a["field_id"]: a for a in app["review_package"]["answers"]}
+    assert answers["fn"]["value"] == "Jordan" and answers["fn"]["fact_ids"] == ["user:input"] and answers["fn"]["reason"] == "edited by Joss"
+    assert answers["why"]["reason"] == "supplied by Joss" and app["material_hash"] != before
+    app = svc.supply_inputs(app["_id"], {"why": ""})
+    answers = {a["field_id"]: a for a in app["review_package"]["answers"]}
+    assert answers["why"]["value"] is None and answers["why"]["needs_input"] and app["status"] == "needs_input"
+
+
 def test_prepare_requires_inputs_then_changed_document_invalidates_authorization(store, tmp_path):
     profile = _profile(tmp_path)
     svc = _service(store, tmp_path, profile)

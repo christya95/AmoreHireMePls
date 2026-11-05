@@ -1080,7 +1080,7 @@ def create_app(rt: Runtime) -> FastAPI:
     async def application_inputs(request: Request, app_id: str, session: dict = Depends(require_session)):
         form = await request.form()
         require_csrf(request, session, form.get("csrf"))
-        values = {k[6:]: v for k, v in form.items() if k.startswith("input_") and str(v).strip()}
+        values = {k[6:]: str(v) for k, v in form.items() if isinstance(k, str) and k.startswith("input_")}
         rt.applications().supply_inputs(app_id, values)
         return RedirectResponse(f"/applications/{app_id}", status_code=303)
 

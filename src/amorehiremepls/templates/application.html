@@ -47,11 +47,12 @@
     </div>
     <div class="card flush" id="answers">
       {% set editable = a.status in ('needs_input', 'ready_for_review') %}
-      <div class="card-h"><h3>{% if site_label %}Questions on the {{ site_label }} form and the answers that will be sent{% else %}Answers{% endif %}</h3>{% if a.status == 'needs_input' %}<span class="pill warn">answers needed</span>{% endif %}<span class="sub">Each answer names the fact in your profile it came from. Blank "needed" fields are questions your profile cannot answer. Personal questions stay blank unless the form insists, in which case the "I don't wish to answer" choice is used and shown here.{% if editable %} Optional questions left blank can be filled in below; a changed answer means a new approval.{% endif %}</span></div>
+      <div class="card-h"><h3>{% if site_label %}Questions on the {{ site_label }} form and the answers that will be sent{% else %}Answers{% endif %}</h3>{% if a.status == 'needs_input' %}<span class="pill warn">answers needed</span>{% endif %}<span class="sub">Each answer names the fact in your profile it came from. Blank "needed" fields are questions your profile cannot answer. Personal questions stay blank unless the form insists, in which case the "I don't wish to answer" choice is used and shown here.{% if editable %} Change any answer below before you approve. Saving a change asks for approval again. The resume file stays as prepared.{% endif %}</span></div>
       <form method="post" action="/applications/{{ a._id }}/inputs"><input type="hidden" name="csrf" value="{{ csrf }}">
       <div class="table-wrap"><table><thead><tr><th>Question</th><th>Answer</th><th>Where it comes from</th></tr></thead><tbody>
-      {% for ans in pkg.answers %}<tr><td>{{ ans.label }}{% if ans.sensitive %} <span class="pill">personal</span>{% endif %}</td>
-        <td>{% if ans.needs_input %}<input name="input_{{ ans.field_id }}" placeholder="needed">{% elif ans.value is none and editable and not ans.sensitive %}<input name="input_{{ ans.field_id }}" placeholder="optional, left blank">{% elif ans.value is none %}<span class="muted">left blank</span>{% elif ans.fact_ids == ['artifact'] %}<span class="wrap">{{ ans.value.rsplit('/', 1)[-1] }}</span>{% else %}{{ ans.value }}{% endif %}</td><td><small>{{ ans.fact_ids|join(', ') }} {{ ans.reason }}</small></td></tr>
+      {% for ans in pkg.answers %}{% set file_answer = ans.fact_ids == ['artifact'] %}
+      <tr><td>{{ ans.label }}{% if ans.sensitive %} <span class="pill">personal</span>{% endif %}{% if ans.required %} <span class="pill">required</span>{% endif %}</td>
+        <td>{% if editable and not file_answer %}{% if ans.options %}<select name="input_{{ ans.field_id }}"><option value="">left blank</option>{% for opt in ans.options %}<option value="{{ opt }}" {% if ans.value == opt %}selected{% endif %}>{{ opt }}</option>{% endfor %}{% if ans.value and ans.value not in ans.options %}<option value="{{ ans.value }}" selected>{{ ans.value }}</option>{% endif %}</select>{% else %}<input name="input_{{ ans.field_id }}" value="{{ ans.value or '' }}" placeholder="{{ 'needed' if ans.needs_input else 'left blank' }}">{% endif %}{% elif ans.value is none %}<span class="muted">left blank</span>{% elif file_answer %}<span class="wrap">{{ ans.value.rsplit('/', 1)[-1] }}</span>{% else %}{{ ans.value }}{% endif %}</td><td><small>{{ ans.fact_ids|join(', ') }} {{ ans.reason }}</small></td></tr>
       {% else %}<tr><td colspan="3"><div class="empty">No form questions were found. Only the resume is uploaded.</div></td></tr>{% endfor %}</tbody></table></div>
       {% if editable %}<div class="form-actions pad"><button>Save answers</button></div>{% endif %}</form>
     </div>
@@ -91,7 +92,7 @@
       {% if can_retry %}
       <form method="post" action="/applications/{{ a._id }}/retry" class="mt"><input type="hidden" name="csrf" value="{{ csrf }}">
         <p class="note">{% if a.handoff_kind == 'human_check' %}The site asked for a human check last time. The app can try again (it reads the form afresh and asks for your approval first); if the check comes back, you finish it yourself.{% else %}The app can fill in {{ site_label }} forms. Let it read the form again and prepare a fresh package for your approval.{% endif %}</p>
-        <button class="secondary"><svg class="icon"><use href="#i-arrow"/></svg>Retry with the app</button></form>
+        <button><svg class="icon"><use href="#i-arrow"/></svg>Retry with the app</button></form>
       {% endif %}
       {% if a.status == 'handoff' %}
       <form method="post" action="/applications/{{ a._id }}/manual" class="stack gap-s mt"><input type="hidden" name="csrf" value="{{ csrf }}">
