@@ -108,9 +108,15 @@ Keep this file current. A later session should be able to continue from the "Exa
 - Verified: web and worker healthy, `/health` 200, sign-in works, `/status` Mongo 8.0.34, `amore setup-db` in the container ok (all indexes), Faire DOCX served by `/documents/art_e7750a9b5f0429e8/download` with hash `d7a1b780…` matching the record; base resume `44b2edba…` present; avatar and tracker clone copied (Docker archive API).
 - `scripts/deploy_nas.sh` = build + push + create/update stack + wait healthy + `/health`; all secrets via `op` at run time; `--set KEY=VALUE` for non-secret stack variables (carried over between runs; names printed, never values). 02:47: `AMORE_BROWSER_ALLOWED_HOSTS` on the NAS set to the Mac `.env` hosts (Greenhouse/Lever/Ashby); publish host unchanged. The Mac web/worker were left running (claims are atomic; one worker is the normal mode; stopping the Mac worker is Joss's call).
 
+## Running on the NAS as the sole instance (2026-11-05, 03:15–03:20)
+
+- Image `lepia/amorehiremepls:a590080de7c3` (origin/main `a590080`: LibreOffice render hardening, plain-language copy, folding Getting started card, base DOCX used as the tailoring template) built and deployed with `scripts/deploy_nas.sh`; stack 7 active, web and worker healthy, `/health` 200, `/status` `worker_healthy: true`. Overview shows the folding Getting started card and the `Resumes` nav; the job page shows `Check fit`.
+- Faire `Product Engineer - Ads` (`job_d0f65161045baf54`, the only Faire job in the database; `job_5aee8c4711277df5` existed only in the dev database) regenerated from the NAS dashboard: new artifact `art_1d2f2597c5ae3bcb`, DOCX + PDF under `/runtime/artifacts/jobs/…`, 2 pages, page limit verified, grounding ok, both hashes verified through the download route. Page 1 of the PDF: name heading (y≈54 pt) and contact line (y≈69 pt) above `SUMMARY` (y≈88 pt), so the header block is preserved. Base resume on the NAS is the same file as on the Mac (`44b2edba…`).
+- Mac instance stopped with SIGTERM: web PID 74623 and worker PID 16726 (plus their `uv`/`python` children) exited; PID files removed; nothing listens on 127.0.0.1:8790; `pgrep -fl 'amore (web|worker)'` is empty. The worker heartbeat now comes from the NAS container. The NAS is the only instance; the Mac keeps its `runtime/` copy for reference and for `amore browser login` session exports.
+
 ## Remaining / not done
 
-- Decide when to stop the Mac worker (NAS stack is the intended runtime); optionally set `AMORE_PUBLISH_HOST=0.0.0.0` for Tailscale access; copy browser sessions to the NAS `private/sessions` when created.
+- Optionally set `AMORE_PUBLISH_HOST=0.0.0.0` for Tailscale access; copy browser sessions to the NAS `private/sessions` when created (command in `docs/nas-deployment.md`).
 - Tailscale ACL limiting `tcp:27017` on the NAS to Joss's devices (observation: port is open to the whole tailnet, auth required).
 - Live form scan against a real Greenhouse/Lever/Ashby page has not been exercised since the hosts were set; the route gate also aborts third-party asset requests (CDNs, CAPTCHA), which may need extra hosts once observed.
 - Site-specific adapters beyond the generic form plan (Workday, LinkedIn Easy Apply) if wanted; currently handoffs. Optional SMTP channel.
@@ -121,4 +127,4 @@ Keep this file current. A later session should be able to continue from the "Exa
 
 ## Exact next step
 
-Restart `amore web` and `amore worker` so the `.env` hosts apply. Joss logs in to http://127.0.0.1:8790, works through the getting-started checklist on Overview, opens the Faire job and uses More actions → Regenerate documents to get the PDF (LibreOffice is now installed), reviews the rebuilt package (the form scan should now reach the Greenhouse page), answers the role-family question, and grants the first authorization scope in the dashboard when ready. The same dashboard runs on the NAS at http://192.168.2.49:8790 (stack `amorehiremepls`); redeploy after code changes with `scripts/deploy_nas.sh`.
+Joss logs in to http://192.168.2.49:8790 (the NAS is the only running instance; the Mac processes are stopped), works through the getting-started checklist on Overview, opens the Faire job (documents already regenerated on the NAS with the header block), reviews the package (the form scan should reach the Greenhouse page now that the hosts are set), answers the role-family question, and grants the first authorization scope in the dashboard when ready. Redeploy after code changes with `scripts/deploy_nas.sh`.

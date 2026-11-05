@@ -126,15 +126,15 @@ rm /tmp/pk.env
 Mac `.env` (`scripts/deploy_nas.sh --skip-build --tag 738f0fbb2d78 --set …`); both containers recreated healthy, `/status`
 `worker_healthy: true`, Help page shows the hosts as set. `AMORE_PUBLISH_HOST` unchanged (192.168.2.49).
 
-## 6. Two instances, one database
+## 6. One instance: the NAS (since 2026-11-05 03:20)
 
-The Mac instance (`amore web` / `amore worker` through `op run`, see README) was left running. Two workers against one database
-are safe: runs, actions and sync items are claimed atomically, an `executing` action is never taken over, and expired leases become
-`needs_verification`. Normal operation is still **one** worker: two workers double the scheduled discovery/model spend, and
-artifacts tailored on one host are not on the other's disk (the download route then answers 404 "file missing on this host" or 403
-for a path outside its artifact directory). Recommended once the NAS stack has been healthy for a day: stop the Mac worker
-(`kill $(cat runtime/logs/worker.pid)` or the README stop command), keep or stop the Mac web, and treat the NAS as the only
-runtime. Joss decides when.
+The Mac `amore web` / `amore worker` processes were stopped (SIGTERM to the `op run` wrappers; PID files removed) after image
+`a590080de7c3` was deployed and the Faire documents had been regenerated on the NAS with the preserved header block. The NAS stack is
+the only runtime. Running a second instance against the same database is safe (runs, actions and sync items are claimed atomically,
+an `executing` action is never taken over, expired leases become `needs_verification`) but doubles scheduled discovery/model spend,
+and artifacts tailored on one host are not on the other's disk (the download route then answers 404 "file missing on this host" or
+403 for a path outside its artifact directory). If the Mac instance is ever started again for debugging, stop it afterwards.
+The worker heartbeat (`controls.worker_heartbeat`, name = container hostname) shows which host is alive.
 
 ## 7. Secrets and tokens in use
 
@@ -160,7 +160,6 @@ Rotating any of these: update the vault item, run `scripts/deploy_nas.sh --skip-
 - Tailscale: either `AMORE_PUBLISH_HOST=0.0.0.0` or a Tailscale Serve rule if the dashboard must be reachable off-LAN (section 3).
 - Tailscale ACL limiting `tcp:27017` on the NAS to Joss's devices (the Mongo port is open to the whole tailnet, auth required).
 - Browser sessions for authenticated sites are created on the Mac and copied to `private/sessions` (section 5).
-- Stopping the Mac worker once the NAS stack has proven itself (section 6).
 
 ## 10. Running the test suite against the NAS
 
