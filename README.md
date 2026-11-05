@@ -68,12 +68,16 @@ Emergency stop is in the header on every page (two steps: open, then confirm wit
 - Storage: everything except the image file lives in the MongoDB `controls` collection under the key `ui_settings`. Nothing here feeds resumes, answers or messages.
 - Front end: no CDN, fonts or third-party scripts; one local stylesheet, one small progressive-enhancement script, inline SVG icons and a dependency-free SVG chart. Every control works as a plain form without JavaScript; all POSTs carry the CSRF token.
 
+### Opening a tailored resume
+
+Documents, the job page and the review package page show **Open PDF** (in a browser tab), **Download PDF** and **Download DOCX** buttons for each tailored document, with the hash prefixes, page count and the on-disk path in a copyable `code` element. The route is `GET /documents/{artifact_id}/download?kind=docx|pdf[&inline=1]` (login required). It never takes a path from the browser: the path comes from the artifact record, must resolve under `AMORE_ARTIFACT_DIR`, and the file's SHA-256 is recomputed and compared with the reviewed hash before anything is sent (403 outside the directory, 409 on mismatch, 404 when no PDF was rendered). A PDF exists only when LibreOffice was available at tailoring time (it is inside the container; on a plain Mac only the DOCX exists).
+
 Nothing is submitted or sent without an authorization scope bound to the exact job, answers and document hashes (or a bounded batch scope with stop conditions). Sites without a form plan or adapter become resumable handoffs; you record the confirmation you saw.
 
 ## Test
 
 ```bash
-uv run pytest                   # 84 tests; mongo-marked tests skip automatically if 127.0.0.1:27027 is down
+uv run pytest                   # 86 tests; mongo-marked tests skip automatically if 127.0.0.1:27027 is down
 TEST_MONGO_URI=mongodb://127.0.0.1:27027 uv run pytest -m mongo
 uv run pytest -m browser        # Playwright adapter against the local fixture site (skips without Chromium)
 uv run ruff check src tests && uv run ruff format --check src tests

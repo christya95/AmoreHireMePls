@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import re
 import secrets
 from datetime import timedelta
 from pathlib import Path
@@ -41,8 +42,10 @@ from .ui_settings import (
     status_tone,
     store_avatar,
 )
-from .util import to_toronto, utcnow
+from .util import sha256_file, to_toronto, utcnow
 from .worker import next_slot_description, worker_healthy
+
+DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 TEMPLATES.env.filters["toronto"] = lambda dt: to_toronto(dt).strftime("%Y-%m-%d %H:%M") if dt else ""
@@ -695,7 +698,9 @@ def create_app(rt: Runtime) -> FastAPI:
         job = rt.jobs.get(a["job_id"])
         scopes = [s for s in rt.auth.active("application_submit") if s.binding.target_id == a["job_id"] or s.mode == "batch"]
         action = rt.actions.by_key(f"submit:{a['job_id']}")
-        return render(request, "application.html", session, a=a, job=job, scopes=scopes, action=action)
+        doc_sha = ((a.get("review_package") or {}).get("document") or {}).get("sha256")
+        doc_art = rt.store.c("artifacts").find_one({"sha256": doc_sha, "owner_id": a["job_id"]}, {"content": 0}) if doc_sha else None
+        return render(request, "application.html", session, a=a, job=job, scopes=scopes, action=action, doc_art=doc_art)
 
     @app.post("/applications/{app_id}/inputs")
     async def application_inputs(request: Request, app_id: str, session: dict = Depends(require_session)):
@@ -934,6 +939,36 @@ def create_app(rt: Runtime) -> FastAPI:
         arts = list(rt.store.c("artifacts").find({}, {"content": 0}).sort("created_at", -1).limit(200))
         jobs = {j["_id"]: j for j in rt.store.c("jobs").find({"_id": {"$in": [a.get("owner_id") for a in arts]}}, {"employer": 1, "title": 1})}
         return render(request, "documents.html", session, artifacts=arts, jobs=jobs)
+
+    @app.get("/documents/{artifact_id}/download")
+    def document_download(artifact_id: str, session: dict = Depends(require_session), kind: str = "docx", inline: int = 0):
+        """Serve a tailored document by id only. The path comes from the artifact record, must resolve under the
+        artifact directory, and its hash must still match the reviewed hash; otherwise nothing is served."""
+        art = rt.store.c("artifacts").find_one({"_id": artifact_id})
+        if not art:
+            raise HTTPException(404)
+        if kind == "pdf":
+            raw, expected, media, name = art.get("pdf_path"), art.get("pdf_sha256"), "application/pdf", None
+        elif kind == "docx":
+            raw, expected, media, name = art.get("path"), art.get("sha256"), DOCX_MEDIA_TYPE, art.get("filename")
+        else:
+            raise HTTPException(400, "kind must be docx or pdf")
+        if not raw or not expected:
+            raise HTTPException(404, f"no {kind} recorded for this document")
+        path = Path(raw).resolve()
+        root = rt.settings.artifact_dir.resolve()
+        if not path.is_relative_to(root):
+            rt.store.audit("document_path_refused", artifact_id, kind=kind)
+            raise HTTPException(403, "document path is outside the artifact directory")
+        if not path.is_file():
+            raise HTTPException(404, "file missing on this host")
+        if sha256_file(path) != expected:
+            rt.store.audit("document_hash_mismatch", artifact_id, kind=kind)
+            raise HTTPException(409, "file on disk no longer matches the reviewed hash; not serving it")
+        filename = re.sub(r"[^A-Za-z0-9._-]+", "_", name or path.name) or f"document.{kind}"
+        disposition = "inline" if inline and kind == "pdf" else "attachment"
+        headers = {"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}
+        return FileResponse(path, media_type=media, filename=filename, content_disposition_type=disposition, headers=headers)
 
     # -- dashboard settings (theme, accent, name, avatar) ------------------------------------------
     @app.get("/settings", response_class=HTMLResponse)

@@ -1,0 +1,8 @@
+{# expects `d` (artifact document) #}
+<div class="actions doc-actions">
+  {% if d.pdf_path and d.pdf_sha256 %}<a class="btn sm" href="/documents/{{ d._id }}/download?kind=pdf&amp;inline=1" target="_blank" rel="noopener"><svg class="icon"><use href="#i-documents"/></svg>Open PDF</a>
+  <a class="btn secondary sm" href="/documents/{{ d._id }}/download?kind=pdf">Download PDF</a>{% endif %}
+  {% if d.path and d.sha256 %}<a class="btn secondary sm" href="/documents/{{ d._id }}/download?kind=docx"><svg class="icon"><use href="#i-upload"/></svg>Download DOCX</a>{% endif %}
+</div>
+<small class="doc-meta">DOCX <code>{{ (d.sha256 or '')[:12] }}…</code>{% if d.pdf_sha256 %} · PDF <code>{{ d.pdf_sha256[:12] }}…</code>{% endif %} · pages {{ d.pages if d.pages is not none else 'unverified' }}{% if not d.page_limit_verified %} <span class="pill warn">{{ d.render_note or 'not verified' }}</span>{% endif %}</small>
+<small class="doc-meta">Path <code class="path">{{ d.path }}</code>{% if d.pdf_path %} · PDF <code class="path">{{ d.pdf_path }}</code>{% endif %}</small>

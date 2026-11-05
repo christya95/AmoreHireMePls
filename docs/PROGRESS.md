@@ -43,7 +43,7 @@ Keep this file current. A later session should be able to continue from the "Exa
 
 ## Verification status
 
-- `uv run pytest`: 84 passed on the Mac (dev Mongo + Chromium present), after the dashboard redesign.
+- `uv run pytest`: 86 passed on the Mac (dev Mongo + Chromium present), after the dashboard redesign.
 - Mongo-marked tests against the NAS (`AMORE_TEST_MONGODB_URI` + `AMORE_TEST_MONGODB_DATABASE=amorehiremepls_test`, app user): 55 passed, exit 0.
 - `uv run ruff check src tests` and `ruff format --check`: clean. `docker compose config`: valid. Chromium + LibreOffice verified inside the hardened container.
 - Live: nothing. No application submitted, no message sent, no tracker push, no NAS deployment of the app containers.
@@ -62,6 +62,7 @@ Keep this file current. A later session should be able to continue from the "Exa
 - Settings (`/settings`): theme (system/light/dark), accent presets + free hex, display name, avatar upload (PNG/JPEG/WebP ≤ 1 MB, header-sniffed, dimension-checked, stored under `AMORE_PRIVATE_DIR/avatar/`, served by the authenticated `/settings/avatar/image`) or initials style. Persisted in `controls.ui_settings`; theme+accent mirrored in the `amore_ui` cookie for first paint and the login page. All new POSTs require the CSRF token and same-origin.
 - Tests: `tests/test_ui_settings.py` (helpers without Mongo; endpoint tests for persistence, cookie mirror, `next` validation, avatar rejection of wrong type / disguised bytes / oversize / tiny / non-image, serving and removal, CSRF/login enforcement, overview attention list and new pages). Existing web tests unchanged and passing.
 - Screenshots (light + dark, 1280 and 390 wide) were taken from a dev instance on 8791 against the dev Mongo; the live 8790 process was restarted afterwards.
+- Document access: `GET /documents/{artifact_id}/download?kind=docx|pdf[&inline=1]` serves a tailored document by id (path from the artifact record only, confined to `artifact_dir` after `resolve()`, SHA-256 re-checked against the reviewed hash: 403 / 409 / 404, `private, no-store`, `nosniff`, stored filename in `Content-Disposition`). Buttons + hash prefixes + copyable path on `/documents`, the job page and the review package page (`tests/test_documents.py`). Imported historical artifacts (tracker clone `artifact_status`) are not served; they are listed on `/history` only.
 
 ## Remaining / not done
 

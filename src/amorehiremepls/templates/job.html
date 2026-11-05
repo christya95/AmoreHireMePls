@@ -43,8 +43,8 @@
 </div>
 
 <div class="card flush"><div class="card-h"><h3>Documents</h3></div>
-  <div class="table-wrap"><table><thead><tr><th>File</th><th>SHA-256</th><th>Pages</th><th>Grounding</th><th>Method</th></tr></thead>
-  <tbody>{% for d in artifacts %}<tr><td class="wrap">{{ d.filename }}</td><td><code>{{ d.sha256[:16] }}…</code></td><td>{{ d.pages if d.pages is not none else 'unverified' }} {% if not d.page_limit_verified %}<span class="pill warn">{{ d.render_note }}</span>{% endif %}</td><td>{% if d.grounding.ok %}<span class="pill ok">ok</span>{% else %}<span class="pill bad">{{ d.grounding.violations|join('; ') }}</span>{% endif %}</td><td>{{ d.method }}</td></tr>
+  <div class="table-wrap"><table><thead><tr><th>File</th><th>Open / download</th><th>Grounding</th><th>Method</th><th class="right">Created</th></tr></thead>
+  <tbody>{% for d in artifacts %}<tr><td class="wrap"><strong>{{ d.filename }}</strong></td><td class="wrap">{% include "_doc_actions.html" %}</td><td>{% if d.grounding.ok %}<span class="pill ok">ok</span>{% else %}<span class="pill bad">{{ d.grounding.violations|join('; ') }}</span>{% endif %}</td><td>{{ d.method }}</td><td class="right nowrap">{{ d.created_at|toronto }}</td></tr>
   {% else %}<tr><td colspan="5"><div class="empty">No tailored documents yet.</div></td></tr>{% endfor %}</tbody></table></div></div>
 </div>
 {% endblock %}

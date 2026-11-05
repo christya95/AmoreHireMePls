@@ -24,6 +24,7 @@
         <tr><td>Apply at</td><td class="wrap">{{ pkg.apply_url }}</td></tr>
         <tr><td>Document</td><td>{% if pkg.document %}<span class="wrap">{{ pkg.document.filename }}</span><span class="sub">DOCX <code>{{ pkg.document.sha256[:16] }}…</code> · PDF {% if pkg.document.pdf_sha256 %}<code>{{ pkg.document.pdf_sha256[:16] }}…</code>{% else %}n/a{% endif %} · pages {{ pkg.document.pages if pkg.document.pages is not none else 'unverified' }} {% if not pkg.document.page_limit_verified %}<span class="pill warn">{{ pkg.document.render_note }}</span>{% endif %}</span>{% else %}<span class="pill bad">no document</span>{% endif %}</td></tr>
         <tr><td>Material hash</td><td><code>{{ a.material_hash }}</code></td></tr>
+        {% if doc_art %}<tr><td>Read what would be uploaded</td><td>{% with d = doc_art %}{% include "_doc_actions.html" %}{% endwith %}</td></tr>{% endif %}
       </table>
     </div>
     <div class="card flush">

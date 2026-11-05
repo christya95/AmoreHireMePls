@@ -352,6 +352,9 @@ td .sub { display: block; color: var(--muted); font-size: 0.78rem; margin-top: 1
 table.kv td:first-child { color: var(--muted); width: 45%; }
 table.compact th, table.compact td { padding: 7px 10px; }
 td.msg-text { max-width: 360px; min-width: 220px; }
+.doc-actions { margin: 4px 0; }
+.doc-meta { display: block; margin-top: 3px; }
+code.path { user-select: all; font-size: 0.78em; }
 .row-person { display: flex; align-items: center; gap: 10px; }
 .row-person .avatar { --size: 32px; font-size: 0.72rem; }
 
