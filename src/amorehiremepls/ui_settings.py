@@ -328,6 +328,13 @@ STATUS_LABELS: dict[str, str] = {
     "resolved": "Identity bound",
 }
 
+# Submission screenshots the worker keeps as evidence: label -> (short title, one-line meaning).
+SCREENSHOT_LABELS: dict[str, tuple[str, str]] = {
+    "summary": ("Filled review page", "The form exactly as it was filled in, captured right before the final submit click."),
+    "receipt": ("Confirmation page", "What the employer site showed after submitting; the receipt text was verified against it."),
+    "ambiguous": ("Unclear outcome", "What the site showed after the click when no confirmation could be verified. Check it yourself and record the result."),
+}
+
 # The one obvious verb for an application in a given state.
 NEXT_ACTIONS: dict[str, str] = {
     "ready_for_review": "Review package",
@@ -377,6 +384,10 @@ GLOSSARY: dict[str, tuple[str, str]] = {
     "grounding": (
         "Grounding",
         "Every tailored bullet must trace back to a bullet in your approved base resume. Ungrounded output is rejected and the deterministic version is used instead.",
+    ),
+    "evidence": (
+        "Submission evidence",
+        "For automated submissions the worker keeps two screenshots with their hashes: the filled review page right before the final click (summary) and the confirmation page afterwards (receipt). An unclear outcome keeps what the site showed instead (ambiguous).",
     ),
     "regenerate": (
         "Regenerate documents",

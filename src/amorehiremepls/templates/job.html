@@ -44,7 +44,8 @@
 <div class="card flush"><div class="card-h"><h3>Documents</h3>{{ hint('grounding') }}<span class="sub">Tailored from the approved base resume. Open the PDF to read exactly what would be uploaded.</span></div>
   <div class="table-wrap"><table><thead><tr><th>File</th><th>Open / download</th><th>Grounding</th><th>Method</th><th class="right">Created</th></tr></thead>
   <tbody>{% for d in artifacts %}<tr class="{{ 'superseded' if d.superseded }}"><td class="wrap"><strong>{{ d.filename }}</strong>{% if d.superseded %}<span class="sub">replaced by a newer version</span>{% endif %}</td><td class="wrap">{% include "_doc_actions.html" %}</td><td>{% if d.grounding.ok %}<span class="pill ok">ok</span>{% else %}<span class="pill bad">{{ d.grounding.violations|join('; ') }}</span>{% endif %}</td><td>{{ d.method }}</td><td class="right nowrap">{{ d.created_at|toronto }}</td></tr>
-  {% else %}<tr><td colspan="5"><div class="empty"><svg class="icon"><use href="#i-documents"/></svg>No tailored resume yet. "Tailor and prepare" above builds one and pauses for your review.</div></td></tr>{% endfor %}</tbody></table></div></div>
+  {% else %}<tr><td colspan="5"><div class="empty"><svg class="icon"><use href="#i-documents"/></svg>No tailored resume yet. "Tailor and prepare" above builds one and pauses for your review.</div></td></tr>{% endfor %}</tbody></table></div>
+  {% if screenshots %}<div class="pad evidence-row"><div class="card-h"><h3>Submission evidence</h3>{{ hint('evidence') }}<span class="sub">Captures from the automated submission; open the review package for the full record.</span></div>{% with shots = screenshots %}{% include "_shots.html" %}{% endwith %}</div>{% endif %}</div>
 
 <div class="grid-2">
   <div class="card flush"><div class="card-h"><h3>Applications</h3><span class="sub">The local review package and any imported history for this employer.</span></div>

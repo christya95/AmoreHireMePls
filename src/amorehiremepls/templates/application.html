@@ -63,6 +63,10 @@
         <small>Covers this job, these answers and these document hashes only. If anything changes, you will be asked again.</small></form>
       {% elif not scopes %}<p class="note">Nothing to approve right now. The approval form appears here when the package is ready.</p>{% endif %}
     </div>
+    {% if shots %}<div class="card" id="evidence">
+      <div class="card-h"><h3>Submission evidence</h3>{{ hint('evidence') }}<span class="sub">What the worker saw: the filled form right before the final click and the page shown afterwards. Click a capture to open it full size.</span></div>
+      {% include "_shots.html" %}
+    </div>{% endif %}
     <div class="card" id="record">
       <div class="card-h"><h3>Execution record</h3>{% if a.status == 'needs_verification' %}{{ hint('needs_verification') }}{% elif a.status == 'handoff' %}{{ hint('handoff') }}{% endif %}</div>
       {% if action %}<p>Action <span class="mono">{{ action._id }}</span> {{ status(action.status) }} {{ action.outcome_reason or '' }}</p>

@@ -365,6 +365,21 @@ table.kv td:first-child { color: var(--muted); width: 45%; }
 table.compact th, table.compact td { padding: 7px 10px; }
 td.msg-text { max-width: 360px; min-width: 220px; }
 .doc-actions { margin: 4px 0; }
+/* submission screenshots (evidence) */
+.shots { display: flex; flex-wrap: wrap; gap: 14px; }
+.shot { margin: 0; width: 220px; max-width: 100%; display: flex; flex-direction: column; gap: 6px; }
+.shot a { display: block; }
+.shot img, .shot-missing {
+  width: 100%; aspect-ratio: 4 / 3; object-fit: cover; object-position: top; display: block;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg); box-shadow: var(--shadow);
+}
+.shot a:hover img { border-color: var(--accent); }
+.shot-missing { display: grid; place-items: center; color: var(--muted); font-size: 0.78rem; text-align: center; padding: 8px; }
+.shot figcaption { font-size: 0.82rem; line-height: 1.3; display: flex; flex-direction: column; gap: 2px; align-items: flex-start; }
+.shot figcaption strong { margin-right: 6px; }
+.shot figcaption small { color: var(--muted); }
+.shot figcaption .meta { overflow-wrap: anywhere; }
+.evidence-row { border-top: 1px solid var(--border); padding-top: 14px; }
 .doc-meta { display: block; margin-top: 3px; }
 code.path { user-select: all; font-size: 0.78em; }
 .row-person { display: flex; align-items: center; gap: 10px; }

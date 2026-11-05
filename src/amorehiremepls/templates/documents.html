@@ -16,5 +16,11 @@
     {% else %}<tr><td colspan="6"><div class="empty"><svg class="icon"><use href="#i-documents"/></svg>No tailored documents yet. Open a job and press "Tailor and prepare"; the resume appears here with its hashes.<div class="actions center mt"><a class="btn sm" href="/jobs">Go to jobs</a>{% if not base_resume %}<a class="btn secondary sm" href="/profile">Select the base resume first</a>{% endif %}</div></div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>
+{% if screenshots %}
+<div class="card" id="screenshots">
+  <div class="card-h"><h3>Submission screenshots</h3>{{ hint('evidence') }}<span class="sub">Evidence the worker kept for automated submissions. These are images, not documents: nothing here is uploaded anywhere.</span></div>
+  {% with shots = screenshots, show_job = True %}{% include "_shots.html" %}{% endwith %}
+</div>
+{% endif %}
 </div>
 {% endblock %}
