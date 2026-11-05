@@ -259,6 +259,10 @@ Joss asked for the whole repository to be usable by someone in another professio
 - **Deployed.** `lepia/amorehiremepls:e57cd6de0ff4` on the NAS stack at 12:33 (init exited 0, web and worker healthy, `/health` 200, Overview greeting still shows the display name, Profile page shows the new profile file card; the file itself lives on the Mac, so the NAS card reads "not found" until a copy is put in `/candidate`). The Faire application was not retried. `docs/HANDOFF.md` added and linked from AGENTS.md and the top of this file.
 - **Joss's behaviour unchanged.** His live preferences were exported from the NAS database to the gitignored `candidate/profile.toml`, the rules that used to be code defaults were written into it, and a dry-run import reproduced the live profile's fingerprints block for block (hashes and booleans compared only; no values printed). Details in the chat report.
 
+## Handoff (2026-11-05, 12:40 Toronto)
+
+Session handed off to a fresh chat. Current state, decisions, open questions and the ordered queue are in `docs/HANDOFF.md` (rewritten on top of commit `45be592`; deployed tag still `e57cd6de0ff4`). First queue item: form rules (`FIELD_RULES` / `SELF_ID_RULES`) for the newly saved answer keys.
+
 ## Exact next step
 
 Greenhouse, Lever, and Ashby form filling, owner notifications, the human-check hold, and one later try are on `main` and fixture-tested only. None of those paths has been live-submitted. This session did not deploy and did not start a Mac worker.
