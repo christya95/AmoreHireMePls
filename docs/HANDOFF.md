@@ -68,10 +68,11 @@ No private values here: field names and counts only. Keep under 120 lines; finis
    until each saved answer carries a `question_pattern` (Profile page or `profile.toml` `match`); see question 9.
    Deployed as `68c7a2576966`.
 2. Directory reorganization into `core/ candidate/ jobs/ apply/ records/ outreach/ web/` with `git mv` and absolute imports.
-   Size: M-L. Plan: first commit move only, from a clean tree; before moving, check `lg_checkpoint_writes` for stored class
-   paths (LangGraph checkpoints pickle module paths). Then split web routes, docstring standard plus the 22 high value
-   comments, `docs/architecture.md`, hard coded test paths for `static/` and `templates/`, move ruff per-file-ignores.
-   Waits for: item 1 deployed.
+   Size: M-L. Plan: first commit move only, from a clean tree. Preflight done 2026-11-05 13:05: `lg_checkpoints` (11 docs)
+   and `lg_checkpoint_writes` (35 docs) on the NAS database hold no `amorehiremepls.*` module paths, so the move cannot
+   break stored checkpoints. Then split web routes, docstring standard plus the 22 high value
+   comments,    `docs/architecture.md`, hard coded test paths for `static/` and `templates/`, move ruff per-file-ignores.
+   Ready to start (item 1 deployed); begin it in a fresh session so the whole move fits one context.
 3. Per user accounts with an admin role and 365 day access. Size: L. Plan: single database plus `user_id` through a
    `ScopedStore`, argon2id passwords, `users` collection (`role`, `access_until`, `status`), `require_session` gate to
    `/access-ended`, People page under `/admin` (extend, set password, turn off, delete with backup and tombstone), Overview
