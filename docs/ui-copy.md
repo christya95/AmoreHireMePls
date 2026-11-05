@@ -118,6 +118,15 @@ People never to contact: `unresolved` Not yet identified · `resolved` Identifie
 | downloaded / latest version / not on GitHub yet | clone / HEAD / ahead |
 | never shown | idempotency, checkpoint, CSRF, material hash (as a phrase), SHA-256 (only inside `<code>`) |
 
+## Colour and the technical chip (design notes)
+
+- One semantic system: good (`ok`, green), waiting (`warn`, amber), problem (`bad`, red), info (`info`, blue), neutral
+  (grey). The `tone` filter maps every state to one of these; the fit ring bands use the same tones. Each tone has a
+  text colour that passes AA on its tinted pill in both themes (`tests/test_design.py` checks the ratios).
+- The grey technical chip next to a status is always rendered by the `status()` macro but, inside tables, is only
+  shown when the row is hovered or focused. Detail pages (job, application, task) and Help show it all the time.
+- IDs and hashes live in muted sub-lines (`<span class="sub mono">`) or Technical details, never in a first column.
+
 ## Rules applied everywhere
 
 - Short everyday sentences, one idea per sentence. Verbs on buttons ("Check fit", "Read and approve", "I applied on

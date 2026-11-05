@@ -139,9 +139,20 @@ Keep this file current. A later session should be able to continue from the "Exa
 
 - Short ease-out motion in `app.css` only: page cards and the first six table rows fade in, buttons and the theme control lift slightly, the fit ring draws once, flash banners slide in. `prefers-reduced-motion: reduce` snaps movement (0.01 ms) and keeps a colour fade. No animation library.
 
-## Dashboard polish (2026-11-05)
+## Dashboard polish: designer notes (2026-11-05)
 
-- Light mode cards sit a little higher; dark mode uses a cleaner border and no drop shadow. Page titles are larger. Status colours stay on the tinted pills, and the grey internal-state chip is quieter. The next unfinished setup step is highlighted. Settings → Appearance opens with a row of the same status colours the rest of the app uses. Company logos stay the left anchor of each job row.
+All in `static/app.css` plus small template changes; no new routes, no JS framework, no outside assets. Checked on the local web at 127.0.0.1:8790 in light and dark at 1280px and 390px (`/tmp/amore_ui_polish/`), no console errors, no horizontal scroll on any page.
+
+- **One semantic colour system.** Each tone (good `ok`, waiting `warn`, problem `bad`, info `info`, neutral) now has a graphic colour, a text colour and a tinted surface. Pills, the fit ring bands, KPI icons, attention icons, banners and flashes all use the same tokens. The text colours were chosen so every pill passes AA (≥ 4.5:1) on its tinted surface and on a card in both themes; `tests/test_design.py` computes the ratios from the stylesheet so a future colour tweak cannot silently break it. Status pills carry a small dot so colour is never the only signal.
+- **Accent stays the user's colour; filled controls deepen it 16%** (`--accent-ui`) so white button text passes AA for every preset except amber (3.9:1, documented). Charts, rings, soft surfaces and swatches still use the raw accent. Links and tinted text use `--accent-text` (62% accent / text in light, 70% accent / white in dark).
+- **Hierarchy.** Larger page titles, quieter topbar title, uppercase muted section labels (`h4`, table headers, settings groups), one radius scale (8 / 12 / 18 / 22), one card padding. Light cards have a clearer soft shadow; dark cards have no shadow and a slightly stronger border.
+- **Lists.** Logo + company is the left anchor everywhere (also on Background tasks now). Rows that need the user get a thin amber edge (red for an unclear result or a GitHub conflict), hover gives an accent tint and edge. The technical state chip next to a status is hidden in tables until the row is hovered or focused; it stays visible on detail pages and Help. IDs moved out of first columns into muted sub-lines (Overview tasks, job page tables, Approvals, GitHub tracker, Past applications, Background tasks); recruiter notes show the person's name instead of their ID.
+- **Overview.** KPI tiles lift on hover and the "Results unclear" value turns red only while something is unclear. The next unfinished setup step is highlighted with a filled number. Empty states have an accent icon tile. Attention icons were drawn as black blobs (missing stroke rule); fixed.
+- **Job page.** Header, stepper and the one next action are one hero card so the reading order is title → where it is → what to do. Below it the fit card takes two thirds and the rules verdict one third, top-aligned so neither stretches into an empty white block; fit point lists flow into two columns when there is room. The applications table in the narrow card dropped a column so it no longer scrolls sideways.
+- **Settings → Appearance** is a control panel: a live preview (mini sidebar + card with pills, buttons and a link, built from the same CSS variables so it reacts to every picker at once), theme tiles with light / dark / split thumbnails, swatches with a focus ring, and the company-logos option as a switch.
+- **Accessibility.** One visible focus ring everywhere (2px accent outline, also on hidden radio/checkbox controls via their visible span), muted text darkened to 4.8:1 in light, reduced motion unchanged (snaps movement, keeps colour fades).
+- **Phone.** Attention items wrap with a full-width button, the Emergency stop button shows only its icon under 520px, the job-boards form stacks.
+- Left for later: the "?" hint after a long page intro can wrap onto its own line (Recruiters); the amber preset's white-on-amber button text is below AA; the `prefers-color-scheme` fallback block duplicates the dark tokens (only used without JS).
 
 ## Exact next step
 
