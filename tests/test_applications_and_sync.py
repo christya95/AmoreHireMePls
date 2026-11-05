@@ -154,6 +154,105 @@ def test_execute_success_records_evidence_and_enqueues_sync_and_replay_is_safe(s
     assert svc.prepare(job["_id"], FIELDS)["status"] == "duplicate"
 
 
+def _png(path: Path, payload: bytes) -> dict:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + payload)
+    label = path.stem.rsplit("_", 1)[-1]
+    return {"label": label, "path": str(path), "sha256": sha256_file(path), "captured_at": "2026-11-05T06:00:00+00:00", "url": f"https://ats.example/{label}"}
+
+
+def test_structured_screenshots_are_recorded_registered_as_artifacts_and_archived_by_sync(store, tmp_path):
+    profile = _profile(tmp_path)
+    builders = {"ats.example": lambda job, pkg, answers: Plan(start_url=pkg["apply_url"], steps=[Step("click", "#submit", final=True)], receipt_text="received")}
+    svc = _service(store, tmp_path, profile, builders)
+    job = _job(store)
+    app = svc.prepare(job["_id"], [f for f in FIELDS if f.id != "why"])
+    AuthorizationStore(store).grant("application_submit", ScopeBinding(target_id=job["_id"], material_hash=app["material_hash"]))
+    shot_dir = tmp_path / "artifacts" / "jobs" / job["_id"] / "screenshots"
+    seen_job_ids = []
+
+    def fake_browser(plan: Plan) -> dict:
+        seen_job_ids.append(plan.job_id)
+        shots = [_png(shot_dir / f"20261105T060000_{job['_id']}_summary.png", b"review page"), _png(shot_dir / f"20261105T060002_{job['_id']}_receipt.png", b"thank you")]
+        return {"verified": True, "receipt_text": "Application received for requisition R42.", "final_url": "https://ats.example/done", "screenshots": shots, "final_clicked": True}
+
+    assert svc.execute(app["_id"], "w1", fake_browser).status == "succeeded"
+    assert seen_job_ids == [job["_id"]]  # the service fills the plan's job id so the adapter can name/place the files
+    app = svc.apps.find_one({"_id": app["_id"]})
+    assert app["evidence_basis"] == "receipt_screenshot_reviewed"
+    shots = app["evidence"]["screenshots"]
+    assert [s["label"] for s in shots] == ["summary", "receipt"]
+    for s in shots:
+        assert set(s) == {"label", "path", "sha256", "captured_at", "url", "artifact_id"}
+        assert Path(s["path"]).is_file() and sha256_file(Path(s["path"])) == s["sha256"] and s["url"].endswith(s["label"])
+        art = store.c("artifacts").find_one({"_id": s["artifact_id"]})
+        assert art["kind"] == "screenshot" and art["owner_id"] == job["_id"] == art["job_id"] and art["application_id"] == app["_id"]
+        assert art["label"] == s["label"] and art["sha256"] == s["sha256"] and art["path"] == s["path"] and art["filename"] == Path(s["path"]).name
+        assert art["media_type"] == "image/png" and art["captured_at"] == s["captured_at"] and art["created_at"]
+    assert store.c("artifacts").count_documents({"kind": "screenshot", "application_id": app["_id"]}) == 2
+    # registering again (replay / re-read) does not duplicate artifact rows
+    assert [s["artifact_id"] for s in svc.register_screenshots(job["_id"], app["_id"], shots)] == [s["artifact_id"] for s in shots]
+    assert store.c("artifacts").count_documents({"kind": "screenshot", "application_id": app["_id"]}) == 2
+
+    coord, clone, bare = _coord(store, tmp_path)
+    res = coord.process_pending()
+    assert res and res[0]["status"] == "synced", res
+    rec = next(r for r in json.loads((clone / "data/applications.json").read_text()) if r["id"] == "acme-R42")
+    kinds = {a["kind"]: a for a in rec["artifacts"]}
+    assert set(kinds) == {"resume_submitted", "receipt", "summary_screenshot"}
+    by_label = {s["label"]: s for s in shots}
+    for kind, label in (("receipt", "receipt"), ("summary_screenshot", "summary")):
+        a = kinds[kind]
+        assert a["path"].startswith("artifacts/acme-R42/") and a["path"].endswith(f"-acme-R42_{label}.png") and a["original_filename"] == f"acme-R42_{label}.png"
+        assert a["sha256"] == by_label[label]["sha256"] == sha256_file(clone / a["path"])
+    assert git(bare, "log", "-1", "--format=%s") == "Record confirmed application acme-R42" and not git(clone, "status", "--porcelain")
+    assert "summary_screenshot" in (clone / "records" / "acme-R42.md").read_text()
+
+
+def test_legacy_string_screenshots_are_normalised_and_hashed_on_record(store, tmp_path):
+    profile = _profile(tmp_path)
+    builders = {"ats.example": lambda job, pkg, answers: Plan(start_url=pkg["apply_url"], steps=[], receipt_text="x")}
+    svc = _service(store, tmp_path, profile, builders)
+    job = _job(store)
+    app = svc.prepare(job["_id"], [f for f in FIELDS if f.id != "why"])
+    AuthorizationStore(store).grant("application_submit", ScopeBinding(target_id=job["_id"], material_hash=app["material_hash"]))
+    old = tmp_path / "artifacts" / "screenshots" / "20261101T120000_receipt.png"
+    old.parent.mkdir(parents=True)
+    old.write_bytes(b"\x89PNG old-style")
+    missing = str(tmp_path / "artifacts" / "screenshots" / "20261101T115959_summary.png")  # never written
+    legacy = {"verified": True, "receipt_text": "Application received for requisition R42.", "final_url": "u", "screenshots": [missing, str(old)]}
+    assert svc.execute(app["_id"], "w1", lambda p: legacy).status == "succeeded"
+    app = svc.apps.find_one({"_id": app["_id"]})
+    shots = app["evidence"]["screenshots"]
+    assert [(s["label"], s["path"], s["sha256"], s["captured_at"], s["url"]) for s in shots] == [
+        ("summary", missing, None, None, None),
+        ("receipt", str(old), sha256_file(old), None, None),
+    ]
+    assert "artifact_id" not in shots[0] and store.c("artifacts").count_documents({"kind": "screenshot", "application_id": app["_id"]}) == 1
+    assert app["evidence_basis"] == "receipt_screenshot_reviewed"
+
+
+def test_ambiguous_outcome_keeps_summary_and_ambiguous_screenshots(store, tmp_path):
+    profile = _profile(tmp_path)
+    builders = {"ats.example": lambda job, pkg, answers: Plan(start_url=pkg["apply_url"], steps=[], receipt_text="x")}
+    svc = _service(store, tmp_path, profile, builders)
+    job = _job(store)
+    app = svc.prepare(job["_id"], [f for f in FIELDS if f.id != "why"])
+    AuthorizationStore(store).grant("application_submit", ScopeBinding(target_id=job["_id"], material_hash=app["material_hash"]))
+    shot_dir = tmp_path / "artifacts" / "jobs" / job["_id"] / "screenshots"
+    shots = [_png(shot_dir / f"20261105T060000_{job['_id']}_summary.png", b"review"), _png(shot_dir / f"20261105T060010_{job['_id']}_ambiguous.png", b"spinner")]
+
+    def timeout(plan):
+        raise AmbiguousOutcome("timeout after final click", {"final_clicked": True, "screenshots": shots})
+
+    assert svc.execute(app["_id"], "w1", timeout).status == "needs_verification"
+    app = svc.apps.find_one({"_id": app["_id"]})
+    assert app["status"] == "needs_verification" and [s["label"] for s in app["evidence"]["screenshots"]] == ["summary", "ambiguous"]
+    assert all(s.get("artifact_id") for s in app["evidence"]["screenshots"])
+    labels = sorted(a["label"] for a in store.c("artifacts").find({"kind": "screenshot", "application_id": app["_id"]}))
+    assert labels == ["ambiguous", "summary"]
+
+
 def test_ambiguous_submission_needs_verification_then_reconcile(store, tmp_path):
     profile = _profile(tmp_path)
     builders = {"ats.example": lambda job, pkg, answers: Plan(start_url=pkg["apply_url"], steps=[], receipt_text="x")}

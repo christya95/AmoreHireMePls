@@ -74,9 +74,13 @@ def review(req: str, sid: str, slow: int = 0):
     return _page(
         "Review your application",
         f"""
-    <p>Requisition {req}</p>
-    <input id="rv_email" value="{s.get("email", "")}" readonly>
-    <input id="rv_resume" value="{s.get("resume_name", "")}" readonly>
+    <p id="rv_marker">Review summary for requisition {req}: check every answer before you submit.</p>
+    <label>Name <input id="rv_name" value="{s.get("first_name", "")} {s.get("last_name", "")}" readonly></label>
+    <label>Email <input id="rv_email" value="{s.get("email", "")}" readonly></label>
+    <label>Phone <input id="rv_phone" value="{s.get("phone", "")}" readonly></label>
+    <label>Resume <input id="rv_resume" value="{s.get("resume_name", "")}" readonly></label>
+    <label>Work authorization <input id="rv_work_auth" value="{s.get("work_auth", "")}" readonly></label>
+    <label>Desired salary <input id="rv_salary" value="{s.get("salary", "")}" readonly></label>
     <form method="post" action="/apply/{req}/submit/{sid}?slow={slow}">
       <button type="submit" id="submit">Submit application</button>
     </form>""",

@@ -169,6 +169,21 @@ def test_generic_plan_requires_requisition_in_receipt_by_default_and_evidence_re
     assert generic_plan_builder(job, pkg, []).receipt_must_include == []
 
 
+def test_normalize_screenshots_widens_legacy_paths_and_keeps_structured_entries():
+    from amorehiremepls.browser import normalize_screenshots
+
+    structured = {"label": "summary", "path": "/a/x_summary.png", "sha256": "ab", "captured_at": "t", "url": "u"}
+    legacy = ["/old/20261101T120000_receipt.png", "/old/20261101T120001_receipt_mismatch.png"]
+    out = normalize_screenshots([*legacy, structured, {"path": "/a/y_ambiguous.png"}, "", {"label": "no path"}])
+    assert out == [
+        {"label": "receipt", "path": "/old/20261101T120000_receipt.png", "sha256": None, "captured_at": None, "url": None},
+        {"label": "receipt_mismatch", "path": "/old/20261101T120001_receipt_mismatch.png", "sha256": None, "captured_at": None, "url": None},
+        structured,
+        {"label": "ambiguous", "path": "/a/y_ambiguous.png", "sha256": None, "captured_at": None, "url": None},
+    ]
+    assert normalize_screenshots(None) == [] and normalize_screenshots([]) == []
+
+
 @pytest.mark.mongo
 def test_submission_evidence_lists_only_matched_identifiers(store, tmp_path):
     from amorehiremepls.browser import Plan

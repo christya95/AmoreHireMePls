@@ -17,12 +17,12 @@ from typing import Any
 
 from .actions import ActionStore, Outcome
 from .authorization import material_hash
-from .browser import HandoffRequired, Plan
+from .browser import HandoffRequired, Plan, normalize_screenshots
 from .db import Store
 from .jobs import JobStore
 from .profile import BandEvidence, Profile, compute_experience, desired_salary
 from .tailoring import Tailor
-from .util import new_id, to_toronto, utcnow
+from .util import new_id, sha256_file, to_toronto, utcnow
 
 log = logging.getLogger(__name__)
 
@@ -207,7 +207,9 @@ class ApplicationService:
                     "posting_hash": snapshot.get("posting_hash"),
                     "base_sha256": base.sha256 if base else None,
                     "grounding.ok": True,  # a cached ungrounded artifact is re-tailored, not reused
-                }
+                    "superseded": {"$ne": True},  # regenerated documents replace older ones for new packages
+                },
+                sort=[("created_at", -1)],
             )
             if artifact is None:
                 display = self.profile.fact_value("display_name") or "Resume"
@@ -331,6 +333,8 @@ class ApplicationService:
 
         def adapter(action_doc: dict) -> dict:
             plan = builder(job, pkg, pkg["answers"])
+            if not plan.job_id:
+                plan.job_id = job["_id"]  # screenshots are named after and stored with the job's artifacts
             try:
                 return run_adapter(plan)
             except HandoffRequired as exc:
@@ -350,6 +354,7 @@ class ApplicationService:
         app_id = app["_id"]
         if outcome.status == "succeeded":
             ev = outcome.evidence
+            shots = self.register_screenshots(job["_id"], app_id, ev.get("screenshots"))
             self._set(
                 app_id,
                 "submitted",
@@ -359,13 +364,13 @@ class ApplicationService:
                     "basis": "receipt_observed",
                     "receipt_text": (ev.get("receipt_text") or "")[:1000],
                     "final_url": ev.get("final_url"),
-                    "screenshots": ev.get("screenshots", []),
+                    "screenshots": shots,
                     # only identifiers the adapter actually observed in the receipt; never assumed from the job
                     "verified_identifiers": list(ev.get("matched_identifiers") or []),
                     "expected_identifiers": [x for x in [job.get("requisition_id")] if x],
                     "action_id": outcome.action_id,
                 },
-                evidence_basis="receipt_screenshot_reviewed" if ev.get("screenshots") else "employer_status_reviewed",
+                evidence_basis="receipt_screenshot_reviewed" if any(s["label"] == "receipt" for s in shots) else "employer_status_reviewed",
                 date_basis="employer receipt observed in America/Toronto",
                 sync={"state": "sync_pending"},
                 next_action="tracker sync + recruiter outreach prep",
@@ -375,11 +380,13 @@ class ApplicationService:
 
             SyncOutbox(self.store).enqueue(app_id, "record_submission")
         elif outcome.status == "needs_verification":
-            self._set(app_id, "needs_verification", reason=outcome.reason, evidence=outcome.evidence, next_action="inspect the employer account/email, then reconcile the action")
+            ev = self._with_screenshots(job["_id"], app_id, outcome.evidence)
+            self._set(app_id, "needs_verification", reason=outcome.reason, evidence=ev, next_action="inspect the employer account/email, then reconcile the action")
             self.store.release("jobs", {"_id": job["_id"]}, worker, "needs_verification")
         elif outcome.status == "failed":
             nxt = "retry is allowed: the action returned to ready before any irreversible step" if outcome.retryable else "fix the reported problem and prepare again"
-            self._set(app_id, "failed", reason=outcome.reason, evidence=outcome.evidence, retryable=outcome.retryable, next_action=nxt)
+            ev = self._with_screenshots(job["_id"], app_id, outcome.evidence)
+            self._set(app_id, "failed", reason=outcome.reason, evidence=ev, retryable=outcome.retryable, next_action=nxt)
             self.store.release("jobs", {"_id": job["_id"]}, worker, "qualified")
         elif outcome.status in ("denied", "blocked"):
             self._set(
@@ -391,6 +398,48 @@ class ApplicationService:
             self.store.release("jobs", {"_id": job["_id"]}, worker, job["status"] if job["status"] != "executing" else "qualified")
         else:
             self.store.release("jobs", {"_id": job["_id"]}, worker, job["status"] if job["status"] != "executing" else "qualified")
+
+    def _with_screenshots(self, job_id: str, app_id: str, evidence: Any) -> Any:
+        if not isinstance(evidence, dict) or not evidence.get("screenshots"):
+            return evidence
+        return {**evidence, "screenshots": self.register_screenshots(job_id, app_id, evidence.get("screenshots"))}
+
+    def register_screenshots(self, job_id: str, app_id: str, raw: Any) -> list[dict]:
+        """Normalise adapter screenshot evidence and register each capture in `artifacts` (kind `screenshot`).
+
+        The artifact mirrors the tailored-document shape (`owner_id`, `path`, `filename`, `sha256`, `created_at`) so the
+        hash-verified document download route can serve it by id; `job_id`, `application_id` and `label` let the
+        application page list `summary` / `receipt` / `ambiguous` captures. Re-registering the same file is a no-op."""
+        shots = normalize_screenshots(raw)
+        arts = self.store.c("artifacts")
+        for shot in shots:
+            path = Path(shot["path"])
+            if shot.get("sha256") is None and path.is_file():
+                shot["sha256"] = sha256_file(path)
+            if not shot.get("sha256"):
+                continue  # file never landed; keep the evidence entry but there is nothing to serve
+            existing = arts.find_one({"kind": "screenshot", "application_id": app_id, "sha256": shot["sha256"], "label": shot["label"]}, {"_id": 1})
+            if existing:
+                shot["artifact_id"] = existing["_id"]
+                continue
+            art = {
+                "_id": new_id("art"),
+                "owner_id": job_id,
+                "job_id": job_id,
+                "application_id": app_id,
+                "kind": "screenshot",
+                "label": shot["label"],
+                "path": str(path),
+                "filename": path.name,
+                "sha256": shot["sha256"],
+                "media_type": "image/png",
+                "captured_at": shot.get("captured_at"),
+                "url": shot.get("url"),
+                "created_at": utcnow(),
+            }
+            arts.insert_one(art)
+            shot["artifact_id"] = art["_id"]
+        return shots
 
     def reconcile(self, app_id: str, resolved: str, evidence: dict, by: str = "user") -> dict:
         app = self.apps.find_one({"_id": app_id})

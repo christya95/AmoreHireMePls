@@ -18,11 +18,13 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
+from .browser import normalize_screenshots
 from .db import Store
 from .util import new_id, sha256_file, utcnow
 
 log = logging.getLogger(__name__)
 TRACKER_PATHS = ["data", "artifacts", "records", "APPLICATIONS.md", "applications.csv"]
+SUMMARY_ARTIFACT_KIND = "summary_screenshot"  # tracker artifact kind for the pre-submit review page (receipt keeps `receipt`)
 
 
 class GitError(Exception):
@@ -119,9 +121,19 @@ def build_record(app: dict, job: dict) -> dict:
         if doc_name and ev.get("basis") == "receipt_observed"
         else ("user-reported upload" if doc_name else "not recovered"),
         "source_log": f"AmoreHireMePls application {app['_id']}",
-        "notes": "Recorded by AmoreHireMePls from observed evidence; see MongoDB application record for screenshots.",
+        "notes": "Recorded by AmoreHireMePls from observed evidence; review summary and receipt screenshots are archived with this record when captured.",
         "artifacts": [],
     }
+
+
+def evidence_screenshots(app: dict) -> dict[str, Path]:
+    """Latest existing screenshot file per label (`summary`, `receipt`, `ambiguous`, ...) from the application evidence."""
+    out: dict[str, Path] = {}
+    for shot in normalize_screenshots((app.get("evidence") or {}).get("screenshots")):
+        p = Path(shot["path"])
+        if p.is_file():
+            out[shot["label"]] = p
+    return out
 
 
 class SyncCoordinator:
@@ -240,7 +252,8 @@ class SyncCoordinator:
         doc = pkg.get("document") or {}
         resume_path = Path(doc["path"]) if doc.get("path") and Path(doc["path"]).exists() else None
         resume_sha = sha256_file(resume_path) if resume_path else None
-        receipt = next((Path(p) for p in (app.get("evidence") or {}).get("screenshots", []) if p.endswith("_receipt.png") and Path(p).exists()), None)
+        shots = evidence_screenshots(app)
+        receipt, summary = shots.get("receipt"), shots.get("summary")
         if not self._record_exists_with_same_artifacts(record["id"], resume_sha):
             # duplicate employer/requisition under a different id is a conflict, not a second record
             for r in json.loads((self.root / "data/applications.json").read_text(encoding="utf-8")):
@@ -254,15 +267,22 @@ class SyncCoordinator:
             if resume_path is None:
                 record["resume_unavailable_reason"] = "tailored file not present in artifact storage at sync time"
             with tempfile.TemporaryDirectory() as td:
+                # Tracker convention: artifacts/<record id>/<sha12>-<original filename>. The copies are named
+                # `<record id>_<label>.png` so the archived filename itself carries the record id and label.
+                summary_copy = self._stage_summary(record, summary)
                 rec_file = Path(td) / "record.json"
                 rec_file.write_text(json.dumps(record, indent=2), encoding="utf-8")
                 cmd = [self.python, str(self.root / "scripts/records.py"), "add", str(rec_file)]
                 if resume_path:
                     cmd += ["--resume", str(resume_path)]
                 if receipt:
-                    cmd += ["--receipt", str(receipt)]
+                    receipt_copy = Path(td) / f"{record['id']}_receipt.png"
+                    shutil.copy2(receipt, receipt_copy)
+                    cmd += ["--receipt", str(receipt_copy)]
                 r = subprocess.run(cmd, capture_output=True, text=True, cwd=self.root, timeout=120)
                 if r.returncode != 0:
+                    if summary_copy and summary_copy.exists():
+                        summary_copy.unlink()  # leave no untracked file behind for the next attempt
                     msg = (r.stderr or r.stdout).strip()
                     if "already recorded" in msg:
                         raise RecordConflict(msg[-300:])
@@ -279,6 +299,21 @@ class SyncCoordinator:
                 raise GitError(f"refusing to commit unrelated path {name}")
         git(self.root, "commit", "-q", "-m", f"Record confirmed application {record['id']}")
         return git(self.root, "rev-parse", "HEAD")
+
+    def _stage_summary(self, record: dict, summary: Path | None) -> Path | None:
+        """Copy the pre-submit review screenshot into the clone under the tracker's artifact layout and list it on the
+        record (`records.py add` only knows --resume/--receipt; its validator still checks path confinement and hash)."""
+        if summary is None:
+            return None
+        sha = sha256_file(summary)
+        name = f"{record['id']}_summary.png"
+        target = self.root / "artifacts" / record["id"] / f"{sha[:12]}-{name}"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(summary, target)
+        entry = {"kind": SUMMARY_ARTIFACT_KIND, "path": target.relative_to(self.root).as_posix(), "sha256": sha, "original_filename": name}
+        if entry not in record.setdefault("artifacts", []):
+            record["artifacts"].append(entry)
+        return target
 
     def _push(self, item: dict, app: dict) -> dict:
         if not self.push_enabled:

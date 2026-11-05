@@ -56,6 +56,7 @@ def generic_plan_builder(job: dict, pkg: dict, answers: list[dict]) -> Plan:
         receipt_text=fp.get("receipt_text", "thank you"),
         # a known requisition id must appear in the receipt unless the plan explicitly says the site never shows it
         receipt_must_include=[x for x in [job.get("requisition_id")] if x and fp.get("receipt_includes_requisition", True)],
+        job_id=job.get("_id"),
     )
 
 
@@ -75,8 +76,9 @@ class Runtime:
                 allowed_hosts=settings.allowed_hosts,
                 headless=settings.browser_headless,
                 session_dir=settings.browser_session_dir,
-                screenshot_dir=settings.artifact_dir / "screenshots",
+                screenshot_dir=settings.artifact_dir / "screenshots",  # fallback only; job runs use artifact_dir/jobs/<job_id>/screenshots
                 upload_root=settings.artifact_dir,
+                artifact_dir=settings.artifact_dir,
             )
         )
         self.sync = SyncCoordinator(self.store, settings.tracker_clone_dir, settings.tracker_remote, settings.tracker_branch, settings.tracker_push_enabled)
