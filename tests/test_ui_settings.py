@@ -428,3 +428,38 @@ def test_help_page_and_runs_tab(client):
     assert re.search(r'href="/applications"[^>]*aria-current="page"', runs) or re.search(r'aria-current="page"[^>]*href="/applications"', runs)
     assert 'href="/runs" class="nav-item' not in runs and 'href="/help"' in runs
     assert 'href="/runs"' in client.get("/applications").text
+
+
+@pytest.mark.mongo
+def test_brand_mark_is_one_source_for_sidebar_login_favicon_and_avatar(client):
+    from amorehiremepls.web import BRAND_DIR, favicon_svg
+
+    source = (BRAND_DIR / "mark.svg").read_text()
+    plane = re.search(r'<path fill-rule="evenodd" d="([^"]+)"', source).group(1)
+    assert "AmoreHireMePls mark" in source and 'class="detail"' in source
+    # sign-in page: tile mark with the same paths, favicon links to the accent-aware route, PNG fallbacks for other agents
+    login = client.get("/login").text
+    assert plane in login and 'rx="14"' in login and 'viewBox="0 0 64 64"' in login
+    assert 'href="/brand.svg"' in login and 'rel="apple-touch-icon"' in login and "/static/brand/favicon-32.png" in login
+    # favicon follows the saved accent through the mirror cookie, falls back to sage, and is cached per accent
+    anon = TestClient(client.app, follow_redirects=False)
+    sage = anon.get("/brand.svg")
+    assert sage.status_code == 200 and f'fill="{ACCENT_PRESETS["sage"]}"' in sage.text and plane in sage.text and 'class="detail"' not in sage.text
+    assert sage.headers["content-type"].startswith("image/svg+xml") and "max-age=3600" in sage.headers["cache-control"]
+    anon.cookies.set("amore_ui", "dark|#a1b2c3|accent")
+    tinted = anon.get("/brand.svg").text
+    assert 'fill="#a1b2c3"' in tinted and f'fill="{ACCENT_PRESETS["sage"]}"' not in tinted
+    assert favicon_svg("#a1b2c3") == tinted and favicon_svg.cache_info().hits >= 1
+    anon.cookies.set("amore_ui", "dark|javascript:alert(1)|accent")
+    assert f'fill="{ACCENT_PRESETS["sage"]}"' in anon.get("/brand.svg").text  # invalid accent never reaches the SVG
+    touch = anon.get("/apple-touch-icon.png")
+    assert touch.status_code == 200 and touch.headers["content-type"] == "image/png" and touch.content[:8] == b"\x89PNG\r\n\x1a\n"
+    assert anon.get("/static/brand/favicon.svg").status_code == 200  # static sage fallback
+    # signed-in: sidebar lockup (mark + wordmark) and the "logo" avatar style use the same paths; small sizes drop the detail heart
+    csrf = _login(client)
+    home = client.get("/").text
+    assert home.count(plane) >= 1 and 'class="brand-text">AmoreHireMePls' in home
+    assert client.post("/settings/avatar", data={"csrf": csrf, "style": "mark"}).status_code == 303
+    home = client.get("/").text
+    assert "style-mark" in home and home.count(plane) >= 2
+    assert 'class="brand-svg logo-sm"' in client.get("/settings").text and ".logo-sm .detail" in client.get("/static/app.css").text

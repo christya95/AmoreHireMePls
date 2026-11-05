@@ -70,7 +70,7 @@ Emergency stop is in the header on every page (two steps: open, then confirm wit
 - **Accent colour**: six presets (sage, blue, violet, teal, amber, rose) or any `#rrggbb`. Controls, links, the active menu item and the chart derive from `--accent` through `color-mix()` in `src/amorehiremepls/static/app.css`.
 - **Background tint**: "Match accent" (default, the original look), Neutral, Warm, Cool, or any `#rrggbb`. It drives `--tint`, which colours the page background and soft surfaces independently of the accent in light and dark. Live preview; persisted next to the accent and mirrored as the third part of the `amore_ui` cookie (`theme|accent|tint`).
 - **Guidance**: bring back the getting-started checklist or all per-page tips from here.
-- **Brand mark**: one macro in `templates/_brand.html` draws the sidebar mark, the sign-in page, the favicon (`GET /brand.svg`) and the "logo" avatar style; replacing the placeholder is a one-file change.
+- **Logo**: a paper plane with a briefcase handle and a heart trail. The paths live in `src/amorehiremepls/static/brand/mark.svg` (read once at startup); `templates/_brand.html` draws them as the sidebar lockup (mark alone on phones), the sign-in page, the "logo" avatar style and the favicon. `GET /brand.svg` renders the tile in the saved accent colour (from the `amore_ui` cookie, cached per accent, smallest heart dropped for 16 to 32 px); `/static/brand/favicon.svg` and `favicon-32.png` are fixed sage fallbacks and `/apple-touch-icon.png` serves the 180 px PNG. Regenerate with `python tools/brand/gen.py /tmp/amore_logo && tools/brand/render.sh /tmp/amore_logo` and copy the outputs into `static/brand/`.
 - **Display name**: used in greetings and the header only. Empty means "use the profile's preferred or first name"; the code falls back to a generic name, never to data in templates.
 - **Avatar**: upload a PNG, JPEG or WebP up to 1 MB (declared type, file header and dimensions are all checked) or pick one of four initials styles. The file is stored under `AMORE_PRIVATE_DIR/avatar/` and served only through the authenticated `/settings/avatar/image` route.
 - Storage: everything except the image file lives in the MongoDB `controls` collection under the key `ui_settings`. Nothing here feeds resumes, answers or messages.
@@ -80,12 +80,14 @@ Emergency stop is in the header on every page (two steps: open, then confirm wit
 
 Documents, the job page and the review package page show **Open PDF** (in a browser tab), **Download PDF** and **Download DOCX** buttons for each tailored document, with the hash prefixes, page count and the on-disk path in a copyable `code` element. The route is `GET /documents/{artifact_id}/download?kind=docx|pdf[&inline=1]` (login required). It never takes a path from the browser: the path comes from the artifact record, must resolve under `AMORE_ARTIFACT_DIR`, and the file's SHA-256 is recomputed and compared with the reviewed hash before anything is sent (403 outside the directory, 409 on mismatch, 404 when no PDF was rendered). A PDF exists only when LibreOffice was available at tailoring time (it is inside the container; on a plain Mac only the DOCX exists).
 
+Submission evidence: for automated submissions the worker keeps a `summary` screenshot (the filled review page right before the final click) and a `receipt` screenshot (the verified confirmation page; an unclear outcome keeps an `ambiguous` capture instead). They are registered as `screenshot` artifacts with hashes and served inline through the same route with `kind=png` (a screenshot is never served as `docx`/`pdf`, a document never as `png`). The review package page shows them under **Submission evidence**; `/documents` and the job page list them apart from the resumes.
+
 Nothing is submitted or sent without an authorization scope bound to the exact job, answers and document hashes (or a bounded batch scope with stop conditions). Sites without a form plan or adapter become resumable handoffs; you record the confirmation you saw.
 
 ## Test
 
 ```bash
-uv run pytest                   # 98 tests; mongo-marked tests skip automatically if 127.0.0.1:27027 is down
+uv run pytest                   # 101 tests; mongo-marked tests skip automatically if 127.0.0.1:27027 is down
 TEST_MONGO_URI=mongodb://127.0.0.1:27027 uv run pytest -m mongo
 uv run pytest -m browser        # Playwright adapter against the local fixture site (skips without Chromium)
 uv run ruff check src tests && uv run ruff format --check src tests
