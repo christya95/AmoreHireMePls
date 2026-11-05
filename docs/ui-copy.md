@@ -66,6 +66,7 @@ appears anywhere else.
 | Try to solve captchas automatically (Settings → Applying; hint: "Uses the AI model; some job sites forbid this and may discard flagged applications.") | `AMORE_CAPTCHA_AUTOSOLVE` / control `captcha_autosolve` | — |
 | Retry with the app (application page, after a human check or failure) | re-plan: cancel waiting run, clear `form_plan.fields`, new run | — |
 | Questions on the Greenhouse form and the answers that will be sent | review package answers for `apply_route=greenhouse` | — |
+| Where it comes from (your profile, your work history, typed on this page, your resume file) | answer `fact_ids` | — |
 | Rebuild the resume | regenerate documents | `regenerate` |
 | Background task | run | `task` |
 | Copy of the job ad | posting snapshot | `snapshot` |

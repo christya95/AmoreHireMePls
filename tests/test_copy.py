@@ -38,6 +38,7 @@ DENYLIST = [
     r"\bSMTP\b",
     r"\bpayload\b",
     r"\bworker\b",
+    r"\b(?:emp|fact)_[0-9a-f]{8,}\b",
 ]
 
 # Elements whose content is allowed to carry technical terms: raw chips, code, collapsed details, preformatted dumps,
@@ -156,6 +157,19 @@ def _seed(client, tmp_path) -> dict[str, str]:
     )
     usage = {"run_id": run_id, "skill": "rank_fit@1", "model": "fake", "input_tokens": 10, "output_tokens": 5, "cached_tokens": 0}
     rt.store.c("usage").insert_one({**usage, "cost_usd": None, "cost_known": False, "latency_ms": 12, "created_at": now})
+    # Stored fit text cites internal ids. The pages must show the sentence without the id.
+    job = rt.jobs.get(job_id)
+    rt.jobs.set_status(
+        job_id,
+        job["status"],
+        fit={
+            "rank": 3,
+            "fit_points": ["Has current Software Developer experience at Big Bank (emp_0f1e2d3c4b5a6978)."],
+            "genuine_gaps": ["No evidence of a fictional tool (fact_00aa11bb22cc33dd)."],
+            "missing_evidence": ["on-call rotation"],
+        },
+    )
+    rt.store.c("applications").update_one({"_id": app_id}, {"$set": {"review_package.gaps": ["No evidence of a fictional tool (fact_00aa11bb22cc33dd)."]}})
     return {"csrf": csrf, "job": job_id, "app": app_id, "run": run_id, "unclear": "app_lint1"}
 
 

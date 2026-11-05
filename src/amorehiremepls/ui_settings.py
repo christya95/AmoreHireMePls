@@ -692,13 +692,47 @@ def fit_score(fit: dict | None) -> dict[str, Any] | None:
     }
 
 
+# Internal evidence ids the fit model is asked to cite. They stay in the stored JSON and must not be shown.
+_EVIDENCE_ID = r"(?:(?:emp|fact|exp|proj|skill|pskill|cert|b)_[A-Za-z0-9]+|resume_summary)"
+_EVIDENCE_ID_RE = re.compile(rf"\b{_EVIDENCE_ID}\b")
+_EVIDENCE_PAREN_RE = re.compile(rf"\s*\((?:\s*{_EVIDENCE_ID}\s*,)*\s*{_EVIDENCE_ID}\s*\)")
+_EVIDENCE_PREFIX_RE = re.compile(rf"^(?:{_EVIDENCE_ID}\s*:\s*)+")
+
+
+def plain_fit_line(value: Any) -> str:
+    """Fit sentences for the dashboard. Drops fact and employment ids, including a leading `emp_1:` cite."""
+    text = " ".join(str(value or "").split())
+    text = _EVIDENCE_PAREN_RE.sub("", text)
+    text = _EVIDENCE_PREFIX_RE.sub("", text)
+    text = _EVIDENCE_ID_RE.sub("", text)
+    text = re.sub(r"\(\s*\)", "", text)
+    text = re.sub(r"(^|\s):\s*", r"\1", text)
+    text = re.sub(r"\s+([,.;:])", r"\1", text)
+    text = " ".join(text.split()).strip(" -,:;")
+    return text
+
+
+def evidence_source(fact_id: Any) -> str:
+    """Plain label for an answer's fact id. The id itself is not shown."""
+    fid = str(fact_id or "")
+    if fid == "user:input":
+        return "typed on this page"
+    if fid == "artifact":
+        return "your resume file"
+    if fid.startswith("emp_"):
+        return "your work history"
+    if fid:
+        return "your profile"
+    return ""
+
+
 def _fit_lines(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     out: list[str] = []
     for item in value:
         if isinstance(item, str):
-            text = " ".join(item.split())
+            text = plain_fit_line(item)
             if text:
                 out.append(text)
     return out

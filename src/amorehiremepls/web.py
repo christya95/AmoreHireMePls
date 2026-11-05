@@ -41,6 +41,7 @@ from .ui_settings import (
     UISettings,
     UISettingsStore,
     donut,
+    evidence_source,
     fit_score,
     greeting,
     humanize,
@@ -50,6 +51,7 @@ from .ui_settings import (
     next_action_label,
     normalize_accent,
     normalize_tint,
+    plain_fit_line,
     remove_avatar_files,
     resolve_display_name,
     status_label,
@@ -85,6 +87,8 @@ TEMPLATES.env.filters["human"] = humanize
 TEMPLATES.env.filters["label"] = status_label
 TEMPLATES.env.filters["verb"] = next_action_label
 TEMPLATES.env.filters["initials"] = initials
+TEMPLATES.env.filters["plain"] = plain_fit_line
+TEMPLATES.env.filters["evidence"] = evidence_source
 STATIC_DIR = Path(__file__).parent / "static"
 BRAND_DIR = STATIC_DIR / "brand"
 

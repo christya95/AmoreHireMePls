@@ -13,6 +13,7 @@ import html
 import logging
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -352,19 +353,368 @@ def qualify(job: dict, extracted: dict, profile: Profile, posting_text: str = ""
 # -- discovery service -----------------------------------------------------------------------
 
 
-def compact_facts(profile: Profile) -> list[str]:
-    facts = [f"{e.id}: {e.employer} {e.title} {e.kind} {e.start or '?'}..{e.end or 'present' if e.end_known else '?'}" for e in profile.employment]
-    facts += [f"{s.name}" for s in profile.skills][:40]
+# Resume body sent with the one fit call. Employment rows and education stay outside this cap.
+_RESUME_EVIDENCE_CHARS = 6000
+_SUMMARY_CHARS = 700
+_BULLET_CHARS = 320
+_EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w.-]+\.\w+\b")
+_PHONE_RE = re.compile(r"(?<!\w)(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}(?!\w)")
+_EVIDENCE_STOP = {
+    "evidence",
+    "specific",
+    "development",
+    "experience",
+    "other",
+    "framework",
+    "frameworks",
+    "services",
+    "service",
+    "with",
+    "from",
+    "that",
+    "this",
+    "your",
+    "candidate",
+    "whether",
+    "backend",
+    "technologies",
+    "technology",
+    "tools",
+    "tool",
+    "knowledge",
+    "domain",
+    "missing",
+    "required",
+    "using",
+    "including",
+    "related",
+    "approved",
+    "facts",
+    "fact",
+    "listed",
+    "shown",
+    "stated",
+    "have",
+    "has",
+    "and",
+    "the",
+    "for",
+    "not",
+    "lacks",
+    "lacking",
+    "absent",
+    "mention",
+    "mentions",
+    "mentioned",
+    "named",
+    "names",
+    "shows",
+    "lists",
+    "list",
+    "does",
+    "demonstrated",
+    "explicit",
+    "explicitly",
+    "directly",
+    "hands",
+    "proficiency",
+    "proficient",
+    "familiarity",
+    "familiar",
+    "exposure",
+    "skills",
+    "skill",
+    "any",
+    "only",
+    "also",
+    "but",
+    "nor",
+    "none",
+    "about",
+    "into",
+    "than",
+    "there",
+    "their",
+    "they",
+    "was",
+    "were",
+    "are",
+    "been",
+    "unclear",
+    "resume",
+    "profile",
+    "posting",
+    "role",
+    "roles",
+    "job",
+    "position",
+    "requirement",
+    "requirements",
+    "requires",
+    "require",
+    "working",
+    "work",
+}
+# Words that make a gap line about a technology. A line that names none of these is never dropped.
+_TECH_WORD = re.compile(
+    r"\b(?:java|kotlin|scala|python|golang|typescript|javascript|node(?:\.js)?|spring|hibernate|rest(?:ful)?|apis?|graphql|grpc|microservices?|"
+    r"databases?|sql|nosql|postgres(?:ql)?|mysql|oracle|mongodb|redis|dynamodb|kafka|rabbitmq|docker|kubernetes|k8s|containers?|"
+    r"aws|azure|gcp|cloud|ci/?cd|jenkins|junit|pytest|test(?:s|ing)?|git|linux|terraform|openshift)\b",
+    re.I,
+)
+# Category words on a gap line. Any member of the category in the evidence answers the category word; a member named
+# on the line (Azure, MongoDB, JUnit) must appear in the evidence itself.
+_CATEGORIES: tuple[tuple[re.Pattern[str], re.Pattern[str]], ...] = (
+    (re.compile(r"APIs?|REST(?:ful)?", re.I), re.compile(r"\bAPIs?\b|\bREST(?:ful)?\b", re.I)),
+    (re.compile(r"databases?", re.I), re.compile(r"\bdatabases?\b|\bSQL\b|\bPostgreSQL\b|\bPostgres\b|\bMySQL\b|\bOracle\b|\bMongoDB\b|\bRedis\b|\bDynamoDB\b", re.I)),
+    (re.compile(r"cloud", re.I), re.compile(r"\bcloud\b|\bAWS\b|\bAzure\b|\bGCP\b", re.I)),
+    (re.compile(r"containers?|containeri[sz]ation", re.I), re.compile(r"\bcontainers?\b|\bdocker\b|\bkubernetes\b|\bk8s\b", re.I)),
+    (re.compile(r"CI|CD|CI/?CD", re.I), re.compile(r"\bCI/?CD\b|\bCI\b|\bGitHub Actions\b|\bJenkins\b|\bGitLab\b|\bpipelines?\b", re.I)),
+    (re.compile(r"test(?:s|ing)?", re.I), re.compile(r"\btest(?:s|ing)?\b|\bJUnit\b|\bpytest\b|\bTDD\b", re.I)),
+)
+# A line about any of these is never dropped by a technology match, whatever the evidence says.
+_ALWAYS_KEEP = re.compile(
+    r"\bsenior(?:ity)?\b|\bstaff\b|\bprincipal\b|\blead(?:s|ing|er|ership)?\b|\bled\b|\bmentor\w*|\bmanag\w*|\bownership\b|\bown(?:ed|s)?\b|"
+    r"\barchitect\w*|\bdesign authority\b|\bon[- ]?call\b|\bproduction support\b|\bincident\w*|\bcertif\w*|\bdegree\b|\bbachelor\w*|\bmaster'?s?\b|"
+    r"\byears?\b|\byrs\b|\bmonths?\b|\bBMO\b",
+    re.I,
+)
+_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9+#.]*")
+
+
+def _clip(text: str, limit: int) -> str:
+    text = _EMAIL_RE.sub("", text or "")
+    text = _PHONE_RE.sub("", text)
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rsplit(" ", 1)[0].rstrip(" ,;:") + "…"
+
+
+def _carry_name(title: str, employer: str) -> str:
+    from .tailoring import DATE_RE
+
+    parts: list[str] = []
+    for part in (title, employer):
+        cleaned = DATE_RE.sub("", part or "")
+        cleaned = " ".join(cleaned.split()).strip(" |,-–—")
+        if cleaned and cleaned not in parts:
+            parts.append(cleaned)
+    return ", ".join(parts)
+
+
+def _stitch_roles(experiences: list) -> list:
+    """Bullets that the parser hung on the employer line belong to the dated role above them."""
+    from .tailoring import DATE_RE
+
+    roles: list = []
+    for exp in experiences:
+        if roles and not exp.dates and exp.bullets and not roles[-1].bullets:
+            host = roles[-1]
+            carried = _carry_name(exp.title, exp.employer)
+            if carried and (not host.employer or DATE_RE.search(host.employer)):
+                host.employer = carried
+            host.bullets.extend(exp.bullets)
+            continue
+        roles.append(exp)
+    return roles
+
+
+def _role_label(exp) -> str:
+    from .tailoring import DATE_RE
+
+    employer = exp.employer or ""
+    if DATE_RE.search(employer):
+        employer = DATE_RE.sub("", employer)
+    label = _carry_name(exp.title, employer)
+    return label or "experience"
+
+
+def _resume_lines(profile: Profile, posting_text: str) -> list[str]:
+    """Approved resume summary, skills, bullets, and certifications. Empty when no file is selected."""
+    base_resume = profile.base_resume
+    if base_resume is None:
+        return []
+    path = Path(base_resume.path)
+    if not path.is_file():
+        log.info("base resume file missing; fit ranking uses profile rows only")
+        return []
+    try:
+        from .tailoring import parse_base_resume
+
+        parsed = parse_base_resume(path)
+    except Exception as exc:
+        log.warning("base resume could not be read for fit ranking: %s", type(exc).__name__)
+        return []
+    head: list[str] = []
+    summary = _clip(parsed.summary, _SUMMARY_CHARS)
+    if summary:
+        head.append(f"resume_summary: {summary}")
+    for i, skill in enumerate(parsed.skills, 1):
+        name = _clip(skill, 80)
+        if name:
+            head.append(f"skill_{i}: {name}")
+    for i, cert in enumerate(parsed.certifications, 1):
+        name = _clip(cert, 160)
+        if name:
+            head.append(f"cert_{i}: {name}")
+    terms = {w for w in re.findall(r"[a-z0-9+#.]{3,}", (posting_text or "").lower()) if w not in _EVIDENCE_STOP}
+
+    def _bullet_line(bullet, label: str, order: int) -> tuple[int, int, str] | None:
+        text = _clip(bullet.text, _BULLET_CHARS)
+        if not text:
+            return None
+        score = len(set(re.findall(r"[a-z0-9+#.]{3,}", text.lower())) & terms)
+        return score, order, f"{bullet.id}: {label}: {text}"
+
+    per_role: list[str] = []
+    pool: list[tuple[int, int, str]] = []
+    order = 0
+    for exp in [*_stitch_roles(parsed.experience), *parsed.projects]:
+        label = _role_label(exp)
+        ranked: list[tuple[int, int, str]] = []
+        for bullet in exp.bullets:
+            item = _bullet_line(bullet, label, order)
+            if item is None:
+                continue
+            ranked.append(item)
+            order += 1
+        if not ranked:
+            continue
+        ranked.sort(key=lambda item: (-item[0], item[1]))
+        per_role.append(ranked[0][2])
+        pool.extend(ranked[1:])
+    pool.sort(key=lambda item: (-item[0], item[1]))
+    kept: list[str] = []
+    used = 0
+    for line in [*head, *per_role, *[item[2] for item in pool]]:
+        extra = len(line) + (1 if used else 0)
+        if used and used + extra > _RESUME_EVIDENCE_CHARS:
+            continue
+        kept.append(line)
+        used += extra
+    return kept
+
+
+_FILE_HEADING_RE = re.compile(r"^## \S.*\.(?:md|txt|docx)$", re.I)
+
+
+def _supplemental_lines(supplemental_text: str, posting_text: str, budget: int) -> list[str]:
+    """Paragraphs and bullet lines from the candidate's own extra notes (candidate/ folder), most posting-relevant
+    first, as ``doc_<n>`` facts (n = position in the notes, so an id means the same passage for every posting).
+    The loader's file headings (``## name.md``) are dropped; the candidate's own headings stay as short passages.
+    Fits within ``budget`` characters."""
+    if not supplemental_text or budget <= 0:
+        return []
+    terms = {w for w in re.findall(r"[a-z0-9+#.]{3,}", (posting_text or "").lower()) if w not in _EVIDENCE_STOP}
+    passages: list[str] = []
+    for block in re.split(r"\n\s*\n", supplemental_text):
+        lines = [ln.strip() for ln in block.split("\n") if ln.strip() and not _FILE_HEADING_RE.match(ln.strip())]
+        if not lines:
+            continue
+        if all(re.match(r"^[-*•]\s+", ln) for ln in lines):  # a bullet list: one fact per bullet
+            passages.extend(re.sub(r"^[-*•]\s+", "", ln) for ln in lines)
+        else:
+            passages.append(" ".join(lines))
+    ranked: list[tuple[int, int, str]] = []
+    for n, passage in enumerate(passages, 1):
+        text = _clip(re.sub(r"^#+\s*", "", passage), _BULLET_CHARS)
+        if not text:
+            continue
+        score = len(set(re.findall(r"[a-z0-9+#.]{3,}", text.lower())) & terms)
+        ranked.append((score, n, f"doc_{n}: {text}"))
+    ranked.sort(key=lambda item: (-item[0], item[1]))
+    kept: list[tuple[int, str]] = []
+    used = 0
+    for _score, n, line in ranked:
+        extra = len(line) + (1 if used else 0)
+        if used and used + extra > budget:
+            continue
+        kept.append((n, line))
+        used += extra
+    return [line for _n, line in sorted(kept)]
+
+
+# The extra notes get whatever the resume left under _RESUME_EVIDENCE_CHARS, and never less than this.
+_SUPPLEMENTAL_MIN_CHARS = 1500
+
+
+def compact_facts(profile: Profile, posting_text: str = "", supplemental_text: str = "") -> list[str]:
+    """Bounded facts for the one fit call. Profile rows first, then the approved resume when it is on disk, then the
+    candidate's extra notes (``supplemental_text``) in the room the resume left under the same cap."""
+    facts = [f"{e.id}: {e.employer} {e.title} {e.kind} {e.start or '?'}..{(e.end or 'present') if e.end_known else '?'}" for e in profile.employment]
+    facts += [f"pskill_{i}: {s.name}" for i, s in enumerate(profile.skills, 1) if s.name][:40]
     facts += [f"{f.id}: {f.key}={f.value}" for f in profile.education if f.value]
-    return facts
+    resume = _resume_lines(profile, posting_text)
+    facts += resume
+    if supplemental_text:
+        room = _RESUME_EVIDENCE_CHARS - sum(len(line) + 1 for line in resume)
+        facts += _supplemental_lines(supplemental_text, posting_text, max(room, _SUPPLEMENTAL_MIN_CHARS))
+    return [f for f in facts if f.split(":", 1)[-1].strip()]
+
+
+def _known_ids(facts: list[str]) -> set[str]:
+    return {f.split(":", 1)[0] for f in facts if ":" in f and f.split(":", 1)[0]}
+
+
+def _cites(point: str, known_ids: set[str]) -> bool:
+    return any(re.search(rf"(?<![A-Za-z0-9]){re.escape(k)}(?![A-Za-z0-9])", point) for k in known_ids)
+
+
+def _word_in(word: str, evidence: str, flags: int) -> bool:
+    return re.search(rf"(?<![A-Za-z0-9+#]){re.escape(word)}(?![A-Za-z0-9+#])", evidence, flags) is not None
+
+
+def line_already_supported(line: str, evidence: str) -> bool:
+    """True when a gap line is only about technologies and every word that carries meaning is already in the evidence.
+
+    Conservative by design: a doubtful line stays a gap. Lines about seniority, leadership, architecture, on-call,
+    certifications, education, durations, or BMO are never dropped. A line without a known technology word is never
+    dropped. Every other word on the line, including numbers ("Java 21") and short names ("C#"), must itself appear in
+    the evidence; a capitalised word must match case ("Batch" in "Spring Batch"). Only a category word (databases,
+    APIs, cloud, containers, CI/CD, testing) is answered by a member of that category (PostgreSQL, REST, AWS, Docker).
+    """
+    if _ALWAYS_KEEP.search(line) or not _TECH_WORD.search(line):
+        return False
+    checked = False
+    for index, raw in enumerate(_TOKEN_RE.findall(line)):
+        word = raw.strip(".")
+        if index == 0 and word[:1].isupper() and word[1:].islower():
+            word = word.lower()  # sentence-start capitalisation ("No", "Lacks"), not a name or an acronym
+        if not word:
+            continue
+        category = next((proof for member, proof in _CATEGORIES if member.fullmatch(word)), None)
+        if category is not None:
+            checked = True
+            if category.search(evidence):
+                continue
+            return False
+        if word.lower() in _EVIDENCE_STOP or (len(word) < 3 and word.isalpha() and word.islower()):
+            continue
+        checked = True
+        flags = 0 if any(ch.isupper() for ch in word) else re.I
+        if not _word_in(word, evidence, flags):
+            return False
+    return checked
+
+
+def _drop_supported(lines: list, evidence: str) -> tuple[list, list]:
+    kept, dropped = [], []
+    for line in lines:
+        if isinstance(line, str) and line_already_supported(line, evidence):
+            dropped.append(line)
+        else:
+            kept.append(line)
+    return kept, dropped
 
 
 class Discovery:
-    def __init__(self, store: Store, profile: Profile, ai: AIRunner | None = None) -> None:
+    def __init__(self, store: Store, profile: Profile, ai: AIRunner | None = None, supplemental_text: str = "") -> None:
         self.store = store
         self.profile = profile
         self.jobs = JobStore(store)
         self.ai = ai
+        self.supplemental_text = supplemental_text or ""  # the candidate's extra notes; evidence for the fit call only
 
     def ingest_raw(self, raw: RawJob) -> tuple[dict, bool]:
         extracted = {"employment_type": raw.employment_type, "remote_policy": raw.remote_policy, "location": raw.location}
@@ -441,15 +791,17 @@ class Discovery:
         if self.ai is None:
             return job
         snapshot = job.get("latest_snapshot") or {}
-        facts = compact_facts(self.profile)
-        known_ids = {f.split(":")[0] for f in facts if ":" in f}
+        posting = (snapshot.get("text") or "")[:12000]
+        facts = compact_facts(self.profile, posting, self.supplemental_text)
+        known = _known_ids(facts)
+        evidence = "\n".join(facts)
         try:
             res = self.ai.run(
                 "assess_fit",
                 FitInput(
                     job_title=job["title"],
                     employer=job["employer"],
-                    posting_text=snapshot.get("text", "")[:12000],
+                    posting_text=posting,
                     candidate_facts=facts,
                     experience_summary=compute_experience(self.profile.employment).as_dict(),
                     role_rules={"families": self.profile.preferences.role_families},
@@ -461,9 +813,13 @@ class Discovery:
         except ProviderUnavailable:
             return job
         fit = res.output
-        grounded = [p for p in fit.get("fit_points", []) if any(k in p for k in known_ids)]
+        grounded = [p for p in fit.get("fit_points", []) if _cites(p, known)]
         dropped = [p for p in fit.get("fit_points", []) if p not in grounded]
+        gaps, gaps_dropped = _drop_supported(fit.get("genuine_gaps") or [], evidence)
+        missing, missing_dropped = _drop_supported(fit.get("missing_evidence") or [], evidence)
         fit["fit_points"], fit["ungrounded_points_dropped"] = grounded, dropped
+        fit["genuine_gaps"], fit["missing_evidence"] = gaps, missing
+        fit["contradicted_by_facts"] = gaps_dropped + missing_dropped
         self.jobs.set_status(job_id, job["status"], fit=fit, fit_cache_key=res.cache_key)
         return self.jobs.get(job_id)
 

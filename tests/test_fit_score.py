@@ -40,6 +40,26 @@ def test_grounded_matches_nudge_and_blockers_pull_down():
     assert blocked["score"] == 63  # base 78, one match of three is a -3 nudge, two blockers cap at -12
     assert blocked["gaps_n"] == 2 and blocked["blockers"] == ["needs a clearance", "needs a second clearance"]
     assert fit_score({"rank": 1, "fit_points": ["  spaced   line  "], "genuine_gaps": [""], "missing_evidence": "nope"})["matches"] == ["spaced line"]
+    cited = fit_score(
+        {
+            "rank": 3,
+            "fit_points": [
+                "Has current Software Developer experience at Big Bank from May 2021 to Mar 2025 (emp_0f1e2d3c4b5a6978).",
+                "emp_1: shipped a billing API",
+                "b_1: Software Developer: Built REST APIs.",
+            ],
+            "genuine_gaps": ["No evidence of a fictional tool (fact_00aa11bb22cc33dd, fact_44ee55ff66778899)."],
+            "missing_evidence": ["Spring (skill_3)."],
+        }
+    )
+    assert cited["matches"] == [
+        "Has current Software Developer experience at Big Bank from May 2021 to Mar 2025.",
+        "shipped a billing API",
+        "Software Developer: Built REST APIs.",
+    ]
+    assert cited["gaps"] == ["No evidence of a fictional tool."]
+    assert cited["unknown"] == ["Spring."]
+    assert "emp_" not in " ".join(cited["matches"]) and "fact_" not in " ".join(cited["gaps"])
 
 
 def test_band_edges():
@@ -86,6 +106,7 @@ def test_job_page_shows_the_ring_and_hides_raw_json(client):
     assert 'aria-label="Fit score 75 out of 100, Strong match"' in page
     assert 'class="fit-ring band-strong"' in page
     assert "Where you line up" in page and "shipped a billing API" in page
+    assert "emp_1" not in re.sub(r"<details\b.*?</details>", " ", page, flags=re.S)
     assert "Gaps" in page and "no Kafka in the approved facts" in page
     assert "Not enough to say" in page and "on-call rotation not stated" in page
     assert 'class="fit-bar"' in page
