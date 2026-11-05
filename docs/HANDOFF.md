@@ -31,7 +31,7 @@ Toronto time. Keep it under 120 lines; move finished items to `docs/PROGRESS.md`
   `AMORE_DATA_ROOT`, `AMORE_PUBLISH_HOST`, `AMORE_TIMEZONE`, tracker). Joss's live preferences were exported to the
   gitignored `candidate/profile.toml`, the rules that used to be code defaults were added to it, and the import
   reproduced the live fingerprints block for block. Suite: 300 passed, ruff clean.
-- **Deployed tag**: see "Deploy record" at the end of this file.
+- **Deployed tag**: `e57cd6de0ff4` (see "Deploy record" at the end of this file).
 
 ## 2. Open items for Joss
 
@@ -92,4 +92,5 @@ d. **Deploy after each** of a, b, c and record the tag here and in `docs/PROGRES
 ## Deploy record
 
 - 2026-11-05 earlier: `e81e95931bf8` (self identification, salary research, candidate folder).
-- 2026-11-05 after the profession neutral refactor: tag recorded in the commit that follows the deploy (see `git log -1 -- docs/HANDOFF.md`).
+- 2026-11-05 12:33 after the profession neutral refactor: **`e57cd6de0ff4`** (commit `e57cd6d`; web and worker healthy, `/health` 200,
+  greeting shows the display name, tracker on). `origin/main` is one docs only commit ahead (this tag record); no redeploy needed.
