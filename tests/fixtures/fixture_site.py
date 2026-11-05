@@ -11,12 +11,14 @@ import uvicorn
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from tests.fixtures.ashby_site import router as ashby_router
 from tests.fixtures.greenhouse_site import router as greenhouse_router
 from tests.fixtures.lever_site import router as lever_router
 
 app = FastAPI()
 app.include_router(greenhouse_router)  # Greenhouse style board (see greenhouse_site.py)
 app.include_router(lever_router)  # Lever style board (see lever_site.py)
+app.include_router(ashby_router)  # Ashby style board (see ashby_site.py)
 SESSIONS: dict[str, dict] = {}
 SUBMISSIONS: list[dict] = []
 
