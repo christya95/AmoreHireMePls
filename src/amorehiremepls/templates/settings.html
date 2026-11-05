@@ -71,6 +71,14 @@
   </div>
 </div>
 
+<div class="card">
+  <div class="card-h"><h3>Applying</h3><span class="sub">How the app behaves while it fills in a job site form for an application you approved.</span></div>
+  <form method="post" action="/settings/captcha" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <label class="switch"><span class="body"><strong>Try to solve captchas automatically</strong><small>Off by default. Uses the AI model; some job sites forbid this and may discard flagged applications. When it is off, or when a check is not a simple picture, the application pauses for you to finish the check on the site. At most {{ captcha_attempts }} tries per application, every try is recorded, and nothing is marked as applied without the site's confirmation page.</small></span><input type="checkbox" name="autosolve" value="on" {{ 'checked' if captcha_autosolve }}></label>
+    <div class="flex between"><small class="muted">Start up default from the environment: {{ 'on' if captcha_env_default else 'off' }}. This switch wins.</small><button class="secondary sm">Save</button></div>
+  </form>
+</div>
+
 <div class="grid-2">
   <div class="card">
     <div class="card-h"><h3>Guidance</h3><span class="sub">The getting started card and the tips on each page remember when you hide them.</span></div>
@@ -84,6 +92,7 @@
     <div class="card-h"><h3>Where this is stored</h3></div>
     <table class="kv compact">
       <tr><td>Theme, accent, tint, name, avatar details, hidden tips</td><td>In the app database: <code>controls</code> collection, key <code>ui_settings</code>.</td></tr>
+      <tr><td>Captcha switch</td><td>In the app database: <code>controls</code> collection, key <code>captcha_autosolve</code>. Environment default <code>AMORE_CAPTCHA_AUTOSOLVE</code>.</td></tr>
       <tr><td>Avatar file</td><td><code>AMORE_PRIVATE_DIR/avatar/</code>, shown through <code>/settings/avatar/image</code> after sign in. Never part of the code repository.</td></tr>
       <tr><td>Browser cookie</td><td><code>amore_ui</code> remembers theme, accent and tint so the first page and the sign in page look right. It holds nothing else.</td></tr>
     </table>

@@ -165,6 +165,11 @@ FLASHES = {
     "no_base": ("Choose your approved base resume under Your profile first.", "bad"),
     "busy": ("A background task is working on this job right now. Wait for it to pause or finish.", "bad"),
     "already_submitted": ("This application was already sent. The files are kept exactly as they were sent.", "bad"),
+    "captcha_on": ("The app will now try to solve simple captchas itself during an approved application. You can turn this off here any time.", "ok"),
+    "captcha_off": ("Captchas are left to you again. A human check pauses the application for you to finish.", "ok"),
+    "retry_started": ("The app will read the form again and prepare a fresh package. It waits for your approval before applying.", "ok"),
+    "retry_unsupported": ("The app has no form filler for this job site yet, so there is nothing to retry. Finish on the site yourself.", "bad"),
+    "retry_busy": ("A background task is working on this job right now. Wait for it to pause or finish.", "bad"),
 }
 HOSTS_ENV_EXAMPLE = "AMORE_BROWSER_ALLOWED_HOSTS=boards.greenhouse.io,jobs.lever.co"
 
@@ -1029,7 +1034,14 @@ def create_app(rt: Runtime) -> FastAPI:
         action = rt.actions.by_key(f"submit:{a['job_id']}")
         doc_sha = ((a.get("review_package") or {}).get("document") or {}).get("sha256")
         doc_art = rt.store.c("artifacts").find_one({"sha256": doc_sha, "owner_id": a["job_id"]}, {"content": 0}) if doc_sha else None
-        return render(request, "application.html", session, a=a, job=job, scopes=scopes, action=action, doc_art=doc_art, shots=evidence_shots(a))
+        from .ats import adapter_for
+
+        site_adapter = adapter_for((a.get("review_package") or {}).get("apply_url") or job.get("apply_url") or job.get("posting_url"))
+        can_retry = site_adapter is not None and a["status"] in ("handoff", "failed")
+        ctx = dict(
+            a=a, job=job, scopes=scopes, action=action, doc_art=doc_art, shots=evidence_shots(a), can_retry=can_retry, site_label=site_adapter.site_label if site_adapter else None
+        )
+        return render(request, "application.html", session, **ctx)
 
     @app.post("/applications/{app_id}/inputs")
     async def application_inputs(request: Request, app_id: str, session: dict = Depends(require_session)):
@@ -1078,6 +1090,34 @@ def create_app(rt: Runtime) -> FastAPI:
         else:
             rt.applications().record_manual_submission(app_id, confirmation, application_date, resume_sha256 or None)
         return RedirectResponse(f"/applications/{app_id}", status_code=303)
+
+    @app.post("/applications/{app_id}/retry")
+    def application_retry(request: Request, app_id: str, session: dict = Depends(require_session), csrf: str = Form(...)):
+        """After a handoff or failure: read the form again through the site adapter, rebuild the package (new fingerprint,
+        so it waits for approval again) and start a fresh background task. The old waiting task is closed."""
+        require_csrf(request, session, csrf)
+        a = rt.store.c("applications").find_one({"_id": app_id})
+        if not a or a["status"] not in ("handoff", "failed", "needs_input", "ready_for_review"):
+            raise HTTPException(409, "nothing to retry in this state")
+        job = rt.jobs.get(a["job_id"])
+        from .ats import adapter_for
+
+        if adapter_for(job.get("apply_url") or job.get("posting_url")) is None:
+            return RedirectResponse(f"/applications/{app_id}?err=retry_unsupported", status_code=303)
+        if rt.store.c("runs").find_one({"params.job_id": job["_id"], "status": {"$in": ["queued", "claimed", "running"]}}):
+            return RedirectResponse(f"/applications/{app_id}?err=retry_busy", status_code=303)
+        for run in rt.store.c("runs").find({"params.job_id": job["_id"], "status": {"$in": ["waiting", "paused"]}}):
+            rt.store.update_run(run["_id"], status="cancelled", requested=None, interrupt=None, finished_at=utcnow(), note="replaced by a retry with the app")
+            rt.store.run_event(run["_id"], "cancelled: replaced by a retry with the app")
+        fp = {k: v for k, v in (job.get("form_plan") or {}).items() if k not in ("fields", "source", "external_job_id", "read_at")}
+        status = "qualified" if job.get("status") in ("executing", "needs_verification") else job["status"]
+        rt.jobs.set_status(job["_id"], status, form_plan=fp, apply_route=None)  # the form is read again through the adapter
+        rt.store.c("applications").update_one(
+            {"_id": app_id}, {"$set": {"status": "queued", "reason": None, "next_action": "the app is reading the form again", "updated_at": utcnow()}}
+        )
+        run = rt.store.create_run("application", {"job_id": job["_id"], "retry_of": app_id})
+        rt.store.audit("application_retry", app_id, run_id=run["_id"])
+        return RedirectResponse(f"/applications/{app_id}?ok=retry_started", status_code=303)
 
     @app.post("/applications/{app_id}/reconcile")
     def application_reconcile(
@@ -1359,7 +1399,19 @@ def create_app(rt: Runtime) -> FastAPI:
             max_kb=AVATAR_MAX_BYTES // 1024,
             default_name=resolve_display_name(UISettings(), rt.profile),
             intro_count=len(ui.collapsed_intros),
+            captcha_autosolve=rt.captcha_autosolve_enabled(),
+            captcha_attempts=rt.settings.captcha_max_attempts,
+            captcha_env_default=rt.settings.captcha_autosolve,
         )
+
+    @app.post("/settings/captcha")
+    def settings_captcha(request: Request, session: dict = Depends(require_session), csrf: str = Form(...), autosolve: str = Form("")):
+        """Opt-in automatic captcha step for approved applications. Off by default; the choice is kept in `controls`."""
+        require_csrf(request, session, csrf)
+        enabled = autosolve in ("on", "1", "true")
+        rt.store.set_control("captcha_autosolve", enabled)
+        rt.store.audit("captcha_autosolve_changed", None, enabled=enabled)
+        return RedirectResponse(f"/settings?ok={'captcha_on' if enabled else 'captcha_off'}", status_code=303)
 
     @app.post("/settings/checklist")
     def settings_checklist(request: Request, session: dict = Depends(require_session), csrf: str = Form(...), dismissed: str = Form("1"), next: str = Form("/")):

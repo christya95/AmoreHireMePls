@@ -51,12 +51,16 @@ appears anywhere else.
 | Approval for several jobs | batch scope | `batch_scope` |
 | Result unclear | needs_verification | `needs_verification` |
 | Finish on the site yourself | handoff | `handoff` |
+| Human check | captcha / challenge | `human_check` |
 | Emergency stop (stops all sending and applying immediately) | emergency stop | `emergency_stop` |
 | Saving to GitHub | sync outbox states | `sync_states` |
 | Sending messages | outreach scope | `outreach_scope` |
 | Fit score | fit rank | `fit_rank` |
 | Facts check (every claim comes from your approved facts) | grounding | `grounding` |
 | Proof of applying | submission evidence | `evidence` |
+| Try to solve captchas automatically (Settings → Applying; hint: "Uses the AI model; some job sites forbid this and may discard flagged applications.") | `AMORE_CAPTCHA_AUTOSOLVE` / control `captcha_autosolve` | — |
+| Retry with the app (application page, after a human check or failure) | re-plan: cancel waiting run, clear `form_plan.fields`, new run | — |
+| Questions on the Greenhouse form and the answers that will be sent | review package answers for `apply_route=greenhouse` | — |
 | Rebuild the resume | regenerate documents | `regenerate` |
 | Background task | run | `task` |
 | Copy of the job ad | posting snapshot | `snapshot` |
@@ -91,12 +95,20 @@ People never to contact: `unresolved` Not yet identified · `resolved` Identifie
 `deterministic` Rules only, no AI · `model` AI, checked against your facts. Where a record came from: `local` This app ·
 `tracker_import` Your GitHub tracker · `manual` Added by you · `url_import` Pasted link.
 
+## Proof of applying pictures
+
+`summary` Filled review page · `receipt` Confirmation page · `ambiguous` Unclear result · `challenge` Human check ·
+`validation` Form complaint · `handoff` Needs you · `receipt_mismatch` Confirmation for another job? · `failed` Stopped early.
+
 ## Single words
 
 | Shown | Instead of |
 |---|---|
 | job ID | requisition / req |
 | job site | ATS |
+| human check | captcha / challenge |
+| form complaint | validation error |
+| Greenhouse board, Lever board | apply route / ATS adapter name |
 | file, resume | artifact, document |
 | approval | authorization scope |
 | approval for several jobs | batch scope |

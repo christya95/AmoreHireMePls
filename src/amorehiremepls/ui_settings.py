@@ -361,6 +361,9 @@ STATUS_LABELS: dict[str, str] = {
     "action_prepared": "Prepared to send",
     "action_reconciled": "Result confirmed by you",
     "application_handoff": "Handed to you to finish on the site",
+    "application_retry": "Retried with the app",
+    "action_handoff": "Stopped for a person before sending",
+    "captcha_autosolve_changed": "Captcha switch changed",
     "authorization_granted": "Approval given",
     "authorization_revoked": "Approval withdrawn",
     "avatar_uploaded": "Avatar changed",
@@ -391,6 +394,11 @@ SCREENSHOT_LABELS: dict[str, tuple[str, str]] = {
     "summary": ("Filled review page", "The form exactly as it was filled in, captured right before the final click that sends it."),
     "receipt": ("Confirmation page", "What the employer site showed after applying. The confirmation text was checked against it."),
     "ambiguous": ("Unclear result", "What the site showed after the click when no confirmation could be found. Check it yourself and record the result."),
+    "challenge": ("Human check", "The site asked for a check that needs a person (a captcha). Nothing was sent at this point."),
+    "validation": ("Form complaint", "The site refused the form and pointed at a field. Nothing was sent."),
+    "handoff": ("Needs you", "A sign in or similar wall. Nothing was sent."),
+    "receipt_mismatch": ("Confirmation for another job?", "A confirmation page appeared but it did not mention this job. Check it yourself."),
+    "failed": ("Stopped early", "The page as it looked when the app gave up before the final click."),
 }
 
 # The one obvious verb for an application in a given state.
@@ -445,8 +453,13 @@ GLOSSARY: dict[str, tuple[str, str, str]] = {
     ),
     "handoff": (
         "Finish on the site yourself",
-        "This job site needs a person (for example LinkedIn Easy Apply, Workday, a login or a CAPTCHA). The package is ready for you. Apply yourself, then record the confirmation text here.",
+        "This job site needs a person (for example LinkedIn Easy Apply, Workday, a login or a human check such as a captcha). The package is ready for you. Apply yourself, then record the confirmation text here.",
         "handoff",
+    ),
+    "human_check": (
+        "Human check",
+        "A captcha or similar check the site shows before it accepts the form. By default the app stops and asks you to finish it on the site. Under Settings you can let the app try simple picture checks itself; some sites forbid that.",
+        "captcha",
     ),
     "emergency_stop": (
         "Emergency stop",

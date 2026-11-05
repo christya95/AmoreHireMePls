@@ -490,7 +490,7 @@ sequenceDiagram
 
 - **You approve, it acts.** No application is submitted and no message is sent without a matching saved approval for that exact content.
 - **It never pretends.** Resumes and answers come only from facts you approved. Unknowns stay unknown and are asked, not invented.
-- **It never bypasses.** Login pages, CAPTCHAs, access controls and platform rules become handoffs to you.
+- **It never bypasses logins or access controls.** Login pages, access controls and platform rules become handoffs to you. CAPTCHAs do too by default. There is one explicit opt-in, **off by default** (Settings → "Try to solve captchas automatically", `AMORE_CAPTCHA_AUTOSOLVE`): when you switch it on, a simple picture check on an application *you already approved* is sent to the AI model (at most a few tries, every try recorded) before falling back to you. Some job sites forbid this and may discard flagged applications; that trade-off is yours and stays visible next to the switch. Score based checks (invisible reCAPTCHA, hCaptcha, Turnstile) are never attempted.
 - **Unclear is unclear.** A timeout after the final click becomes "result unclear" and waits for you to check. Nothing is retried blindly.
 - **Your history is yours.** The GitHub tracker is never replaced or force-pushed; imported records keep their original provenance.
 - **Private stays private.** Personal data lives in your database and private folders, not in this code.
@@ -533,7 +533,7 @@ Honest status, as of the latest increment ([docs/capability-map.md](docs/capabil
 
 ## 🗺️ Roadmap and known limits
 
-- **Live application flow** against a real Greenhouse, Lever or Ashby page has not been exercised yet; the per-request host gate may need extra hosts (CDNs, CAPTCHA providers) once observed.
+- **Greenhouse forms** are filled by a real adapter (question list from the public Job Board API, both the current `job-boards.greenhouse.io` layout and the older one, receipt tied to the job id). It is fixture tested, not yet live verified: no real Greenhouse application has been sent through it. Lever and Ashby forms are still handoffs.
 - **Site-specific adapters** for Workday and LinkedIn Easy Apply do not exist; those sites are handoffs today.
 - **LinkedIn** has no supported API for this account: jobs are imported by link, recruiters are added by hand, and Connect notes are sent by you.
 - **Email outreach** needs an SMTP configuration and its own approval scope; it is implemented but not configured.
