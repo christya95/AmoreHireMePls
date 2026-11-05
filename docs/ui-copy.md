@@ -52,6 +52,11 @@ appears anywhere else.
 | Result unclear | needs_verification | `needs_verification` |
 | Finish on the site yourself | handoff | `handoff` |
 | Human check | captcha / challenge | `human_check` |
+| Human check needed | attention card and notification while the page is held | — |
+| Continue | same approval, same package; the form is not sent again | — |
+| Trying once more later | `challenge_retry` | `challenge_retry` |
+| Notifications | Settings card: Email and Webhook are "Set up" or "Not set up"; button "Send test notification" | — |
+| Alert to you | `owner_notification` | `owner_notification` |
 | Emergency stop (stops all sending and applying immediately) | emergency stop | `emergency_stop` |
 | Saving to GitHub | sync outbox states | `sync_states` |
 | Sending messages | outreach scope | `outreach_scope` |
@@ -70,8 +75,8 @@ appears anywhere else.
 
 Applications: `queued` Queued · `preparing` Preparing · `ready_for_review` Waiting for your approval · `needs_input`
 Needs your answers · `authorized` Approved, applying soon · `executing` Applying now · `handoff` Finish on the site
-yourself · `needs_verification` Result unclear, check it · `submitted` Applied · `failed` Failed · `duplicate` Already
-applied · `blocked` Blocked by your rules · `denied` Not approved.
+yourself · `challenge_retry` Trying once more later · `needs_verification` Result unclear, check it · `submitted` Applied ·
+`failed` Failed · `duplicate` Already applied · `blocked` Blocked by your rules · `denied` Not approved.
 
 Jobs: `new` New · `needs_review` Needs your decision · `qualified` Good fit · `applied` Applied · `applied_historical`
 Applied (from your tracker) · `rejected` Rejected · `excluded` Skipped by your rules · `closed` Closed.
@@ -108,7 +113,7 @@ People never to contact: `unresolved` Not yet identified · `resolved` Identifie
 | job site | ATS |
 | human check | captcha / challenge |
 | form complaint | validation error |
-| Greenhouse board, Lever board | apply route / ATS adapter name |
+| Greenhouse board, Lever board, Ashby board | apply route / ATS adapter name |
 | file, resume | artifact, document |
 | approval | authorization scope |
 | approval for several jobs | batch scope |
