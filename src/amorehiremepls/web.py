@@ -33,6 +33,7 @@ from .ui_settings import (
     GLOSSARY,
     PAGE_INTROS,
     SCREENSHOT_LABELS,
+    STEP_HELP,
     TINT_LABELS,
     TINT_PRESETS,
     AvatarError,
@@ -116,16 +117,16 @@ PAGE_TITLES = {
     "jobs.html": "Jobs",
     "job.html": "Job",
     "applications.html": "Applications",
-    "application.html": "Review package",
-    "runs.html": "Applications · Runs",
-    "run.html": "Run",
-    "documents.html": "Documents",
-    "outreach.html": "Outreach",
-    "history.html": "History",
-    "sync.html": "Sync",
-    "usage.html": "Usage",
-    "profile.html": "Candidate profile",
-    "authorizations.html": "Authorizations",
+    "application.html": "Application package",
+    "runs.html": "Applications · Background tasks",
+    "run.html": "Background task",
+    "documents.html": "Resumes",
+    "outreach.html": "Recruiters",
+    "history.html": "Past applications",
+    "sync.html": "GitHub tracker",
+    "usage.html": "AI usage and cost",
+    "profile.html": "Your profile",
+    "authorizations.html": "Approvals",
     "settings.html": "Settings",
     "help.html": "Help",
 }
@@ -134,15 +135,15 @@ NAV = [
     ("/", "Overview", "overview"),
     ("/jobs", "Jobs", "jobs"),
     ("/applications", "Applications", "applications"),
-    ("/documents", "Documents", "documents"),
-    ("/outreach", "Outreach", "outreach"),
+    ("/documents", "Resumes", "documents"),
+    ("/outreach", "Recruiters", "outreach"),
     ("Records", None, None),
-    ("/history", "History", "history"),
-    ("/sync", "Sync", "sync"),
-    ("/usage", "Usage", "usage"),
+    ("/history", "Past applications", "history"),
+    ("/sync", "GitHub tracker", "sync"),
+    ("/usage", "AI usage", "usage"),
     ("Account", None, None),
-    ("/authorizations", "Authorizations", "auth"),
-    ("/profile", "Candidate profile", "profile"),
+    ("/authorizations", "Approvals", "auth"),
+    ("/profile", "Your profile", "profile"),
     ("/settings", "Settings", "settings"),
     ("/help", "Help", "help"),
 ]
@@ -155,13 +156,13 @@ FLASHES = {
     "bad_accent": ("Accent must be a preset or a #rrggbb colour.", "bad"),
     "bad_tint": ("Background tint must be a preset or a #rrggbb colour.", "bad"),
     "bad_avatar": ("That file was not accepted.", "bad"),
-    "provider_ok": ("Model provider check passed.", "ok"),
-    "provider_failed": ("Model provider check failed; see the System card.", "bad"),
-    "regenerated": ("Documents regenerated. Hashes changed, so any earlier approval for this job was withdrawn.", "ok"),
-    "regenerated_doc_only": ("A fresh document was generated. The existing package was left as it is because of its state.", "ok"),
-    "no_base": ("Select the approved base resume under Candidate profile first.", "bad"),
-    "busy": ("A run is working on this job right now; wait for it to pause or finish.", "bad"),
-    "already_submitted": ("This application was submitted; documents are kept as they were sent.", "bad"),
+    "provider_ok": ("The AI connection works.", "ok"),
+    "provider_failed": ("The AI connection failed. See the System card for the reason.", "bad"),
+    "regenerated": ("The resume was rebuilt. The files changed, so any earlier approval for this job was withdrawn.", "ok"),
+    "regenerated_doc_only": ("A fresh resume was made. The existing package was left as it is because of its state.", "ok"),
+    "no_base": ("Choose your approved base resume under Your profile first.", "bad"),
+    "busy": ("A background task is working on this job right now. Wait for it to pause or finish.", "bad"),
+    "already_submitted": ("This application was already sent. The files are kept exactly as they were sent.", "bad"),
 }
 HOSTS_ENV_EXAMPLE = "AMORE_BROWSER_ALLOWED_HOSTS=boards.greenhouse.io,jobs.lever.co"
 
@@ -284,14 +285,14 @@ def create_app(rt: Runtime) -> FastAPI:
     def open_questions() -> list[str]:
         q = []
         if rt.profile.base_resume is None:
-            q.append("Approved base resume DOCX not selected. Where is the current approved base DOCX?")
+            q.append("Your approved base resume (DOCX) is not chosen yet. Where is it on this computer?")
         for x in rt.profile.preferences.recipient_exclusions:
             if x.resolution == "unresolved":
-                q.append(f"Recipient exclusion '{x.label}' is unresolved: bind it to a LinkedIn profile URL/employer.")
+                q.append(f"'{x.label}' is on your do not contact list but has no LinkedIn link or employer yet. Add one so the app can tell them apart from namesakes.")
         if not rt.settings.provider_configured:
-            q.append("No model provider configured (AMORE_MODEL + key). Deterministic paths only.")
+            q.append("No AI model is connected (AMORE_MODEL and its key). Only the rules based steps work until it is.")
         if not (rt.settings.tracker_clone_dir / ".git").exists():
-            q.append("Tracker clone missing; run `amore tracker clone` on this host before enabling sync.")
+            q.append("Your GitHub tracker is not downloaded on this computer yet. Run `amore tracker clone` here before turning on saving to GitHub.")
         return q
 
     # -- public -----------------------------------------------------------------------------
@@ -421,14 +422,14 @@ def create_app(rt: Runtime) -> FastAPI:
 
         items = [
             item("profile", "Confirm your profile facts", bool(p.facts) and not missing, "/profile", "Open profile", ("Missing: " + ", ".join(missing)) if missing else ""),
-            item("base_resume", "Approve the base resume", p.base_resume is not None, "/profile", "Select the DOCX", "Paste the path of the approved base resume on this machine."),
-            item("history", "Import your application history", s.c("applications").count_documents({"provenance.origin": "tracker_import"}) > 0, "/history", "Import history"),
+            item("base_resume", "Choose your base resume", p.base_resume is not None, "/profile", "Choose the DOCX", "Paste where your approved base resume is on this computer."),
+            item("history", "Load your past applications", s.c("applications").count_documents({"provenance.origin": "tracker_import"}) > 0, "/history", "Load past applications"),
             item(
                 "provider",
-                "Connect the model provider",
+                "Connect the AI model",
                 bool(model) and key_present and bool(last.get("ok")),
                 "/provider/check",
-                "Check provider now",
+                "Check the connection",
                 provider_hint,
                 "" if model else "AMORE_MODEL=gpt-5.4-mini",
                 "post",
@@ -439,33 +440,33 @@ def create_app(rt: Runtime) -> FastAPI:
                 bool(st.allowed_hosts),
                 "/help#hosts",
                 "How to set it",
-                "Environment only: add this line to .env (comma separated hosts) and restart the web and worker processes.",
+                "Done in the environment only: add this line to .env (sites separated by commas) and restart both app processes.",
                 HOSTS_ENV_EXAMPLE,
             ),
             item(
                 "pricing",
-                "Fill in model pricing",
+                "Add prices for your AI model",
                 priced,
                 "/usage",
-                "Open usage",
-                "Add the configured model to config/pricing.json so costs are numbers, not 'unknown'." if model else "Set a model first.",
+                "Open AI usage",
+                "Add the model to config/pricing.json so costs show as numbers instead of 'unknown'." if model else "Set a model first.",
             ),
-            item("job", "Import your first job", s.c("jobs").estimated_document_count() > 0, "/jobs", "Import a job"),
+            item("job", "Add your first job", s.c("jobs").estimated_document_count() > 0, "/jobs", "Add a job"),
             item(
                 "review",
-                "Open your first review package",
+                "Open your first application package",
                 s.c("applications").count_documents({**local_apps, "review_package": {"$ne": None}}) > 0,
                 "/applications",
                 "Open applications",
-                "Start a run from a job; the worker prepares the package.",
+                "Start from a job page; the app prepares the resume and answers in the background.",
             ),
             item(
                 "authorization",
                 "Grant your first approval",
                 s.c("authorizations").estimated_document_count() > 0,
                 f"/applications/{first_review['_id']}" if first_review else "/applications",
-                "Review and approve" if first_review else "Open applications",
-                "Approval is per exact package; nothing is submitted before it.",
+                "Read and approve" if first_review else "Open applications",
+                "Each approval covers one exact package. Nothing is sent before you approve.",
             ),
         ]
         done = sum(1 for i in items if i["done"])
@@ -480,11 +481,11 @@ def create_app(rt: Runtime) -> FastAPI:
         calls = usage_month.get("calls", 0) or 0
         unknown = usage_month.get("unknown", 0) or 0
         if not calls:
-            spend, spend_note = "$0.00", "no model calls this month"
+            spend, spend_note = "$0.00", "no AI calls this month"
         elif unknown:
-            spend, spend_note = f"${usage_month.get('cost', 0):.2f}+", f"{unknown} of {calls} calls without known pricing"
+            spend, spend_note = f"${usage_month.get('cost', 0):.2f}+", f"{unknown} of {calls} AI calls without a known price"
         else:
-            spend, spend_note = f"${usage_month.get('cost', 0):.2f}", f"{calls} model calls this month"
+            spend, spend_note = f"${usage_month.get('cost', 0):.2f}", f"{calls} AI calls this month"
         conflicts = sync.get("conflict", 0)
 
         def kpi(label: str, value: Any, note: str, icon: str, tone: str, href: str, pill: str, pill_tone: str) -> dict:
@@ -494,17 +495,17 @@ def create_app(rt: Runtime) -> FastAPI:
             kpi(
                 "Jobs to look at",
                 jobs.get("new", 0) + jobs.get("needs_review", 0),
-                f"{jobs.get('new', 0)} new · {jobs.get('needs_review', 0)} need review",
+                f"{jobs.get('new', 0)} new · {jobs.get('needs_review', 0)} need your decision",
                 "jobs",
                 "",
                 "/jobs",
-                f"{jobs.get('qualified', 0)} qualified",
+                f"{jobs.get('qualified', 0)} good fit",
                 "ok",
             ),
             kpi(
-                "Applications submitted",
+                "Applications sent",
                 submitted,
-                f"{prepared} prepared and waiting on you",
+                f"{prepared} prepared and waiting for you",
                 "applications",
                 "ok",
                 "/applications",
@@ -512,26 +513,26 @@ def create_app(rt: Runtime) -> FastAPI:
                 "warn" if prepared else "neutral",
             ),
             kpi(
-                "Needs verification",
+                "Results unclear",
                 needs_ver,
-                "unknown outcomes to reconcile",
+                "check these on the job site",
                 "alert",
                 "bad" if needs_ver else "",
                 "/applications?status_filter=needs_verification",
-                "action required" if needs_ver else "all clear",
+                "needs you" if needs_ver else "all clear",
                 "bad" if needs_ver else "ok",
             ),
             kpi(
-                "Sync pending",
+                "Waiting to save to GitHub",
                 pending,
-                f"{conflicts} conflicts · {sync.get('synced', 0)} synced",
+                f"{conflicts} need you · {sync.get('synced', 0)} saved",
                 "sync",
                 "warn" if pending else "",
                 "/sync",
-                "conflict" if conflicts else ("queued" if pending else "up to date"),
+                "needs you" if conflicts else ("waiting" if pending else "up to date"),
                 "bad" if conflicts else ("warn" if pending else "ok"),
             ),
-            kpi("Spend this month", spend, spend_note, "dollar", "info", "/usage", "unknown pricing" if unknown else "measured", "warn" if unknown else "neutral"),
+            kpi("AI cost this month", spend, spend_note, "dollar", "info", "/usage", "some prices unknown" if unknown else "measured", "warn" if unknown else "neutral"),
         ]
 
     def applications_chart() -> dict:
@@ -556,10 +557,10 @@ def create_app(rt: Runtime) -> FastAPI:
         s = rt.store
         items: list[dict] = []
         titles = {
-            "ready_for_review": ("Awaiting your authorization", "Review the package and authorize this exact submission.", "warn", "key"),
-            "needs_input": ("Needs your answers", "The form asks questions the profile cannot answer.", "warn", "help"),
-            "handoff": ("Manual handoff", "Finish on the employer site, then record the confirmation here.", "info", "hand"),
-            "needs_verification": ("Outcome unknown", "Check the employer site and reconcile what you observed.", "bad", "alert"),
+            "ready_for_review": ("Waiting for your approval", "Read the package and approve this exact application.", "warn", "key"),
+            "needs_input": ("Needs your answers", "The form asks questions your profile cannot answer.", "warn", "help"),
+            "handoff": ("Finish on the site yourself", "Apply on the job site, then record the confirmation here.", "info", "hand"),
+            "needs_verification": ("Result unclear", "Check the job site and record what you saw.", "bad", "alert"),
         }
 
         def item(title: str, detail: str, hint: str, tone: str, icon: str, href: str, action: str) -> dict:
@@ -575,19 +576,19 @@ def create_app(rt: Runtime) -> FastAPI:
             it = r.get("interrupt") or {}
             if it.get("application_id") and any(x["href"].endswith(it["application_id"]) for x in items):
                 continue
-            label = {"waiting": f"Run waiting: {humanize(it.get('type') or 'interrupt')}", "paused": "Run paused", "failed": "Run failed"}[r["status"]]
+            label = {"waiting": f"Task waiting: {status_label(it.get('type') or 'interrupt').lower()}", "paused": "Task paused", "failed": "Task failed"}[r["status"]]
             tone = "bad" if r["status"] == "failed" else "warn"
-            verb = {"waiting": "Open run", "paused": "Resume run", "failed": "See what failed"}[r["status"]]
-            items.append(item(label, f"{r['kind']} {r.get('params', {}).get('job_id', '')}", r.get("error") or "", tone, "runs", f"/runs/{r['_id']}", verb))
+            verb = {"waiting": "Open task", "paused": "Resume task", "failed": "See what failed"}[r["status"]]
+            items.append(item(label, f"{status_label(r['kind'])} {r.get('params', {}).get('job_id', '')}", r.get("error") or "", tone, "runs", f"/runs/{r['_id']}", verb))
         review = s.c("jobs").count_documents({"status": "needs_review"})
         if review:
-            detail = f"{review} job{'s' if review != 1 else ''} outside the automatic rules"
-            items.append(item("Jobs need your review", detail, "Decide whether each one is worth a run.", "info", "jobs", "/jobs?status_filter=needs_review", "Review jobs"))
+            detail = f"{review} job{'s' if review != 1 else ''} the rules could not decide on"
+            items.append(item("Jobs need your decision", detail, "Decide whether each one is worth preparing.", "info", "jobs", "/jobs?status_filter=needs_review", "Look at jobs"))
         held = s.c("recipients").count_documents({"history_reconciled_at": {"$exists": False}})
         if held:
-            detail = f"{held} recipient{'s' if held != 1 else ''} held before first contact"
+            detail = f"{held} {'person' if held == 1 else 'people'} held before a first message"
             hint = "Confirm you have not messaged them before."
-            items.append(item("Recipients waiting for a contact-history check", detail, hint, "info", "outreach", "/outreach", "Check history"))
+            items.append(item("People waiting for a contact check", detail, hint, "info", "outreach", "/outreach", "Check contacts"))
         return items
 
     # -- controls ---------------------------------------------------------------------------
@@ -621,22 +622,24 @@ def create_app(rt: Runtime) -> FastAPI:
         s = rt.settings
         places = [
             ("Tailored resumes and screenshots", str(s.artifact_dir.resolve())),
-            ("Private profile, base resume copy, avatar, browser sessions", str(s.private_dir.resolve())),
-            ("Tracker clone (GitHub ledger)", str(s.tracker_clone_dir.resolve())),
-            ("Logs and PID files", str(s.log_dir.resolve())),
-            ("Model pricing", str(s.pricing_file.resolve())),
-            ("Runtime state", f"MongoDB database '{s.mongodb_database}'"),
+            ("Your profile, a copy of the base resume, avatar, browser sign-ins", str(s.private_dir.resolve())),
+            ("Your GitHub tracker, downloaded", str(s.tracker_clone_dir.resolve())),
+            ("Logs and process ID files", str(s.log_dir.resolve())),
+            ("AI model prices", str(s.pricing_file.resolve())),
+            ("Everything else the app remembers", f"MongoDB database '{s.mongodb_database}'"),
         ]
-        order = ["authorization", "material_hash", "batch", "needs_verification", "handoff", "emergency_stop", "sync_states", "outreach_scope", "fit_rank", "grounding"]
-        order += ["regenerate", "evidence"]
+        order = ["authorization", "material_hash", "batch", "batch_scope", "needs_verification", "handoff", "emergency_stop", "sync_states", "outreach_scope", "fit_rank"]
+        order += ["grounding", "regenerate", "evidence", "task", "snapshot", "tracker"]
         statuses = {
             "Applications": ["queued", "ready_for_review", "needs_input", "authorized", "executing", "handoff", "needs_verification", "submitted", "failed", "duplicate"],
             "Jobs": ["new", "needs_review", "qualified", "applied", "applied_historical", "excluded"],
-            "Runs": ["queued", "running", "waiting", "paused", "failed", "succeeded"],
-            "Sync": ["sync_pending", "committed_local", "local_only", "synced", "conflict"],
+            "Background tasks": ["queued", "running", "waiting", "paused", "failed", "succeeded"],
+            "Saving to GitHub": ["sync_pending", "committed_local", "local_only", "synced", "conflict"],
         }
         concepts = [(k, *GLOSSARY[k]) for k in order]
-        return render(request, "help.html", session, places=places, concepts=concepts, statuses=statuses, hosts_example=HOSTS_ENV_EXAMPLE, allowed_hosts=sorted(s.allowed_hosts))
+        steps = [(name, tip, tech) for name, (tip, tech) in STEP_HELP.items()]
+        ctx = {"places": places, "concepts": concepts, "steps": steps, "statuses": statuses, "hosts_example": HOSTS_ENV_EXAMPLE, "allowed_hosts": sorted(s.allowed_hosts)}
+        return render(request, "help.html", session, **ctx)
 
     @app.get("/runs/{run_id}", response_class=HTMLResponse)
     def run_detail(request: Request, run_id: str, session: dict = Depends(require_session)):
@@ -875,60 +878,65 @@ def create_app(rt: Runtime) -> FastAPI:
         sync_state = ((app_doc or {}).get("sync") or {}).get("state")
         recorded = submitted and (bool((app_doc or {}).get("tracker_record_id")) or sync_state in ("synced", "not_applicable") or job.get("status") == "applied_historical")
         flags = [
-            ("Import", True),
-            ("Qualify", bool(job.get("qualification"))),
-            ("Tailor", bool(arts)),
-            ("Review", bool(pkg) and st not in ("needs_input", "queued", "preparing")),
-            ("Authorize", after_approval or scope_active),
-            ("Submit", submitted),
-            ("Record", recorded),
-            ("Outreach", outreach_n > 0),
+            ("import", True),
+            ("qualify", bool(job.get("qualification"))),
+            ("tailor", bool(arts)),
+            ("review", bool(pkg) and st not in ("needs_input", "queued", "preparing")),
+            ("authorize", after_approval or scope_active),
+            ("submit", submitted),
+            ("record", recorded),
+            ("outreach", outreach_n > 0),
         ]
-        current = next((name for name, done in flags if not done), None)
-        steps = [{"name": n, "done": d, "current": n == current} for n, d in flags]
+        names = {tech: (name, tip) for name, (tip, tech) in STEP_HELP.items()}
+        current = next((key for key, done in flags if not done), None)
+        steps = [{"key": k, "name": names[k][0], "tip": names[k][1], "done": d, "current": k == current} for k, d in flags]
         app_href = f"/applications/{app_doc['_id']}" if app_doc else None
         run_href = f"/runs/{active_run['_id']}" if active_run else None
         nxt: dict[str, Any] = {"label": "All done for this job", "href": None, "form": None, "note": ""}
         if job.get("status") == "excluded":
-            nxt = {"label": "Excluded by your rules", "href": "/profile", "note": "Change the preferences under Candidate profile if this is wrong.", "verb": "Open preferences"}
-        elif current == "Qualify":
-            nxt = {"label": "Qualify this job", "form": f"/jobs/{job['_id']}/qualify", "verb": "Qualify and rank", "note": "Deterministic rules first, then the fit rank."}
-        elif current == "Tailor":
+            nxt = {"label": "Skipped by your rules", "href": "/profile", "note": "Change your preferences under Your profile if this is wrong.", "verb": "Open preferences"}
+        elif current == "qualify":
+            note = "Your rules first, then a fit score. Nothing is sent."
+            nxt = {"label": "Check how well this job fits", "form": f"/jobs/{job['_id']}/qualify", "verb": "Check fit", "note": note}
+        elif current == "tailor":
             if active_run:
-                nxt = {"label": "The worker is tailoring the resume", "href": run_href, "verb": "Watch the run", "note": ""}
+                nxt = {"label": "The app is tailoring the resume", "href": run_href, "verb": "Watch", "note": ""}
             elif job.get("status") == "needs_review":
-                note = "Qualification landed outside the automatic rules; read the reasons below first."
-                nxt = {"label": "Decide whether this job is worth a run", "form": f"/jobs/{job['_id']}/run", "verb": "Start a run anyway", "note": note}
+                note = "Your rules could not decide on this job. Read the reasons below first."
+                nxt = {"label": "Decide whether this job is worth preparing", "form": f"/jobs/{job['_id']}/run", "verb": "Prepare it anyway", "note": note}
             else:
-                note = "Nothing is submitted; the run pauses for your approval."
-                nxt = {"label": "Tailor the resume and prepare the package", "form": f"/jobs/{job['_id']}/run", "verb": "Tailor and prepare", "note": note}
-        elif current == "Review":
+                note = "Nothing is sent. The app stops and waits for your approval."
+                nxt = {"label": "Tailor the resume and prepare the application", "form": f"/jobs/{job['_id']}/run", "verb": "Tailor resume", "note": note}
+        elif current == "review":
             if st == "needs_input":
-                nxt = {"label": "The form asks questions the profile cannot answer", "href": app_href, "verb": "Answer questions", "note": ""}
+                nxt = {"label": "The form asks questions your profile cannot answer", "href": app_href, "verb": "Answer questions", "note": ""}
             elif st in ("duplicate", "blocked", "denied"):
                 nxt = {"label": status_label(st), "href": app_href, "verb": "See why", "note": (app_doc or {}).get("reason") or ""}
             elif active_run:
-                nxt = {"label": "The worker is preparing the review package", "href": run_href, "verb": "Watch the run", "note": ""}
+                nxt = {"label": "The app is preparing the application package", "href": run_href, "verb": "Watch", "note": ""}
             else:
-                nxt = {"label": "Prepare the review package", "form": f"/jobs/{job['_id']}/run", "verb": "Tailor and prepare", "note": ""}
-        elif current == "Authorize":
-            note = "Approval covers these answers and these document hashes only."
-            nxt = {"label": "Read the package and approve this exact submission", "href": f"{app_href}#authorize", "verb": "Approve submission", "note": note}
-        elif current == "Submit":
+                nxt = {"label": "Prepare the application package", "form": f"/jobs/{job['_id']}/run", "verb": "Tailor resume", "note": ""}
+        elif current == "authorize":
+            note = "Your approval covers these answers and these exact files only."
+            nxt = {"label": "Read the package and approve this exact application", "href": f"{app_href}#authorize", "verb": "Read and approve", "note": note}
+        elif current == "submit":
             if st == "handoff":
-                nxt = {"label": "Apply on the employer site yourself, then record the confirmation", "href": app_href, "verb": "Finish on site", "note": "No supported adapter."}
+                note = "The app cannot fill in this job site for you."
+                nxt = {"label": "Apply on the job site yourself, then record the confirmation", "href": app_href, "verb": "Finish on the site", "note": note}
             elif st == "needs_verification":
-                nxt = {"label": "The outcome is unknown; check the employer site", "href": app_href, "verb": "Check outcome", "note": ""}
+                nxt = {"label": "The result is unclear. Check the job site", "href": app_href, "verb": "Check result", "note": ""}
             elif st == "failed":
-                nxt = {"label": "The submission failed", "href": app_href, "verb": "See what failed", "note": ""}
+                nxt = {"label": "Applying failed", "href": app_href, "verb": "See what failed", "note": ""}
             elif st == "executing":
-                nxt = {"label": "Submitting now", "href": run_href or app_href, "verb": "Watch", "note": ""}
+                nxt = {"label": "Applying now", "href": run_href or app_href, "verb": "Watch", "note": ""}
             else:
-                nxt = {"label": "Approved; the worker submits at the next tick", "href": run_href or app_href, "verb": "Watch the run", "note": ""}
-        elif current == "Record":
-            nxt = {"label": "Submitted; the tracker record is not on GitHub yet", "href": "/sync", "verb": "Open sync", "note": "A sync problem never changes the outcome."}
-        elif current == "Outreach":
-            nxt = {"label": "Submitted. Next: recruiter notes for this employer", "href": "/outreach", "verb": "Draft outreach", "note": "Drafts only; you send them yourself."}
+                nxt = {"label": "Approved. The app applies within a minute", "href": run_href or app_href, "verb": "Watch", "note": ""}
+        elif current == "record":
+            note = "A GitHub problem never changes whether you applied."
+            nxt = {"label": "Applied. Not saved to your GitHub tracker yet", "href": "/sync", "verb": "Open GitHub tracker", "note": note}
+        elif current == "outreach":
+            note = "Drafts only. You send them yourself."
+            nxt = {"label": "Applied. Next: short notes to recruiters at this employer", "href": "/outreach", "verb": "Contact recruiters", "note": note}
         return steps, nxt
 
     @app.post("/jobs/{job_id}/regenerate")

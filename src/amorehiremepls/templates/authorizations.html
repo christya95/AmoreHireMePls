@@ -1,29 +1,29 @@
 {% extends "base.html" %}{% block content %}
 {% from "_macros.html" import status, hint with context %}
 <div class="stack">
-<div class="page-head"><div><h1>Authorizations</h1><p>Every approval you have granted. Single approvals are made on a review package; this page is for seeing and revoking them, and for the rarer batch approval. {{ hint('authorization') }}</p></div></div>
+<div class="page-head"><div><h1>Approvals</h1><p>Every approval you have given. You approve single applications on their own page. This page is for seeing and withdrawing approvals, and for the rarer approval of several jobs at once. {{ hint('authorization') }}</p></div></div>
 
 <div class="card">
-  <div class="card-h"><h3>Bounded batch approval (advanced)</h3>{{ hint('batch') }}<span class="pill">application submissions only</span><span class="sub">Lets the worker submit up to N ready packages that match these filters without asking each time. It stops at the first unknown outcome or failure and never covers packages with open questions. Outreach is always approved one message at a time.</span></div>
+  <div class="card-h"><h3>Approve several jobs at once (advanced)</h3>{{ hint('batch_scope') }}<span class="pill">applying only</span><span class="sub">Lets the app apply to up to N ready applications that match these filters without asking each time. It stops at the first unclear result or failure and never covers applications with open questions. Recruiter messages are always approved one at a time.</span></div>
   <form method="post" action="/authorizations/batch" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="form-grid">
-      <div class="field"><label>Employers</label><input name="employers" placeholder="Acme, Globex"></div>
-      <div class="field"><label>Sites</label><input name="sites" placeholder="boards.greenhouse.io, jobs.lever.co"></div>
-      <div class="field"><label>Max fit rank</label><input name="max_fit_rank" type="number" value="2" min="1" max="5"></div>
-      <div class="field"><label>Max count</label><input name="max_count" type="number" value="3" min="1" max="10"></div>
-      <div class="field"><label>Hours</label><input name="hours" type="number" value="48" min="1" max="168"></div>
-      <div class="field"><label>Note</label><input name="note"></div>
+      <div class="field"><label>Only these employers</label><input name="employers" placeholder="Acme, Globex"></div>
+      <div class="field"><label>Only these job sites</label><input name="sites" placeholder="boards.greenhouse.io, jobs.lever.co"></div>
+      <div class="field"><label>Fit score no worse than</label><input name="max_fit_rank" type="number" value="2" min="1" max="5"></div>
+      <div class="field"><label>At most this many</label><input name="max_count" type="number" value="3" min="1" max="10"></div>
+      <div class="field"><label>Good for (hours)</label><input name="hours" type="number" value="48" min="1" max="168"></div>
+      <div class="field"><label>Note to yourself</label><input name="note"></div>
     </div>
-    <div class="form-actions"><button><svg class="icon"><use href="#i-key"/></svg>Grant batch scope</button></div></form>
+    <div class="form-actions"><button><svg class="icon"><use href="#i-key"/></svg>Approve several jobs</button></div></form>
 </div>
 
 <div class="card flush">
-  <div class="card-h"><h3>Scopes</h3><span class="pill">{{ scopes|length }}</span></div>
+  <div class="card-h"><h3>All approvals</h3><span class="pill">{{ scopes|length }}</span></div>
   <div class="table-wrap"><table>
-    <thead><tr><th>ID</th><th>Kind</th><th>Mode</th><th>Status</th><th>Target / filters</th><th>Used</th><th>Expires</th><th></th></tr></thead>
-    <tbody>{% for s in scopes %}<tr><td><small class="mono">{{ s._id }}</small></td><td>{{ s.kind|human }}</td><td><span class="pill {{ 'accent' if s.mode == 'batch' }}">{{ s.mode }}</span></td><td>{{ status(s.status) }}</td><td><small class="wrap">{{ s.binding.target_id or s.binding.job_filters }}</small></td><td>{{ s.used_count }}/{{ s.max_count }}</td><td class="nowrap">{{ s.expires_at|toronto }}</td>
-      <td>{% if s.status == 'active' %}<form method="post" action="/authorizations/{{ s._id }}/revoke"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary xs">Revoke</button></form>{% endif %}</td></tr>
-    {% else %}<tr><td colspan="8"><div class="empty"><svg class="icon"><use href="#i-auth"/></svg>No approvals yet. You grant the first one on a review package that is "Waiting for your approval".<div class="actions center mt"><a class="btn sm" href="/applications?status_filter=ready_for_review">Open packages waiting for approval</a></div></div></td></tr>{% endfor %}</tbody>
+    <thead><tr><th>ID</th><th>For</th><th>Covers</th><th>Status</th><th>Which job or filters</th><th>Used</th><th>Ends</th><th></th></tr></thead>
+    <tbody>{% for s in scopes %}<tr><td><small class="mono">{{ s._id }}</small></td><td>{{ s.kind|label }}</td><td><span class="pill {{ 'accent' if s.mode == 'batch' }}">{{ s.mode|label }}</span></td><td>{{ status(s.status) }}</td><td><small class="wrap">{{ s.binding.target_id or s.binding.job_filters }}</small></td><td>{{ s.used_count }} of {{ s.max_count }}</td><td class="nowrap">{{ s.expires_at|toronto }}</td>
+      <td>{% if s.status == 'active' %}<form method="post" action="/authorizations/{{ s._id }}/revoke"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary xs">Withdraw</button></form>{% endif %}</td></tr>
+    {% else %}<tr><td colspan="8"><div class="empty"><svg class="icon"><use href="#i-auth"/></svg>No approvals yet. You give the first one on an application that is "Waiting for your approval".<div class="actions center mt"><a class="btn sm" href="/applications?status_filter=ready_for_review">Open applications waiting for approval</a></div></div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>
 </div>

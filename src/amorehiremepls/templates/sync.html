@@ -1,35 +1,35 @@
 {% extends "base.html" %}{% block content %}
 {% from "_macros.html" import status, hint with context %}
 <div class="stack">
-<div class="page-head"><div><h1>Sync</h1><p>Confirmed applications are written to the GitHub tracker through this queue. A sync problem never changes whether an application was submitted.</p></div>
+<div class="page-head"><div><h1>GitHub tracker</h1><p>Every confirmed application is saved to your private GitHub tracker from here. A GitHub problem never changes whether you applied. {{ hint('tracker') }}</p></div>
   <div class="actions">
-    <form class="inline" method="post" action="/sync/process"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary"><svg class="icon"><use href="#i-sync"/></svg>Retry pending now</button></form>
-    <form class="inline" method="post" action="/sync/reconcile"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Reconcile after crash</button></form>
+    <form class="inline" method="post" action="/sync/process"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary"><svg class="icon"><use href="#i-sync"/></svg>Try saving again now</button></form>
+    <form class="inline" method="post" action="/sync/reconcile"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary" title="Use after a crash or restart. Checks what actually reached GitHub and fixes the list below.">Check what reached GitHub</button></form>
   </div></div>
 
 <div class="grid-main">
   <div class="card">
-    <div class="card-h"><h3>Tracker status</h3><span class="pill {{ 'ok' if status.clone_present else 'bad' }}">clone {{ 'present' if status.clone_present else 'missing' }}</span><span class="pill {{ 'ok' if status.push_enabled else 'warn' }}">push {{ 'enabled' if status.push_enabled else 'disabled' }}</span></div>
+    <div class="card-h"><h3>Your tracker</h3><span class="pill {{ 'ok' if status.clone_present else 'bad' }}">{{ 'downloaded' if status.clone_present else 'not downloaded' }}</span><span class="pill {{ 'ok' if status.push_enabled else 'warn' }}">{{ 'saving to GitHub is on' if status.push_enabled else 'saving to GitHub is off' }}</span></div>
     <table class="kv compact">
-      <tr><td>Clone</td><td class="wrap"><code>{{ status.clone }}</code></td></tr>
-      {% if status.head %}<tr><td>HEAD</td><td><code>{{ status.head }}</code>{% if status.dirty %} <span class="pill warn">dirty</span>{% endif %}</td></tr><tr><td>Ahead of remote</td><td>{{ status.ahead }}</td></tr>{% endif %}
-      {% if status.error %}<tr><td>Error</td><td><span class="pill bad">{{ status.error }}</span></td></tr>{% endif %}
+      <tr><td>Folder on this computer</td><td class="wrap"><code>{{ status.clone }}</code></td></tr>
+      {% if status.head %}<tr><td>Latest version</td><td><code>{{ status.head }}</code>{% if status.dirty %} <span class="pill warn">has unsaved edits</span>{% endif %}</td></tr><tr><td>Saved here but not on GitHub</td><td>{{ status.ahead }}</td></tr>{% endif %}
+      {% if status.error %}<tr><td>Problem</td><td><span class="pill bad">{{ status.error }}</span></td></tr>{% endif %}
     </table>
-    <p class="note mt">States {{ hint('sync_states') }}: <strong>Not yet recorded on GitHub</strong> (queued, or committed in the clone but not pushed) → <strong>Recorded on GitHub</strong>. <strong>Conflict</strong> needs you: resolve it in the clone, then retry.</p>
+    <p class="note mt">What the states mean {{ hint('sync_states') }}: <strong>Waiting to save to GitHub</strong> (queued, or saved on this computer but not uploaded yet) → <strong>Saved to GitHub</strong>. <strong>GitHub save needs you</strong> means the tracker and this app disagree. Fix it in the tracker folder, then try again.</p>
   </div>
   <div class="card">
-    <div class="card-h"><h3>Outbox</h3></div>
+    <div class="card-h"><h3>Waiting to save</h3></div>
     {% if status.outbox %}<div class="kpis">{% for k, v in status.outbox.items() %}<div><div class="kpi"><span class="label">{{ k|label }}</span><span class="value">{{ v }}</span><code class="raw">{{ k }}</code></div></div>{% endfor %}</div>
-    {% else %}<div class="empty"><svg class="icon"><use href="#i-check"/></svg>Nothing is waiting to be recorded. Items appear here after a confirmed submission.</div>{% endif %}
+    {% else %}<div class="empty"><svg class="icon"><use href="#i-check"/></svg>Nothing is waiting to be saved. Items appear here after a confirmed application.</div>{% endif %}
   </div>
 </div>
 
 <div class="card flush">
-  <div class="card-h"><h3>Outbox items</h3><span class="pill">{{ items|length }}</span></div>
+  <div class="card-h"><h3>Each application and its save</h3><span class="pill">{{ items|length }}</span></div>
   <div class="table-wrap"><table>
-    <thead><tr><th>Item</th><th>Application</th><th>Status</th><th>Record</th><th>Commit</th><th>Attempts</th><th>Error</th><th class="right">Next attempt</th></tr></thead>
+    <thead><tr><th>Item</th><th>Application</th><th>Status</th><th>Tracker entry</th><th>GitHub version</th><th>Tries</th><th>Problem</th><th class="right">Next try</th></tr></thead>
     <tbody>{% for i in items %}<tr><td class="mono"><small>{{ i._id }}</small></td><td><a class="mono" href="/applications/{{ i.application_id }}">{{ i.application_id }}</a></td><td>{{ status(i.status) }}</td><td>{{ i.record_id or '' }}</td><td><code>{{ (i.commit_sha or '')[:12] }}</code></td><td>{{ i.attempts }}</td><td><small>{{ i.error or '' }}</small></td><td class="right nowrap">{{ i.next_attempt_at|toronto }}</td></tr>
-    {% else %}<tr><td colspan="8"><div class="empty">No outbox items yet. The first confirmed submission creates one.</div></td></tr>{% endfor %}</tbody>
+    {% else %}<tr><td colspan="8"><div class="empty">Nothing here yet. The first confirmed application adds a row.</div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>
 </div>

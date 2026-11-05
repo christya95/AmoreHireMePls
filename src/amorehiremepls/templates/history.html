@@ -1,50 +1,50 @@
 {% extends "base.html" %}{% block content %}
 {% from "_macros.html" import status, hint with context %}
 <div class="stack">
-<div class="page-head"><div><h1>History</h1><p>Your past applications, imported from the private GitHub tracker. Each record keeps its original evidence level; a reconstructed log is never shown as a verified receipt.</p></div></div>
+<div class="page-head"><div><h1>Past applications</h1><p>Applications from before this app, loaded from your private GitHub tracker. Each one keeps its original level of proof. A note written from memory is never shown as a confirmed receipt. {{ hint('tracker') }}</p></div></div>
 
 <div class="grid-main">
   <div class="card">
-    <div class="card-h"><h3>Tracker import</h3><span class="pill {{ 'ok' if sync.clone_present else 'bad' }}">clone {{ 'present' if sync.clone_present else 'missing' }}</span></div>
+    <div class="card-h"><h3>Load from your tracker</h3><span class="pill {{ 'ok' if sync.clone_present else 'bad' }}">{{ 'tracker downloaded' if sync.clone_present else 'tracker not downloaded' }}</span></div>
     <table class="kv compact">
-      <tr><td>Clone</td><td class="wrap"><code>{{ sync.clone }}</code></td></tr>
-      {% if sync.head %}<tr><td>HEAD</td><td><code>{{ sync.head }}</code>{% if sync.dirty %} <span class="pill warn">dirty</span>{% endif %}{% if sync.ahead and sync.ahead != '0' %} <span class="pill warn">{{ sync.ahead }} ahead</span>{% endif %}</td></tr>{% endif %}
+      <tr><td>Folder on this computer</td><td class="wrap"><code>{{ sync.clone }}</code></td></tr>
+      {% if sync.head %}<tr><td>Latest version</td><td><code>{{ sync.head }}</code>{% if sync.dirty %} <span class="pill warn">has unsaved edits</span>{% endif %}{% if sync.ahead and sync.ahead != '0' %} <span class="pill warn">{{ sync.ahead }} not on GitHub yet</span>{% endif %}</td></tr>{% endif %}
       {% if preview and not preview.error %}
-      <tr><td>Source</td><td><code>{{ preview.source_commit[:12] }}</code> · {{ preview.source_path }} · sha256 <code>{{ preview.source_sha256[:12] }}…</code></td></tr>
-      <tr><td>Records</td><td>{{ preview.total }} <small>({% for k, v in preview.by_status.items() %}{{ k }} {{ v }}{{ ', ' if not loop.last }}{% endfor %})</small></td></tr>
-      <tr><td>Preview</td><td><span class="pill info">new {{ preview.new }}</span> <span class="pill">unchanged {{ preview.unchanged }}</span> <span class="pill warn">changed {{ preview.changed }}</span> <span class="pill {{ 'bad' if preview.conflicts else '' }}">conflicts {{ preview.conflicts|length }}</span> <span class="pill">duplicates {{ preview.duplicates|length }}</span> <span class="pill {{ 'warn' if preview.missing_artifacts else '' }}">artifacts missing/changed {{ preview.missing_artifacts|length }}</span></td></tr>
+      <tr><td>File</td><td>{{ preview.source_path }} <code class="raw">{{ preview.source_commit[:12] }}</code> <code class="raw">{{ preview.source_sha256[:12] }}</code></td></tr>
+      <tr><td>Entries</td><td>{{ preview.total }} <small>({% for k, v in preview.by_status.items() %}{{ k|label|lower }} {{ v }}{{ ', ' if not loop.last }}{% endfor %})</small></td></tr>
+      <tr><td>What loading would do</td><td><span class="pill info">{{ preview.new }} new</span> <span class="pill">{{ preview.unchanged }} unchanged</span> <span class="pill warn">{{ preview.changed }} changed</span> <span class="pill {{ 'bad' if preview.conflicts else '' }}">{{ preview.conflicts|length }} disagree with this app</span> <span class="pill">{{ preview.duplicates|length }} listed twice</span> <span class="pill {{ 'warn' if preview.missing_artifacts else '' }}">{{ preview.missing_artifacts|length }} files missing or changed</span></td></tr>
       {% endif %}
     </table>
-    {% if not sync.clone_present %}<div class="empty">The tracker clone is not on this machine yet. Run <code>uv run amore tracker clone</code> here, then come back and import.</div>{% endif %}
+    {% if not sync.clone_present %}<div class="empty">Your tracker is not on this computer yet. Run <code>uv run amore tracker clone</code> here, then come back and load it.</div>{% endif %}
     {% if preview and preview.error %}<div class="flash bad mt">{{ preview.error }}</div>{% endif %}
     {% if preview and not preview.error %}
-    {% if preview.duplicates %}<details class="disclosure"><summary>Duplicate identities</summary><pre>{{ preview.duplicates|json }}</pre></details>{% endif %}
-    {% if preview.conflicts %}<details class="disclosure"><summary>Conflicts</summary><pre>{{ preview.conflicts|json }}</pre></details>{% endif %}
-    {% if preview.missing_artifacts %}<details class="disclosure"><summary>Missing or changed artifacts</summary><pre>{{ preview.missing_artifacts|json }}</pre></details>{% endif %}
-    <form method="post" action="/history/import" class="form-actions"><input type="hidden" name="csrf" value="{{ csrf }}"><button><svg class="icon"><use href="#i-sync"/></svg>Import / re-import (idempotent)</button></form>
+    {% if preview.duplicates %}<details class="disclosure"><summary>Entries listed twice</summary><pre>{{ preview.duplicates|json }}</pre></details>{% endif %}
+    {% if preview.conflicts %}<details class="disclosure"><summary>Entries that disagree with this app</summary><pre>{{ preview.conflicts|json }}</pre></details>{% endif %}
+    {% if preview.missing_artifacts %}<details class="disclosure"><summary>Files missing or changed</summary><pre>{{ preview.missing_artifacts|json }}</pre></details>{% endif %}
+    <form method="post" action="/history/import" class="form-actions"><input type="hidden" name="csrf" value="{{ csrf }}"><button><svg class="icon"><use href="#i-sync"/></svg>Load past applications</button><small class="block mt">Safe to press again. Nothing is loaded twice.</small></form>
     {% endif %}
   </div>
   <div class="card flush">
-    <div class="card-h"><h3>Past imports</h3></div>
-    <div class="table-wrap"><table class="compact"><thead><tr><th>Imported</th><th>Commit</th><th>Counts</th></tr></thead>
+    <div class="card-h"><h3>Earlier loads</h3></div>
+    <div class="table-wrap"><table class="compact"><thead><tr><th>Loaded</th><th>Tracker version</th><th>Counts</th></tr></thead>
     <tbody>{% for i in imports %}<tr><td class="nowrap">{{ i.created_at|toronto }}</td><td><code>{{ i.source_commit[:12] }}</code></td><td><small>{{ i.counts }}</small></td></tr>
-    {% else %}<tr><td colspan="3"><div class="empty">Nothing imported yet.</div></td></tr>{% endfor %}</tbody></table></div>
+    {% else %}<tr><td colspan="3"><div class="empty">Nothing loaded yet.</div></td></tr>{% endfor %}</tbody></table></div>
   </div>
 </div>
 
 <div class="card flush">
-  <div class="card-h"><h3>Imported history</h3><span class="pill">{{ apps|length }}</span></div>
+  <div class="card-h"><h3>Your past applications</h3><span class="pill">{{ apps|length }}</span></div>
   <div class="table-wrap"><table>
-    <thead><tr><th>Record</th><th>Employer / role</th><th>Status</th><th>Date</th><th>Evidence basis</th><th>Artifacts</th><th>Sync</th></tr></thead>
+    <thead><tr><th>Entry</th><th>Employer and role</th><th>Status</th><th>Date</th><th>How sure</th><th>Files</th><th>On GitHub</th></tr></thead>
     <tbody>{% for a in apps %}<tr>
       <td class="mono">{{ a.tracker_record_id }}</td>
       <td><span class="row-person"><span class="avatar style-soft">{{ (a.record.employer or '?')|initials }}</span><span><strong>{{ a.record.employer }}</strong><span class="sub">{{ a.record.role }}</span></span></span></td>
       <td>{{ status(a.status) }}</td>
       <td class="nowrap">{{ a.record.application_date }}<span class="sub">{{ a.record.date_basis }}</span></td>
       <td><small>{{ a.record.evidence_basis or '—' }}</small></td>
-      <td>{% for s in a.artifact_status %}<span class="pill {{ 'ok' if s.hash_ok else 'bad' }}">{{ s.kind }}</span> {% endfor %}</td>
+      <td>{% for s in a.artifact_status %}<span class="pill {{ 'ok' if s.hash_ok else 'bad' }}">{{ s.kind|label }}</span> {% endfor %}</td>
       <td>{{ status(a.sync.state) }}</td></tr>
-    {% else %}<tr><td colspan="7"><div class="empty"><svg class="icon"><use href="#i-history"/></svg>Nothing imported yet. {% if sync.clone_present %}Use "Import / re-import" above.{% else %}Clone the tracker first (see above).{% endif %}</div></td></tr>{% endfor %}</tbody>
+    {% else %}<tr><td colspan="7"><div class="empty"><svg class="icon"><use href="#i-history"/></svg>Nothing loaded yet. {% if sync.clone_present %}Press "Load past applications" above.{% else %}Download the tracker first (see above).{% endif %}</div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>
 </div>

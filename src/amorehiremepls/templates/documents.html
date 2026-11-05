@@ -1,24 +1,24 @@
 {% extends "base.html" %}{% block content %}
 {% from "_macros.html" import status, hint with context %}
 <div class="stack">
-<div class="page-head"><div><h1>Documents</h1><p>Tailored resumes built from the approved base resume. Files are served only after their hash is re-checked, so what you open is exactly what was reviewed. {{ hint('grounding') }}</p></div>
-  <div class="flex">{% if base_resume %}<span class="pill ok">base {{ base_resume.sha256[:12] }}… approved {{ base_resume.approved_on }}</span>{% else %}<a class="pill bad" href="/profile">no approved base resume</a>{% endif %}</div></div>
+<div class="page-head"><div><h1>Resumes</h1><p>Resumes the app tailored from your approved base resume. A file only opens if it is still exactly the file you reviewed. {{ hint('grounding') }}</p></div>
+  <div class="flex">{% if base_resume %}<span class="pill ok">base resume approved {{ base_resume.approved_on }}</span> <code class="raw">{{ base_resume.sha256[:12] }}</code>{% else %}<a class="pill bad" href="/profile">no base resume chosen</a>{% endif %}</div></div>
 <div class="card flush">
   <div class="table-wrap"><table>
-    <thead><tr><th>File</th><th>Job</th><th>Open / download</th><th>Grounding</th><th>Method</th><th class="right">Created</th></tr></thead>
+    <thead><tr><th>File</th><th>Job</th><th>Open or download</th><th>Facts check</th><th>Written by</th><th class="right">Created</th></tr></thead>
     <tbody>{% for d in artifacts %}{% set j = jobs.get(d.owner_id, {}) %}<tr class="{{ 'superseded' if d.superseded }}">
-      <td class="wrap"><strong>{{ d.filename }}</strong><span class="sub">{{ (d.kind or '')|human }}{% if d.superseded %} · replaced by a newer version{% endif %}</span></td>
+      <td class="wrap"><strong>{{ d.filename }}</strong><span class="sub">{{ (d.kind or '')|label }}{% if d.superseded %} · replaced by a newer version{% endif %}</span></td>
       <td>{% if j %}<a href="/jobs/{{ d.owner_id }}">{{ j.employer }}</a><span class="sub">{{ j.title }}</span>{% else %}<span class="mono">{{ d.owner_id }}</span>{% endif %}</td>
       <td class="wrap">{% include "_doc_actions.html" %}</td>
-      <td>{% if d.grounding and d.grounding.ok %}<span class="pill ok">ok · {{ d.grounding.checked_bullets }} bullets</span>{% elif d.grounding %}<span class="pill bad">{{ d.grounding.violations|join('; ') }}</span>{% endif %}</td>
-      <td>{{ d.method }}</td>
+      <td>{% if d.grounding and d.grounding.ok %}<span class="pill ok">{{ d.grounding.checked_bullets }} lines, all from your facts</span>{% elif d.grounding %}<span class="pill bad">{{ d.grounding.violations|join('; ') }}</span>{% endif %}</td>
+      <td>{{ d.method|label }}</td>
       <td class="right nowrap">{{ d.created_at|toronto }}</td></tr>
-    {% else %}<tr><td colspan="6"><div class="empty"><svg class="icon"><use href="#i-documents"/></svg>No tailored documents yet. Open a job and press "Tailor and prepare"; the resume appears here with its hashes.<div class="actions center mt"><a class="btn sm" href="/jobs">Go to jobs</a>{% if not base_resume %}<a class="btn secondary sm" href="/profile">Select the base resume first</a>{% endif %}</div></div></td></tr>{% endfor %}</tbody>
+    {% else %}<tr><td colspan="6"><div class="empty"><svg class="icon"><use href="#i-documents"/></svg>No tailored resumes yet. Open a job and press "Tailor resume". The resume appears here.<div class="actions center mt"><a class="btn sm" href="/jobs">Go to jobs</a>{% if not base_resume %}<a class="btn secondary sm" href="/profile">Choose the base resume first</a>{% endif %}</div></div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>
 {% if screenshots %}
 <div class="card" id="screenshots">
-  <div class="card-h"><h3>Submission screenshots</h3>{{ hint('evidence') }}<span class="sub">Evidence the worker kept for automated submissions. These are images, not documents: nothing here is uploaded anywhere.</span></div>
+  <div class="card-h"><h3>Submission screenshots</h3>{{ hint('evidence') }}<span class="sub">Pictures the app kept as proof when it applied for you. These are images, not resumes. Nothing here is uploaded anywhere.</span></div>
   {% with shots = screenshots, show_job = True %}{% include "_shots.html" %}{% endwith %}
 </div>
 {% endif %}

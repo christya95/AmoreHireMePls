@@ -190,7 +190,7 @@ class ApplicationService:
         if prior:
             return self._set(app["_id"], "duplicate", reason=f"already submitted ({prior.get('tracker_record_id') or prior['_id']})")
         if job.get("status") == "excluded":
-            return self._set(app["_id"], "blocked", reason="job excluded by filters", next_action="review qualification")
+            return self._set(app["_id"], "blocked", reason="job skipped by your rules", next_action="check the fit result")
         base = self.profile.base_resume
         base_path = base_resume_path or (Path(base.path) if base else None)
         unknowns: list[str] = []
@@ -312,7 +312,7 @@ class ApplicationService:
             self._set(
                 app_id,
                 "handoff",
-                reason=f"no supported site adapter for {host or pkg.get('apply_route')}",
+                reason=f"the app cannot fill in forms on {host or pkg.get('apply_route')} yet",
                 next_action="complete manually from the review package, then record the confirmation",
             )
             self.store.audit("application_handoff", app_id, host=host)
@@ -381,7 +381,7 @@ class ApplicationService:
             SyncOutbox(self.store).enqueue(app_id, "record_submission")
         elif outcome.status == "needs_verification":
             ev = self._with_screenshots(job["_id"], app_id, outcome.evidence)
-            self._set(app_id, "needs_verification", reason=outcome.reason, evidence=ev, next_action="inspect the employer account/email, then reconcile the action")
+            self._set(app_id, "needs_verification", reason=outcome.reason, evidence=ev, next_action="check the employer account or email, then record the result")
             self.store.release("jobs", {"_id": job["_id"]}, worker, "needs_verification")
         elif outcome.status == "failed":
             nxt = "retry is allowed: the action returned to ready before any irreversible step" if outcome.retryable else "fix the reported problem and prepare again"

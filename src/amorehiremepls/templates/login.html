@@ -16,12 +16,12 @@
 <div class="card login-card">
   <div class="brand-mark">{{ mark() }}</div>
   <h1>AmoreHireMePls</h1>
-  <p class="muted">Private job search dashboard</p>
+  <p class="muted">Your private job search helper</p>
   {% if error %}<div class="flash bad mt">{{ error }}</div>{% endif %}
   <form method="post" action="/login">
     <div class="field"><label for="password">Password</label><input id="password" type="password" name="password" autocomplete="current-password" autofocus required></div>
     <button>Sign in</button>
-    <small>Keep it on localhost, LAN or VPN. Nothing here is public.</small>
+    <small>Only reachable from this computer, your home network or your VPN. Nothing here is public.</small>
   </form>
 </div>
 </body>

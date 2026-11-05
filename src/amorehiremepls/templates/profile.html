@@ -1,77 +1,78 @@
 {% extends "base.html" %}{% block content %}
+{% from "_macros.html" import status, hint with context %}
 <div class="stack">
-<div class="page-head"><div><h1>Candidate profile</h1><p>The approved facts every resume claim and form answer is grounded in. If a fact is missing, the app asks you instead of guessing. Dashboard appearance lives under <a href="/settings">Settings</a>.</p></div></div>
+<div class="page-head"><div><h1>Your profile</h1><p>The facts about you that every resume line and form answer comes from. If a fact is missing, the app asks you instead of guessing. How the dashboard looks is under <a href="/settings">Settings</a>. {{ hint('grounding') }}</p></div></div>
 
 <div class="grid-2">
   <div class="card">
-    <div class="card-h"><h3>Base resume</h3>{% if p.base_resume %}<span class="pill ok">approved {{ p.base_resume.approved_on }}</span>{% else %}<span class="pill bad">not selected</span>{% endif %}<span class="sub">The one resume every tailored version starts from. A copy is kept privately; the original is never edited.</span></div>
-    {% if p.base_resume %}<p class="wrap"><code>{{ p.base_resume.path }}</code></p><p class="note">sha256 {{ p.base_resume.sha256[:16] }}… · {{ p.base_resume.source }}{% if p.base_resume.note %} · {{ p.base_resume.note }}{% endif %}</p>{% else %}<div class="empty">No base resume yet. Paste the full path of your approved DOCX below (on this machine). Old tailored copies are never used as the base.</div>{% endif %}
+    <div class="card-h"><h3>Base resume</h3>{% if p.base_resume %}<span class="pill ok">approved {{ p.base_resume.approved_on }}</span>{% else %}<span class="pill bad">not chosen</span>{% endif %}<span class="sub">The one resume every tailored version starts from. A copy is kept privately. The original is never edited.</span></div>
+    {% if p.base_resume %}<p class="wrap"><code>{{ p.base_resume.path }}</code></p><p class="note">{{ p.base_resume.source }}{% if p.base_resume.note %} · {{ p.base_resume.note }}{% endif %} <code class="raw" title="file fingerprint">{{ p.base_resume.sha256[:16] }}</code></p>{% else %}<div class="empty">No base resume yet. Paste the full path of your approved DOCX below (on this computer). Old tailored copies are never used as the base.</div>{% endif %}
     <form method="post" action="/profile/base-resume" class="form-row mt"><input type="hidden" name="csrf" value="{{ csrf }}">
-      <div class="field wide"><label>Path on the server host</label><input name="path" placeholder="/path/to/approved_base_resume.docx" required></div>
+      <div class="field wide"><label>Where the file is on this computer</label><input name="path" placeholder="/path/to/approved_base_resume.docx" required></div>
       <div class="field"><label>Note</label><input name="note"></div>
-      <button class="secondary">Select approved DOCX</button></form>
+      <button class="secondary">Use this DOCX</button></form>
   </div>
   <div class="card">
-    <div class="card-h"><h3>Experience (computed from dates)</h3><span class="pill accent">{{ exp.full_time_years_completed }} full time years</span></div>
+    <div class="card-h"><h3>Experience (worked out from your dates)</h3><span class="pill accent">{{ exp.full_time_years_completed }} full time years</span></div>
     <table class="kv compact">
       <tr><td>Full time months</td><td>{{ exp.full_time_months }}</td></tr>
       <tr><td>Internship months</td><td>{{ exp.internship_months }}</td></tr>
       <tr><td>Total months</td><td>{{ exp.total_months }}</td></tr>
       <tr><td>As of</td><td>{{ exp.as_of }}</td></tr>
     </table>
-    <div class="table-wrap mt"><table class="compact"><thead><tr><th>Employer</th><th>Title</th><th>Kind</th><th>Dates</th><th>Provenance</th></tr></thead>
-    <tbody>{% for e in p.employment %}<tr><td>{{ e.employer }}</td><td>{{ e.title }}</td><td><span class="pill">{{ e.kind|human }}</span></td><td class="nowrap">{{ e.start }} – {{ e.end or ('present' if e.end_known else '?') }}</td><td><small>{{ e.provenance.source }} {{ e.provenance.confirmed_on }}</small></td></tr>{% endfor %}</tbody></table></div>
+    <div class="table-wrap mt"><table class="compact"><thead><tr><th>Employer</th><th>Title</th><th>Type</th><th>Dates</th><th>Confirmed</th></tr></thead>
+    <tbody>{% for e in p.employment %}<tr><td>{{ e.employer }}</td><td>{{ e.title }}</td><td><span class="pill">{{ e.kind|human }}</span></td><td class="nowrap">{{ e.start }} – {{ e.end or ('present' if e.end_known else '?') }}</td><td><small>{{ e.provenance.confirmed_on }} <code class="raw">{{ e.provenance.source }}</code></small></td></tr>{% endfor %}</tbody></table></div>
   </div>
 </div>
 
 <div class="card flush">
-  <div class="card-h"><h3>Facts</h3><span class="pill">version {{ p.version }}</span></div>
+  <div class="card-h"><h3>Facts about you</h3><span class="pill">version {{ p.version }}</span><span class="sub">Leave a value blank when you do not know it. The app will then ask you instead of guessing.</span></div>
   <div class="table-wrap"><table>
-    <thead><tr><th>Key</th><th>Value</th><th>Category</th><th>Provenance</th></tr></thead>
-    <tbody>{% for f in p.facts + p.answers + p.education %}<tr><td class="mono">{{ f.key }}</td><td class="wrap">{% if f.value is not none %}{{ f.value }}{% else %}<span class="pill warn">unknown</span>{% endif %}</td><td>{{ f.category }}</td><td><small>{{ f.provenance.source }} {{ f.provenance.confirmed_on or '' }}</small></td></tr>{% endfor %}</tbody>
+    <thead><tr><th>Fact</th><th>Value</th><th>Group</th><th>Confirmed</th></tr></thead>
+    <tbody>{% for f in p.facts + p.answers + p.education %}<tr><td class="mono">{{ f.key }}</td><td class="wrap">{% if f.value is not none %}{{ f.value }}{% else %}<span class="pill warn">unknown</span>{% endif %}</td><td>{{ f.category }}</td><td><small>{{ f.provenance.confirmed_on or '' }} <code class="raw">{{ f.provenance.source }}</code></small></td></tr>{% endfor %}</tbody>
   </table></div>
   <form method="post" action="/profile/facts" class="form-row pad mt"><input type="hidden" name="csrf" value="{{ csrf }}">
-    <div class="field"><label>Key</label><input name="key" placeholder="e.g. linkedin_url" required></div>
+    <div class="field"><label>Fact name</label><input name="key" placeholder="e.g. linkedin_url" required></div>
     <div class="field"><label>Value</label><input name="value" placeholder="blank = unknown"></div>
-    <div class="field narrow"><label>Category</label><input name="category" value="other"></div>
+    <div class="field narrow"><label>Group</label><input name="category" value="other"></div>
     <button class="secondary">Save fact</button></form>
-  {% if p.unknowns %}<p class="note pad">Unknowns: {{ p.unknowns|join('; ') }}</p>{% endif %}
+  {% if p.unknowns %}<p class="note pad">Still unknown: {{ p.unknowns|join('; ') }}</p>{% endif %}
 </div>
 
 <div class="card">
-  <div class="card-h"><h3>Preferences and rules</h3></div>
+  <div class="card-h"><h3>Your rules for jobs</h3><span class="sub">Every job is checked against these before anything else happens.</span></div>
   <form method="post" action="/profile/preferences" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="form-grid">
-      <div class="field"><label>Employment types</label><input name="employment_types" value="{{ p.preferences.employment_types|join(', ') }}"></div>
-      <div class="field"><label>Locations</label><input name="locations" value="{{ p.preferences.locations|join(', ') }}"><span class="hint">{{ p.preferences.remote_rule }}</span></div>
+      <div class="field"><label>Employment types you want</label><input name="employment_types" value="{{ p.preferences.employment_types|join(', ') }}"></div>
+      <div class="field"><label>Locations you want</label><input name="locations" value="{{ p.preferences.locations|join(', ') }}"><span class="hint">{{ p.preferences.remote_rule }}</span></div>
     </div>
-    <div class="field"><label>Allowed role families</label><input name="role_families" value="{{ p.preferences.role_families|join(', ') }}"></div>
-    <div class="field"><label>Excluded role families</label><input name="excluded_role_families" value="{{ p.preferences.excluded_role_families|join(', ') }}"></div>
+    <div class="field"><label>Kinds of role you want</label><input name="role_families" value="{{ p.preferences.role_families|join(', ') }}"></div>
+    <div class="field"><label>Kinds of role you do not want</label><input name="excluded_role_families" value="{{ p.preferences.excluded_role_families|join(', ') }}"></div>
     <div class="form-grid">
-      <div class="field"><label>Floor base ({{ p.compensation.currency }})</label><input name="floor_base" type="number" value="{{ p.compensation.floor_base }}"></div>
-      <div class="field"><label>Target</label><input name="target_base" value="{{ p.compensation.target_base or '' }}"></div>
-      <div class="field"><label>Band rule</label><select name="band_rule">{% for o in ['midpoint','upper_half','minimum'] %}<option {{ 'selected' if o==p.compensation.band_rule }}>{{ o }}</option>{% endfor %}</select></div>
-      <div class="field"><label>Unknown salary</label><select name="unknown_rule">{% for o in ['needs_input','leave_blank'] %}<option {{ 'selected' if o==p.compensation.unknown_rule }}>{{ o }}</option>{% endfor %}</select></div>
-      <div class="field"><label>Small startup</label><select name="small_startup_rule">{% for o in ['needs_review','ignore'] %}<option {{ 'selected' if o==p.preferences.small_startup_rule }}>{{ o }}</option>{% endfor %}</select></div>
+      <div class="field"><label>Lowest base salary you accept ({{ p.compensation.currency }})</label><input name="floor_base" type="number" value="{{ p.compensation.floor_base }}"></div>
+      <div class="field"><label>Salary you aim for</label><input name="target_base" value="{{ p.compensation.target_base or '' }}"></div>
+      <div class="field"><label>When a job shows a salary range, ask for</label><select name="band_rule">{% for o in ['midpoint','upper_half','minimum'] %}<option value="{{ o }}" {{ 'selected' if o==p.compensation.band_rule }}>{{ o|label }}</option>{% endfor %}</select></div>
+      <div class="field"><label>When a form asks for salary and none is published</label><select name="unknown_rule">{% for o in ['needs_input','leave_blank'] %}<option value="{{ o }}" {{ 'selected' if o==p.compensation.unknown_rule }}>{{ 'Ask me' if o == 'needs_input' else o|label }}</option>{% endfor %}</select></div>
+      <div class="field"><label>Very small or very new companies</label><select name="small_startup_rule">{% for o in ['needs_review','ignore'] %}<option value="{{ o }}" {{ 'selected' if o==p.preferences.small_startup_rule }}>{{ 'Ask me first' if o == 'needs_review' else o|label }}</option>{% endfor %}</select></div>
     </div>
-    <div class="field"><label>Excluded employers (one per line: Name | alias, alias)</label><textarea name="excluded_employers" rows="6">{% for e in p.preferences.excluded_employers %}{{ e.name }}{% if e.aliases %} | {{ e.aliases|join(', ') }}{% endif %}
+    <div class="field"><label>Employers to skip (one per line: Name | other names, other names)</label><textarea name="excluded_employers" rows="6">{% for e in p.preferences.excluded_employers %}{{ e.name }}{% if e.aliases %} | {{ e.aliases|join(', ') }}{% endif %}
 {% endfor %}</textarea></div>
-    <div class="form-actions"><button>Save preferences</button></div></form>
+    <div class="form-actions"><button>Save rules</button></div></form>
 </div>
 
 <div class="card flush">
-  <div class="card-h"><h3>Recipient exclusions (identity based)</h3><span class="sub">Unresolved entries block nothing and never match by first name; a recipient sharing the first name is held for reconciliation.</span></div>
+  <div class="card-h"><h3>People never to contact</h3><span class="sub">A name alone is not enough to be sure who someone is. Until an entry has a LinkedIn link or employer, anyone sharing that first name is put on hold for you to check rather than blocked.</span></div>
   <div class="table-wrap"><table>
-    <thead><tr><th>Label</th><th>Resolution</th><th>Profile URL</th><th>Employer</th><th>Reason</th><th></th></tr></thead>
-    <tbody>{% for x in p.preferences.recipient_exclusions %}<tr><td>{{ x.label }}</td><td><span class="pill {{ x.resolution|tone }}">{{ x.resolution }}</span></td><td class="wrap">{{ x.profile_url or '' }}</td><td>{{ x.employer or '' }}</td><td><small>{{ x.reason }}</small></td>
-      <td>{% if x.resolution != 'resolved' %}<form class="inline" method="post" action="/profile/exclusions/resolve"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="exclusion_id" value="{{ x.id }}"><input name="profile_url" placeholder="linkedin.com/in/…" size="24"><input name="employer" placeholder="employer" size="12"><button class="secondary xs">Bind identity</button></form>{% endif %}</td></tr>
-    {% else %}<tr><td colspan="6"><div class="empty">No recipient exclusions.</div></td></tr>{% endfor %}</tbody>
+    <thead><tr><th>Name</th><th>Identified?</th><th>LinkedIn link</th><th>Employer</th><th>Why</th><th></th></tr></thead>
+    <tbody>{% for x in p.preferences.recipient_exclusions %}<tr><td>{{ x.label }}</td><td>{{ status(x.resolution) }}</td><td class="wrap">{{ x.profile_url or '' }}</td><td>{{ x.employer or '' }}</td><td><small>{{ x.reason }}</small></td>
+      <td>{% if x.resolution != 'resolved' %}<form class="inline" method="post" action="/profile/exclusions/resolve"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="exclusion_id" value="{{ x.id }}"><input name="profile_url" placeholder="linkedin.com/in/…" size="24"><input name="employer" placeholder="employer" size="12"><button class="secondary xs">Add their details</button></form>{% endif %}</td></tr>
+    {% else %}<tr><td colspan="6"><div class="empty">Nobody on this list.</div></td></tr>{% endfor %}</tbody>
   </table></div>
   <form method="post" action="/profile/exclusions/add" class="form-row pad mt"><input type="hidden" name="csrf" value="{{ csrf }}">
-    <div class="field"><label>Label</label><input name="label" required></div><div class="field"><label>Profile URL</label><input name="profile_url"></div><div class="field"><label>Employer</label><input name="employer"></div><div class="field"><label>Reason</label><input name="reason"></div>
-    <button class="secondary">Add exclusion</button></form>
+    <div class="field"><label>Name</label><input name="label" required></div><div class="field"><label>LinkedIn link</label><input name="profile_url"></div><div class="field"><label>Employer</label><input name="employer"></div><div class="field"><label>Why</label><input name="reason"></div>
+    <button class="secondary">Add person</button></form>
 </div>
 
-<div class="card"><details class="disclosure"><summary>Outreach rules</summary><pre>{{ p.preferences.outreach_rules|json }}</pre></details></div>
+<div class="card"><details class="disclosure"><summary>Rules for recruiter notes (technical)</summary><pre>{{ p.preferences.outreach_rules|json }}</pre></details></div>
 </div>
 {% endblock %}

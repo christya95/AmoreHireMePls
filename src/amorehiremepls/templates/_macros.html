@@ -4,5 +4,5 @@
 <span class="status"><span class="pill {{ s|tone }}">{{ s|label }}</span><code class="raw" title="internal state">{{ s }}</code></span>
 {%- endmacro %}
 {% macro hint(key) -%}
-{% set g = glossary[key] %}<details class="hint"><summary aria-label="What is {{ g[0] }}?" title="{{ g[0] }}">?</summary><div class="hint-body"><strong>{{ g[0] }}.</strong> {{ g[1] }} <a href="/help#{{ key }}">More in Help</a></div></details>
+{% set g = glossary[key] %}<details class="hint"><summary aria-label="What is {{ g[0] }}?" title="{{ g[0] }}">?</summary><div class="hint-body"><strong>{{ g[0] }}.</strong> {{ g[1] }} <a href="/help#{{ key }}">More in Help</a>{% if g[2] %} <code class="raw" title="technical term">{{ g[2] }}</code>{% endif %}</div></details>
 {%- endmacro %}

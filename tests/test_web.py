@@ -78,7 +78,7 @@ def test_import_job_authorize_flow_and_pages_render(client):
     for path in ("/", "/profile", "/history", "/jobs", "/runs", "/authorizations", "/outreach", "/sync", "/usage", r.headers["location"]):
         assert client.get(path).status_code == 200, path
     r = client.post("/authorizations/batch", data={"csrf": csrf, "kind": "application_submit", "employers": "Acme", "max_fit_rank": 2, "max_count": 2, "hours": 2})
-    assert r.status_code == 303 and "batch" in client.get("/authorizations").text
+    assert r.status_code == 303 and "Several jobs" in client.get("/authorizations").text
     r = client.post("/outreach/recipients", data={"csrf": csrf, "name": "Sam Recruiter", "employer": "Acme", "profile_url": "https://linkedin.com/in/sam-r", "remit": "TA"})
     assert r.status_code == 303 and "Sam Recruiter" in client.get("/outreach").text
     # drafting with an unconfirmed applied role is refused
@@ -119,7 +119,7 @@ def test_review_page_and_single_scope_authorization(client, tmp_path):
     assert run["status"] == "waiting" and run["interrupt"]["type"] == "awaiting_authorization", run
     app_id = run["interrupt"]["application_id"]
     page = client.get(f"/applications/{app_id}")
-    assert page.status_code == 200 and "Approve this exact submission" in page.text
+    assert page.status_code == 200 and "Approve this exact application" in page.text
     a = rt.store.c("applications").find_one({"_id": app_id})
     # stale material hash is refused; the real one grants a single scope and requests resume
     assert client.post(f"/applications/{app_id}/authorize", data={"csrf": csrf, "material_hash": "stale", "hours": 1}).status_code == 409
@@ -132,7 +132,7 @@ def test_review_page_and_single_scope_authorization(client, tmp_path):
     # no adapter/form plan for this host -> resumable handoff, never a claimed submission
     assert run["status"] == "waiting" and run["interrupt"]["type"] == "handoff", run
     assert rt.store.c("applications").find_one({"_id": app_id})["status"] == "handoff"
-    assert "Record manual submission" in client.get(f"/applications/{app_id}").text
+    assert "I applied on the site" in client.get(f"/applications/{app_id}").text
 
 
 def test_regenerate_documents_supersedes_artifacts_and_invalidates_approval(client, tmp_path):
@@ -170,7 +170,7 @@ def test_regenerate_documents_supersedes_artifacts_and_invalidates_approval(clie
     assert len([s for s in rt.auth.active("application_submit") if s.binding.target_id == job_id]) == 1
     # the job page shows the stepper and the regenerate action with its warning
     page = client.get(f"/jobs/{job_id}").text
-    assert "Regenerate documents" in page and "approval for the old package is withdrawn" in page and "Authorize" in page and "Outreach" in page
+    assert "Rebuild the resume" in page and "approval for the old package is withdrawn" in page and "Approve" in page and "Contact recruiters" in page
 
     r = client.post(f"/jobs/{job_id}/regenerate", data={"csrf": csrf})
     assert r.status_code == 303 and r.headers["location"].endswith("ok=regenerated"), r.headers["location"]

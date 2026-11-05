@@ -1,11 +1,11 @@
 {% extends "base.html" %}{% block content %}
 {% from "_brand.html" import mark %}
 <div class="stack">
-<div class="page-head"><div><h1>Settings</h1><p>Candidate facts, preferences and exclusions live under <a href="/profile">Candidate profile</a>, not here.</p></div></div>
+<div class="page-head"><div><h1>Settings</h1><p>How the dashboard looks and greets you. Facts about you, your rules and people to skip live under <a href="/profile">Your profile</a>.</p></div></div>
 
 <div class="grid-2">
   <div class="card">
-    <div class="card-h"><h3>Appearance</h3><span class="sub">Saved to the database and mirrored in a cookie so the first paint already matches.</span></div>
+    <div class="card-h"><h3>Appearance</h3><span class="sub">Saved in the app and remembered by your browser so the page looks right straight away.</span></div>
     <form method="post" action="/settings/appearance" class="stack"><input type="hidden" name="csrf" value="{{ csrf }}">
       <div class="field"><label>Theme</label>
         <div class="choices">
@@ -39,14 +39,14 @@
 
   <div class="stack">
     <div class="card">
-      <div class="card-h"><h3>Name</h3><span class="sub">Used in greetings and the header only. Defaults to the profile's preferred name{% if default_name %} ({{ default_name }}){% endif %}.</span></div>
+      <div class="card-h"><h3>Name</h3><span class="sub">Used in greetings and the header only. If blank, the preferred name from your profile is used{% if default_name %} ({{ default_name }}){% endif %}.</span></div>
       <form method="post" action="/settings/identity" class="form-row"><input type="hidden" name="csrf" value="{{ csrf }}">
         <div class="field"><label>Display name</label><input name="display_name" value="{{ ui.display_name or '' }}" placeholder="{{ default_name }}" maxlength="60"></div>
         <button>Save name</button></form>
     </div>
 
     <div class="card">
-      <div class="card-h"><h3>Avatar</h3><span class="sub">Shown in the header and the welcome card. Uploads stay in the private directory and are only served to a signed-in session.</span></div>
+      <div class="card-h"><h3>Avatar</h3><span class="sub">Shown in the header and the welcome card. Uploads stay in your private folder and are only shown after you sign in.</span></div>
       <div class="flex mb-s">{% with size='xl' %}{% include "_avatar.html" %}{% endwith %}<div>{% if ui.avatar.kind == 'upload' %}<strong>Uploaded image</strong><br><small>{{ ui.avatar.content_type }} · {{ ui.avatar.width }}×{{ ui.avatar.height }} · {{ ui.avatar.sha256[:12] }}…</small>{% else %}<strong>Initials</strong><br><small>style {{ ui.avatar.style }}</small>{% endif %}</div></div>
       <form method="post" action="/settings/avatar" enctype="multipart/form-data" class="form-row"><input type="hidden" name="csrf" value="{{ csrf }}">
         <div class="field"><label>Upload PNG, JPEG or WebP (max {{ max_kb }} KB)</label><input type="file" name="file" accept="image/png,image/jpeg,image/webp"></div>
@@ -63,9 +63,9 @@
 
 <div class="grid-2">
   <div class="card">
-    <div class="card-h"><h3>Guidance</h3><span class="sub">The getting-started card and the per-page tips remember when you hide them.</span></div>
+    <div class="card-h"><h3>Guidance</h3><span class="sub">The getting started card and the tips on each page remember when you hide them.</span></div>
     <div class="stack gap-s">
-      <form method="post" action="/settings/checklist" class="flex between"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="dismissed" value="0"><input type="hidden" name="next" value="/"><span>Getting-started checklist on Overview: <strong>{{ 'hidden' if ui.checklist_dismissed else 'shown until complete' }}</strong></span>{% if ui.checklist_dismissed %}<button class="secondary sm">Show it again</button>{% endif %}</form>
+      <form method="post" action="/settings/checklist" class="flex between"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="dismissed" value="0"><input type="hidden" name="next" value="/"><span>Getting started checklist on Overview: <strong>{{ 'hidden' if ui.checklist_dismissed else 'shown until complete' }}</strong></span>{% if ui.checklist_dismissed %}<button class="secondary sm">Show it again</button>{% endif %}</form>
       <form method="post" action="/settings/intro" class="flex between"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="reset" value="1"><input type="hidden" name="next" value="/settings?ok=saved"><span>Page tips hidden on <strong>{{ intro_count }}</strong> page{{ 's' if intro_count != 1 }}</span>{% if intro_count %}<button class="secondary sm">Show all tips again</button>{% endif %}</form>
       <p class="note">Everything else is explained on the <a href="/help">Help</a> page.</p>
     </div>
@@ -73,9 +73,9 @@
   <div class="card">
     <div class="card-h"><h3>Where this is stored</h3></div>
     <table class="kv compact">
-      <tr><td>Theme, accent, tint, name, avatar metadata, hidden tips</td><td>MongoDB <code>controls</code> collection, key <code>ui_settings</code> (application database only).</td></tr>
-      <tr><td>Avatar file</td><td><code>AMORE_PRIVATE_DIR/avatar/</code>, served through <code>/settings/avatar/image</code> after sign-in. Never part of the repository.</td></tr>
-      <tr><td>Cookie</td><td><code>amore_ui</code> mirrors theme, accent and tint for the first paint and the sign-in page; it holds nothing else.</td></tr>
+      <tr><td>Theme, accent, tint, name, avatar details, hidden tips</td><td>In the app database: <code>controls</code> collection, key <code>ui_settings</code>.</td></tr>
+      <tr><td>Avatar file</td><td><code>AMORE_PRIVATE_DIR/avatar/</code>, shown through <code>/settings/avatar/image</code> after sign in. Never part of the code repository.</td></tr>
+      <tr><td>Browser cookie</td><td><code>amore_ui</code> remembers theme, accent and tint so the first page and the sign in page look right. It holds nothing else.</td></tr>
     </table>
   </div>
 </div>

@@ -4,8 +4,8 @@
 <div class="card">
   <div class="welcome">
     <div>
-      <h1>Run <span class="mono">{{ run._id }}</span></h1>
-      <p>{{ run.kind|human }} · thread <span class="mono">{{ run.thread_id }}</span></p>
+      <h1>Background task <span class="mono">{{ run._id }}</span></h1>
+      <p>{{ run.kind|label }} <code class="raw" title="thread id">{{ run.thread_id }}</code></p>
       <div class="flex mt">{{ status(run.status) }}{% if run.requested %}<span class="pill">{{ run.requested }} requested</span>{% endif %}{% if run.params.job_id %}<a class="btn secondary sm" href="/jobs/{{ run.params.job_id }}">Open the job</a>{% endif %}</div>
     </div>
     <div class="actions">
@@ -19,25 +19,25 @@
 
 {% if run.interrupt %}
 <div class="card attention">
-  <div class="card-h"><h3>Waiting for you: {{ run.interrupt.type|human }}</h3><span class="pill warn">paused</span></div>
-  {% if run.interrupt.application_id %}<p><a class="btn" href="/applications/{{ run.interrupt.application_id }}"><svg class="icon"><use href="#i-arrow"/></svg>Open the review package</a> <small>Answer, approve or record there; the worker continues on its own afterwards.</small></p>{% endif %}
-  <details class="disclosure"><summary>Interrupt payload</summary><pre>{{ run.interrupt|json }}</pre></details>
+  <div class="card-h"><h3>Waiting for you: {{ run.interrupt.type|label|lower }}</h3><span class="pill warn">paused</span></div>
+  {% if run.interrupt.application_id %}<p><a class="btn" href="/applications/{{ run.interrupt.application_id }}"><svg class="icon"><use href="#i-arrow"/></svg>Open the application</a> <small>Answer, approve or record there. The task carries on by itself afterwards.</small></p>{% endif %}
+  <details class="disclosure"><summary>Technical details</summary><pre>{{ run.interrupt|json }}</pre></details>
 </div>
 {% endif %}
 
 <div class="grid-2">
-  <div class="card"><div class="card-h"><h3>Usage</h3></div>
+  <div class="card"><div class="card-h"><h3>AI use</h3></div>
     <table class="kv compact">
       <tr><td>Calls</td><td>{{ run.usage.calls }}</td></tr>
-      <tr><td>Tokens in / out / cached</td><td>{{ run.usage.input_tokens }} / {{ run.usage.output_tokens }} / {{ run.usage.cached_tokens }}</td></tr>
-      <tr><td>Tool steps</td><td>{{ run.usage.tool_steps }}</td></tr>
+      <tr><td>Words in / out / reused</td><td>{{ run.usage.input_tokens }} / {{ run.usage.output_tokens }} / {{ run.usage.cached_tokens }} <code class="raw">tokens</code></td></tr>
+      <tr><td>Steps</td><td>{{ run.usage.tool_steps }}</td></tr>
       <tr><td>Cost</td><td>{% if run.usage.cost_known %}${{ '%.4f'|format(run.usage.cost_usd or 0) }}{% else %}<span class="pill warn">unknown</span>{% endif %}</td></tr>
     </table></div>
-  <div class="card"><div class="card-h"><h3>Summary</h3></div>{% if run.summary %}<pre>{{ run.summary|json }}</pre>{% else %}<p class="note">No summary yet.</p>{% endif %}</div>
+  <div class="card"><div class="card-h"><h3>Result</h3></div>{% if run.summary %}<pre>{{ run.summary|json }}</pre>{% else %}<p class="note">No result yet.</p>{% endif %}</div>
 </div>
 
-<div class="card"><div class="card-h"><h3>Events</h3><span class="pill">{{ run.events|length }}</span></div>
+<div class="card"><div class="card-h"><h3>What the task did</h3><span class="pill">{{ run.events|length }}</span></div>
   <div class="list timeline">{% for e in run.events %}<div class="list-item"><span class="t">{{ e.at|toronto }}</span><div class="body"><strong>{{ e.message }}</strong>{% for k, v in e.items() if k not in ('at', 'message') %}<small class="mono wrap">{{ k }}: {{ v }}</small>{% endfor %}</div></div>
-  {% else %}<div class="empty">No events yet.</div>{% endfor %}</div></div>
+  {% else %}<div class="empty">Nothing yet.</div>{% endfor %}</div></div>
 </div>
 {% endblock %}

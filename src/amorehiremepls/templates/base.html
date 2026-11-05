@@ -22,7 +22,7 @@
   </nav>
   <div class="sidebar-foot">
     <div><span class="dot {{ '' if health.ok else 'off' }}"></span>Database {{ 'connected' if health.ok else 'down' }}</div>
-    <div><span class="dot {{ '' if worker_ok else 'warn' }}"></span>Worker {{ 'heartbeat ok' if worker_ok else 'no recent heartbeat' }}</div>
+    <div><span class="dot {{ '' if worker_ok else 'warn' }}"></span>Background tasks {{ 'running' if worker_ok else 'not running' }}</div>
   </div>
 </aside>
 <div class="main">
@@ -38,10 +38,10 @@
       <details class="pop">
         <summary class="btn stop-btn sm" title="{{ glossary.emergency_stop[1] }}"><svg class="icon"><use href="#i-stop"/></svg>Emergency stop</summary>
         <div class="pop-body">
-          <strong>Stop all external actions?</strong>
+          <strong>Stop all sending and applying?</strong>
           <p>{{ glossary.emergency_stop[1] }}</p>
           <form method="post" action="/controls/emergency-stop" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="active" value="on">
-            <input name="reason" placeholder="reason (optional)"><button class="danger">Confirm emergency stop</button></form>
+            <input name="reason" placeholder="Why? (optional)"><button class="danger">Yes, stop everything</button></form>
         </div>
       </details>
       {% endif %}
@@ -51,7 +51,7 @@
           <div class="flex mb-s">{% with size='lg' %}{% include "_avatar.html" %}{% endwith %}<div><strong>{{ display_name }}</strong><br><small>{{ greeting }}</small></div></div>
           <div class="stack gap-s">
             <a class="btn secondary sm" href="/settings"><svg class="icon"><use href="#i-settings"/></svg>Settings</a>
-            <a class="btn secondary sm" href="/profile"><svg class="icon"><use href="#i-profile"/></svg>Candidate profile</a>
+            <a class="btn secondary sm" href="/profile"><svg class="icon"><use href="#i-profile"/></svg>Your profile</a>
             <a class="btn secondary sm" href="/help"><svg class="icon"><use href="#i-help"/></svg>Help</a>
             <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm w100">Sign out</button></form>
           </div>
@@ -59,9 +59,9 @@
       </details>
     </div>
   </header>
-  {% if emergency %}<div class="banner stop"><svg class="icon"><use href="#i-stop"/></svg><span>Emergency stop active: queued external actions are blocked. In-flight actions are preserved for reconciliation.</span></div>{% endif %}
+  {% if emergency %}<div class="banner stop"><svg class="icon"><use href="#i-stop"/></svg><span>Emergency stop active. Nothing is sent or applied until you clear it. Anything that was already in progress keeps its result for you to check.</span></div>{% endif %}
   {% if flash %}<div class="flash {{ flash_tone or '' }}">{{ flash }}</div>{% endif %}
-  {% if open_questions %}<div class="banner questions"><svg class="icon"><use href="#i-help"/></svg><div><strong>Open questions for {{ display_name }}</strong><ul>{% for q in open_questions %}<li>{{ q }}</li>{% endfor %}</ul></div></div>{% endif %}
+  {% if open_questions %}<div class="banner questions"><svg class="icon"><use href="#i-help"/></svg><div><strong>Questions for you, {{ display_name }}</strong><ul>{% for q in open_questions %}<li>{{ q }}</li>{% endfor %}</ul></div></div>{% endif %}
   {% include "_intro.html" %}
   <main>{% block content %}{% endblock %}</main>
 </div>

@@ -1,60 +1,53 @@
 {% extends "base.html" %}{% block content %}
 {% from "_macros.html" import status with context %}
 <div class="stack help">
-<div class="page-head"><div><h1>Help</h1><p>Two minutes on how the app works, what the labels mean, and what it will never do on its own.</p></div>
-  <nav class="tabs" aria-label="Help sections"><a href="#workflow">Workflow</a><a href="#statuses">Statuses</a><a href="#concepts">Concepts</a><a href="#safety">Safety</a><a href="#hosts">Setup</a><a href="#files">Where files live</a></nav></div>
+<div class="page-head"><div><h1>Help</h1><p>Two minutes on how the app works, what the words mean, and what it will never do on its own.</p></div>
+  <nav class="tabs" aria-label="Help sections"><a href="#workflow">The steps</a><a href="#statuses">Statuses</a><a href="#concepts">Words</a><a href="#safety">Safety</a><a href="#hosts">Setup</a><a href="#files">Where files live</a></nav></div>
 
 <div class="card" id="workflow">
-  <div class="card-h"><h3>The workflow in eight steps</h3><span class="sub">Every job page shows these steps with the current one highlighted and one button for what comes next.</span></div>
+  <div class="card-h"><h3>The eight steps for every job</h3><span class="sub">Every job page shows these steps with the current one highlighted and one button for what comes next. The grey chip is the name developers use for the step.</span></div>
   <ol class="steps-list compact">
-    <li><span class="tick">1</span><div class="body"><strong>Import</strong><small>Paste a posting URL under Jobs, or let discovery find postings from your saved sources.</small></div></li>
-    <li><span class="tick">2</span><div class="body"><strong>Qualify</strong><small>Deterministic rules from your profile (role family, location, employment type, salary floor, exclusions) decide qualified / needs your review / excluded. A model then ranks fit 1 to 5.</small></div></li>
-    <li><span class="tick">3</span><div class="body"><strong>Tailor</strong><small>"Tailor and prepare" starts a worker run. It builds a tailored DOCX (and PDF) from your approved base resume; every bullet must trace back to the base.</small></div></li>
-    <li><span class="tick">4</span><div class="body"><strong>Review</strong><small>The run pauses with a review package: the document, the form answers with their source facts, and where it would be sent. Questions the profile cannot answer are marked "needed".</small></div></li>
-    <li><span class="tick">5</span><div class="body"><strong>Authorize</strong><small>You approve this exact package. The approval is bound to the material hash; change anything and you are asked again.</small></div></li>
-    <li><span class="tick">6</span><div class="body"><strong>Submit</strong><small>The worker submits through a supported adapter and verifies the receipt. Sites without one (LinkedIn Easy Apply, Workday, logins) become a handoff you finish yourself and record.</small></div></li>
-    <li><span class="tick">7</span><div class="body"><strong>Record</strong><small>Confirmed submissions are written to your private GitHub tracker through the sync queue. A sync problem never changes the application outcome.</small></div></li>
-    <li><span class="tick">8</span><div class="body"><strong>Outreach</strong><small>For employers with a confirmed submission, add in-house recruiters by LinkedIn URL, draft short connection notes, send them yourself and record it.</small></div></li>
+    {% for name, tip, tech in steps %}<li><span class="tick">{{ loop.index }}</span><div class="body"><strong>{{ name }} <code class="raw">{{ tech }}</code></strong><small>{{ tip }}</small></div></li>{% endfor %}
   </ol>
 </div>
 
 <div class="card" id="statuses">
-  <div class="card-h"><h3>What the statuses mean</h3><span class="sub">The coloured label is the plain meaning; the grey chip is the internal state (useful when reading logs).</span></div>
+  <div class="card-h"><h3>What the statuses mean</h3><span class="sub">The coloured label is the plain meaning. The grey chip is the name used inside the app and in its logs.</span></div>
   <div class="grid">
     {% for group, keys in statuses.items() %}<div><h4>{{ group }}</h4><div class="stack gap-s mt">{% for k in keys %}{{ status(k) }}{% endfor %}</div></div>{% endfor %}
   </div>
 </div>
 
 <div class="card" id="concepts">
-  <div class="card-h"><h3>Concepts</h3><span class="sub">The same text as the "?" hints around the app.</span></div>
-  <dl class="glossary">{% for key, name, text in concepts %}<div id="{{ key }}"><dt>{{ name }}</dt><dd>{{ text }}</dd></div>{% endfor %}</dl>
+  <div class="card-h"><h3>Words used in the app</h3><span class="sub">The same text as the "?" hints around the app. The grey chip is the technical term, in case you read the logs or the code.</span></div>
+  <dl class="glossary">{% for key, name, text, tech in concepts %}<div id="{{ key }}"><dt>{{ name }} <code class="raw">{{ tech }}</code></dt><dd>{{ text }}</dd></div>{% endfor %}</dl>
 </div>
 
 <div class="card" id="safety">
-  <div class="card-h"><h3>Safety model, in plain words</h3></div>
+  <div class="card-h"><h3>What the app will never do on its own</h3></div>
   <ul class="plain">
-    <li><strong>Nothing leaves this machine without your approval.</strong> No application is submitted and no message is sent unless you approved that exact package, or granted a bounded batch scope that still stops at the first unknown outcome.</li>
-    <li><strong>Nothing is invented.</strong> Resume bullets and form answers come from your approved facts and base resume. Missing facts become questions for you, never guesses.</li>
-    <li><strong>Every external action is recorded before it happens</strong> and verified afterwards: correct requisition, uploaded filename, receipt text. Anything ambiguous becomes "Outcome unknown, check it" instead of a claimed success.</li>
-    <li><strong>Submission evidence is kept.</strong> For automated submissions the worker stores two screenshots next to the tailored documents, each with its hash: the filled review page right before the final click ("summary") and the confirmation page afterwards ("receipt"; an unclear outcome keeps what the site showed instead). They appear on the review package page and under Documents; the receipt is archived with the tracker record.</li>
-    <li><strong>Emergency stop</strong> (top right, two clicks) blocks every queued submission and message at once. In-flight actions finish into a recorded outcome. Nothing is deleted; clear it when you are ready.</li>
-    <li><strong>LinkedIn handoffs.</strong> The app never logs in for you, never bypasses CAPTCHAs or access controls. For LinkedIn (and any site without an adapter) it prepares everything, you apply or send yourself, then you record the confirmation here.</li>
-    <li><strong>Postings, pages and messages are untrusted data.</strong> They cannot grant permissions or change instructions.</li>
+    <li><strong>Nothing leaves this computer without your approval.</strong> No application is sent and no message goes out unless you approved that exact package, or approved several jobs at once with limits that still stop at the first unclear result.</li>
+    <li><strong>Nothing is made up.</strong> Resume lines and form answers come from your approved facts and base resume. Missing facts become questions for you, never guesses.</li>
+    <li><strong>Every send is written down before it happens</strong> and checked afterwards: the right job, the right file name, the confirmation text. Anything unclear becomes "Result unclear, check it" instead of a claimed success.</li>
+    <li><strong>Proof is kept.</strong> When the app applies for you it stores two screenshots next to the tailored resume: the filled form right before the final click and the confirmation page afterwards (an unclear result keeps what the site showed instead). They appear on the application page and under Resumes. The confirmation is also saved with your tracker entry.</li>
+    <li><strong>Emergency stop</strong> (top right, two clicks) stops all sending and applying immediately. Anything already in progress ends with a recorded result. Nothing is deleted. Clear it when you are ready.</li>
+    <li><strong>Some sites you finish yourself.</strong> The app never signs in for you and never gets around CAPTCHAs or access controls. For LinkedIn and any site it cannot fill in, it prepares everything, you apply or send yourself, then you record the confirmation here.</li>
+    <li><strong>Job ads, web pages and messages are treated as untrusted.</strong> Nothing written in them can give the app permission or change what it does.</li>
   </ul>
 </div>
 
 <div class="card" id="hosts">
-  <div class="card-h"><h3>Setup that lives in the environment</h3><span class="sub">A few settings are read from <code>.env</code> on this machine (never from the dashboard). Edit the file, then restart the web and worker processes.</span></div>
+  <div class="card-h"><h3>Settings that live in a file</h3><span class="sub">A few settings are read from <code>.env</code> on this computer, never from the dashboard. Edit the file, then restart both app processes (the web page and the background one).</span></div>
   <table class="kv compact">
-    <tr><td>Sites the browser may visit</td><td>Required before the worker fills any form. Comma separated hostnames. {% if allowed_hosts %}<span class="pill ok">set: {{ allowed_hosts|join(', ') }}</span>{% else %}<span class="pill warn">not set</span>{% endif %}<br><code class="path">{{ hosts_example }}</code></td></tr>
-    <tr><td>Model</td><td>Which model does ranking, tailoring and drafting; the API key comes from 1Password at start.<br><code class="path">AMORE_MODEL=gpt-5.4-mini</code></td></tr>
-    <tr><td>Pricing</td><td>Add the model to <code>config/pricing.json</code> so Usage shows numbers instead of "unknown".</td></tr>
-    <tr><td>Tracker push</td><td>Writing to GitHub is off until you set it. Until then records stay "Not yet recorded on GitHub".<br><code class="path">AMORE_TRACKER_PUSH_ENABLED=true</code></td></tr>
+    <tr><td>Sites the app may fill in</td><td>Required before the app fills in any form. Site names separated by commas. {% if allowed_hosts %}<span class="pill ok">set: {{ allowed_hosts|join(', ') }}</span>{% else %}<span class="pill warn">not set</span>{% endif %}<br><code class="path">{{ hosts_example }}</code></td></tr>
+    <tr><td>AI model</td><td>Which model scores fit, tailors resumes and drafts notes. Its key comes from 1Password when the app starts.<br><code class="path">AMORE_MODEL=gpt-5.4-mini</code></td></tr>
+    <tr><td>Prices</td><td>Add the model to <code>config/pricing.json</code> so AI usage shows numbers instead of "unknown".</td></tr>
+    <tr><td>Saving to GitHub</td><td>Off until you turn it on. Until then applications stay "Waiting to save to GitHub".<br><code class="path">AMORE_TRACKER_PUSH_ENABLED=true</code></td></tr>
   </table>
 </div>
 
 <div class="card" id="files">
-  <div class="card-h"><h3>Where files live</h3><span class="sub">All on this machine (or the NAS when deployed there). None of it is in the code repository.</span></div>
+  <div class="card-h"><h3>Where files live</h3><span class="sub">All on this computer (or the NAS when it runs there). None of it is in the code repository.</span></div>
   <table class="kv compact">{% for label, path in places %}<tr><td>{{ label }}</td><td><code class="path">{{ path }}</code></td></tr>{% endfor %}</table>
 </div>
 </div>

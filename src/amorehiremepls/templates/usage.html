@@ -1,33 +1,33 @@
 {% extends "base.html" %}{% block content %}
 <div class="stack">
-<div class="page-head"><div><h1>Usage</h1><p>Measured tokens and cost per skill. Unknown pricing is reported as unknown, never as zero.</p></div>
-  <div class="flex"><span class="pill {{ 'ok' if pricing else 'warn' }}">{{ 'pricing: ' + pricing if pricing else 'no pricing file loaded' }}</span><span class="pill ok">{{ submitted }} confirmed local submissions</span></div></div>
+<div class="page-head"><div><h1>AI usage and cost</h1><p>How much the AI model has been used and what it cost, step by step. When a price is not known the cost says "unknown", never zero.</p></div>
+  <div class="flex"><span class="pill {{ 'ok' if pricing else 'warn' }}">{{ 'price list: ' + pricing if pricing else 'no price list loaded' }}</span><span class="pill ok">{{ submitted }} confirmed applications</span></div></div>
 
 <div class="card flush">
-  <div class="card-h"><h3>By skill</h3></div>
+  <div class="card-h"><h3>By step</h3><span class="sub">Each AI step has a name and a version. "Reused" means the answer came from an earlier identical call at no cost.</span></div>
   <div class="table-wrap"><table>
-    <thead><tr><th>Skill@version</th><th class="right">Calls</th><th class="right">Cached</th><th class="right">Input</th><th class="right">Output</th><th class="right">Known cost USD</th><th class="right">Unknown-cost calls</th></tr></thead>
+    <thead><tr><th>Step</th><th class="right">Calls</th><th class="right">Reused</th><th class="right">Words in</th><th class="right">Words out</th><th class="right">Known cost (USD)</th><th class="right">Calls with unknown cost</th></tr></thead>
     <tbody>{% for s in by_skill %}<tr><td class="mono">{{ s._id }}</td><td class="right">{{ s.calls }}</td><td class="right">{{ s.cached }}</td><td class="right">{{ s.in }}</td><td class="right">{{ s.out }}</td><td class="right">{{ '%.4f'|format(s.cost) }}</td><td class="right">{% if s.unknown %}<span class="pill warn">{{ s.unknown }}</span>{% else %}0{% endif %}</td></tr>
-    {% else %}<tr><td colspan="7"><div class="empty"><svg class="icon"><use href="#i-usage"/></svg>No model calls yet. Calls are recorded when a run ranks fit, tailors a resume or drafts a note.</div></td></tr>{% endfor %}</tbody>
+    {% else %}<tr><td colspan="7"><div class="empty"><svg class="icon"><use href="#i-usage"/></svg>No AI calls yet. They are recorded when the app scores fit, tailors a resume or drafts a note.</div></td></tr>{% endfor %}</tbody>
   </table></div>
-  <p class="note pad">{% if not pricing %}No pricing file is loaded, so every cost reads "unknown". Create <code>config/pricing.json</code> (see Help) and restart the web process.{% else %}Cost per verified outcome is only meaningful when every call has known pricing; "unknown" means the model is missing from the pricing file.{% endif %}</p>
+  <p class="note pad">{% if not pricing %}No price list is loaded, so every cost reads "unknown". Create <code>config/pricing.json</code> (see Help) and restart the web process.{% else %}"Unknown" means the model is missing from the price list. Words in and out are counted in <code>tokens</code>, the unit the AI provider bills by.{% endif %}</p>
 </div>
 
 <div class="card flush">
   <div class="card-h"><h3>Recent calls</h3></div>
   <div class="table-wrap"><table>
-    <thead><tr><th>When</th><th>Run</th><th>Skill</th><th>Model</th><th>In / out / cached</th><th class="right">Cost</th><th class="right">Latency</th></tr></thead>
+    <thead><tr><th>When</th><th>Task</th><th>Step</th><th>Model</th><th>Words in / out / reused</th><th class="right">Cost</th><th class="right">Took</th></tr></thead>
     <tbody>{% for r in rows %}<tr><td class="nowrap">{{ r.created_at|toronto }}</td><td><small class="mono">{{ r.run_id or '' }}</small></td><td>{{ r.skill }}</td><td>{{ r.model }}</td><td>{{ r.input_tokens }} / {{ r.output_tokens }} / {{ r.cached_tokens or 0 }}</td><td class="right">{{ '%.5f'|format(r.cost_usd) if r.cost_known and r.cost_usd is not none else 'unknown' }}</td><td class="right">{{ r.latency_ms }} ms</td></tr>
     {% else %}<tr><td colspan="7"><div class="empty">No calls yet.</div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>
 
 <div class="card flush">
-  <div class="card-h"><h3>Skill catalog</h3><span class="sub">Every model-backed step is a versioned skill with a deterministic fallback.</span></div>
+  <div class="card-h"><h3>What the AI is used for</h3><span class="sub">Every AI step has a version and a rules only fallback for when the AI is not available.</span></div>
   <div class="table-wrap"><table>
-    <thead><tr><th>Name</th><th>Version</th><th>Purpose</th><th>I/O</th><th>Unavailable behaviour</th></tr></thead>
+    <thead><tr><th>Step</th><th>Version</th><th>What it does</th><th>In → out</th><th>When the AI is not available</th></tr></thead>
     <tbody>{% for s in catalog %}<tr><td class="mono">{{ s.name }}</td><td>{{ s.version }}</td><td>{{ s.purpose }}</td><td><small>{{ s.input }} → {{ s.output }}</small></td><td><small>{{ s.unavailable_behavior }}</small></td></tr>
-    {% else %}<tr><td colspan="5"><div class="empty">No model provider configured; deterministic paths only.</div></td></tr>{% endfor %}</tbody>
+    {% else %}<tr><td colspan="5"><div class="empty">No AI model is connected. Only the rules based steps run.</div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>
 </div>

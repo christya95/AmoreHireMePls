@@ -296,16 +296,16 @@ def test_overview_lists_and_new_pages_render_with_data(client):
         }
     )
     home = client.get("/").text
-    assert "Needs your attention" in home and "Outcome unknown" in home and "/applications/app_test1" in home
-    assert 'class="chart"' in home and "Job pipeline" in home and "Spend this month" in home
+    assert "Needs your attention" in home and "Result unclear" in home and "/applications/app_test1" in home
+    assert 'class="chart"' in home and "Jobs by status" in home and "AI cost this month" in home
     apps = client.get("/applications").text
-    assert "app_test1" in apps and "Outcome unknown, check it" in apps
+    assert "app_test1" in apps and "Result unclear, check it" in apps
     assert "app_test1" in client.get("/applications?status_filter=needs_verification").text
     assert "app_test1" not in client.get("/applications?status_filter=submitted").text
     assert client.get("/documents").status_code == 200
     assert 'aria-current="page"' in client.get("/settings").text
     # the emergency stop still needs its confirm form and the clear button appears once active
-    assert "Confirm emergency stop" in home
+    assert "Yes, stop everything" in home
     assert client.post("/controls/emergency-stop", data={"csrf": csrf, "active": "on", "reason": "test"}).status_code == 303
     page = client.get("/").text
     assert "Emergency stop active" in page and "Clear emergency stop" in page
@@ -330,16 +330,16 @@ def test_status_labels_and_next_actions_are_plain_language():
     from amorehiremepls.ui_settings import GLOSSARY, PAGE_INTROS, next_action_label, status_label
 
     assert status_label("awaiting_authorization") == "Waiting for your approval"
-    assert status_label("needs_input") == "Needs your answers" and status_label("handoff") == "Finish on the site"
-    assert status_label("needs_verification") == "Outcome unknown, check it"
-    assert status_label("local_only") == status_label("sync_pending") == "Not yet recorded on GitHub"
+    assert status_label("needs_input") == "Needs your answers" and status_label("handoff") == "Finish on the site yourself"
+    assert status_label("needs_verification") == "Result unclear, check it"
+    assert status_label("sync_pending") == "Waiting to save to GitHub" and status_label("local_only") == "Saved here only"
     assert status_label("some_new_state") == "some new state"  # unknown states still humanise instead of failing
-    assert next_action_label("ready_for_review") == "Review package" and next_action_label("needs_input") == "Answer questions"
-    assert next_action_label("handoff") == "Finish on site" and next_action_label("needs_verification") == "Check outcome"
+    assert next_action_label("ready_for_review") == "Read and approve" and next_action_label("needs_input") == "Answer questions"
+    assert next_action_label("handoff") == "Finish on the site" and next_action_label("needs_verification") == "Check result"
     assert next_action_label("unknown") == "Open"
     for key in ("authorization", "material_hash", "batch", "needs_verification", "handoff", "emergency_stop", "sync_states", "outreach_scope", "regenerate"):
-        title, text = GLOSSARY[key]
-        assert title and text and "-" not in title
+        title, text, tech = GLOSSARY[key]
+        assert title and text and tech and "-" not in title
     for name in ("index.html", "jobs.html", "job.html", "applications.html", "settings.html", "help.html", "runs.html"):
         assert len(PAGE_INTROS[name]) == 2 and all(PAGE_INTROS[name])
 
@@ -423,7 +423,7 @@ def test_help_page_and_runs_tab(client):
     assert "Waiting for your approval" in page.text and "<code" in page.text  # label plus raw state
     assert "never" in page.text.lower() and "Emergency stop" in page.text
     runs = client.get("/runs").text
-    assert "Worker runs" in runs and "Review packages" in runs
+    assert "Background tasks" in runs and "Prepared applications" in runs
     # Runs lives under Applications in the menu: the Applications item is marked active and /runs is not a menu entry
     assert re.search(r'href="/applications"[^>]*aria-current="page"', runs) or re.search(r'aria-current="page"[^>]*href="/applications"', runs)
     assert 'href="/runs" class="nav-item' not in runs and 'href="/help"' in runs

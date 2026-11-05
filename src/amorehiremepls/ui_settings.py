@@ -268,33 +268,34 @@ def humanize(value: Any) -> str:
 
 
 # -- plain-language labels ----------------------------------------------------------------------------------
+# Every word the dashboard shows for an internal code lives here (see docs/ui-copy.md for the plain -> technical map).
+# The raw code stays visible in a muted chip next to the label, and the Help page lists both.
 
-# Internal state -> what it means for Joss. The raw state stays visible in a muted chip next to the label.
 STATUS_LABELS: dict[str, str] = {
     # applications
     "queued": "Queued",
     "preparing": "Preparing",
     "ready_for_review": "Waiting for your approval",
     "needs_input": "Needs your answers",
-    "authorized": "Approved, worker will submit",
-    "executing": "Submitting now",
-    "handoff": "Finish on the site",
-    "needs_verification": "Outcome unknown, check it",
-    "submitted": "Submitted",
+    "authorized": "Approved, applying soon",
+    "executing": "Applying now",
+    "handoff": "Finish on the site yourself",
+    "needs_verification": "Result unclear, check it",
+    "submitted": "Applied",
     "failed": "Failed",
     "duplicate": "Already applied",
     "blocked": "Blocked by your rules",
-    "denied": "Denied",
+    "denied": "Not approved",
     # jobs
     "new": "New",
-    "needs_review": "Needs your review",
-    "qualified": "Qualified",
+    "needs_review": "Needs your decision",
+    "qualified": "Good fit",
     "applied": "Applied",
-    "applied_historical": "Applied (imported)",
+    "applied_historical": "Applied (from your tracker)",
     "rejected": "Rejected",
-    "excluded": "Excluded",
+    "excluded": "Skipped by your rules",
     "closed": "Closed",
-    # runs
+    # background tasks (runs)
     "claimed": "Starting",
     "running": "Running",
     "waiting": "Waiting for you",
@@ -302,147 +303,250 @@ STATUS_LABELS: dict[str, str] = {
     "cancelled": "Cancelled",
     "succeeded": "Finished",
     "completed": "Finished",
-    # run interrupt types
+    # why a task is waiting (interrupt types)
     "awaiting_authorization": "Waiting for your approval",
     "awaiting_input": "Needs your answers",
-    "emergency_stop": "Stopped by emergency stop",
-    # sync outbox
-    "sync_pending": "Not yet recorded on GitHub",
-    "committing": "Writing to the tracker",
-    "committed_local": "Committed locally, not pushed",
-    "local_only": "Not yet recorded on GitHub",
-    "synced": "Recorded on GitHub",
-    "conflict": "Conflict, needs you",
-    "not_applicable": "No sync needed",
-    # authorization scopes
+    "emergency_stop": "Stopped by the emergency stop",
+    # saving to the GitHub tracker (sync outbox)
+    "sync_pending": "Waiting to save to GitHub",
+    "committing": "Saving to GitHub now",
+    "committed_local": "Saved here, not on GitHub yet",
+    "local_only": "Saved here only",
+    "synced": "Saved to GitHub",
+    "conflict": "GitHub save needs you",
+    "not_applicable": "No GitHub save needed",
+    # approvals (authorization scopes)
     "active": "Active",
-    "revoked": "Revoked",
+    "revoked": "Withdrawn",
     "expired": "Expired",
     "exhausted": "Used up",
-    # outreach
+    "single": "One job",
+    "batch": "Several jobs",
+    "application_submit": "Applying to a job",
+    "outreach_send": "Sending a message",
+    # recruiter messages (outreach)
     "draft": "Draft",
     "sent": "Sent",
     "recorded": "Recorded as sent",
-    # recipient exclusions
-    "unresolved": "Identity not bound yet",
-    "resolved": "Identity bound",
+    "connection_request": "Connection note",
+    "outreach_first_contact": "First message",
+    "follow_up": "Follow up",
+    "message": "Message",
+    "email": "Email",
+    "reply": "Reply",
+    "linkedin": "LinkedIn",
+    # people never to contact (recipient exclusions)
+    "unresolved": "Not yet identified",
+    "resolved": "Identified",
+    # how a resume was written
+    "deterministic": "Rules only, no AI",
+    "model": "AI, checked against your facts",
+    # where a record came from
+    "local": "This app",
+    "tracker_import": "Your GitHub tracker",
+    "manual": "Added by you",
+    "url_import": "Pasted link",
+    "greenhouse": "Greenhouse board",
+    "lever": "Lever board",
+    # kinds of background task
+    "application": "Application",
+    "discovery": "Job search",
+    "discovery_request": "Job search (asked for)",
+    # activity log events
+    "action_denied": "Sending blocked",
+    "action_finished": "Sending finished",
+    "action_late_outcome": "Late result recorded",
+    "action_lease_expired": "Sending timed out, result unclear",
+    "action_prepared": "Prepared to send",
+    "action_reconciled": "Result confirmed by you",
+    "application_handoff": "Handed to you to finish on the site",
+    "authorization_granted": "Approval given",
+    "authorization_revoked": "Approval withdrawn",
+    "avatar_uploaded": "Avatar changed",
+    "batch_runs_created": "Several jobs queued",
+    "document_hash_mismatch": "File changed since review, not served",
+    "document_path_refused": "File outside the allowed folder, not served",
+    "documents_regenerated": "Resume rebuilt",
+    "inputs_supplied": "Answers saved",
+    "outreach_manual_send_recorded": "Message recorded as sent",
+    "profile_saved": "Profile saved",
+    "rank_failed": "Fit score failed",
+    "recipient_history_reconciled": "Contact history checked",
+    "resume_tailored": "Resume tailored",
+    "run_pause_requested": "Task pause requested",
+    "run_resume_requested": "Task resume requested",
+    "run_cancel_requested": "Task cancel requested",
+    "tracker_synced": "Saved to GitHub",
+    # salary and preference option codes
+    "midpoint": "Middle of the range",
+    "upper_half": "Upper half of the range",
+    "minimum": "Bottom of the range",
+    "leave_blank": "Leave it blank",
+    "ignore": "Treat like any other employer",
 }
 
-# Submission screenshots the worker keeps as evidence: label -> (short title, one-line meaning).
+# Submission screenshots the app keeps as evidence: label -> (short title, one-line meaning).
 SCREENSHOT_LABELS: dict[str, tuple[str, str]] = {
-    "summary": ("Filled review page", "The form exactly as it was filled in, captured right before the final submit click."),
-    "receipt": ("Confirmation page", "What the employer site showed after submitting; the receipt text was verified against it."),
-    "ambiguous": ("Unclear outcome", "What the site showed after the click when no confirmation could be verified. Check it yourself and record the result."),
+    "summary": ("Filled review page", "The form exactly as it was filled in, captured right before the final click that sends it."),
+    "receipt": ("Confirmation page", "What the employer site showed after applying. The confirmation text was checked against it."),
+    "ambiguous": ("Unclear result", "What the site showed after the click when no confirmation could be found. Check it yourself and record the result."),
 }
 
 # The one obvious verb for an application in a given state.
 NEXT_ACTIONS: dict[str, str] = {
-    "ready_for_review": "Review package",
+    "ready_for_review": "Read and approve",
     "needs_input": "Answer questions",
-    "handoff": "Finish on site",
-    "needs_verification": "Check outcome",
+    "handoff": "Finish on the site",
+    "needs_verification": "Check result",
     "authorized": "Open package",
-    "submitted": "Draft outreach",
+    "submitted": "Contact recruiters",
     "failed": "See what failed",
 }
 
-# Hover/inline explanations for the non-obvious concepts (also the Help glossary).
-GLOSSARY: dict[str, tuple[str, str]] = {
+# The eight steps of one job: plain name -> (one-line tooltip, technical name).
+STEP_HELP: dict[str, tuple[str, str]] = {
+    "Import": ("The job ad is saved here from a link you pasted or a job board the app watches. Nothing is sent.", "import"),
+    "Check fit": ("The app checks the job against your rules and explains how well you match. Nothing is sent.", "qualify"),
+    "Tailor resume": ("The app writes a version of your resume for this job, using only facts from your approved resume.", "tailor"),
+    "Read package": ("You read the resume and the form answers exactly as they would be sent.", "review"),
+    "Approve": ("You give the go ahead for this exact package. Change anything and you will be asked again.", "authorize"),
+    "Apply": ("The app applies on the job site, or hands it to you when the site needs a person.", "submit"),
+    "Save to tracker": ("The application is written to your private GitHub tracker.", "record"),
+    "Contact recruiters": ("You add recruiters at that employer and the app drafts short notes. You send them yourself.", "outreach"),
+}
+
+# "?" hints and the Help glossary: key -> (plain title, plain text, technical term).
+GLOSSARY: dict[str, tuple[str, str, str]] = {
     "authorization": (
-        "Authorization scope",
-        "Your explicit permission for one exact submission (this job, these answers, these document hashes) or a small bounded batch. Without it nothing leaves this machine.",
+        "Approval",
+        "Your go ahead for one exact application: this job, these answers, this resume file. Without it nothing is sent from this computer.",
+        "authorization scope",
     ),
     "material_hash": (
-        "Material hash",
-        "A fingerprint of everything that would be sent: answers, document hashes, job and apply URL. If any of it changes, the fingerprint changes and the old approval no longer applies.",
+        "Package fingerprint",
+        "A short code made from everything that would be sent: the answers, the resume file, the job and the apply link. If any of it changes, the code changes and the old approval no longer counts.",
+        "material hash",
     ),
     "batch": (
-        "Bounded batch",
-        "Prepares review packages for the best ranked qualified jobs, up to the count you set. It never submits anything by itself; each package still needs approval or a batch scope.",
+        "Prepare several at once",
+        "Prepares packages for your best matching jobs, up to the number you choose. Nothing is sent. Each package still waits for your approval.",
+        "bounded batch",
+    ),
+    "batch_scope": (
+        "Approval for several jobs",
+        "One approval that lets the app apply to up to N ready packages that match your filters, without asking each time. It stops at the first unclear result or failure.",
+        "batch scope",
     ),
     "needs_verification": (
-        "Outcome unknown",
-        "The submission was attempted but the receipt could not be confirmed. Check the employer site yourself and record what you saw; the app will not retry blindly.",
+        "Result unclear",
+        "The app tried to apply but could not find a confirmation. Check the job site yourself and record what you saw. The app will not try again on its own.",
+        "needs_verification",
     ),
     "handoff": (
-        "Finish on the site",
-        "This site has no supported adapter (LinkedIn Easy Apply, Workday, logins, CAPTCHAs). The package is prepared for you; apply yourself, then record the confirmation text here.",
+        "Finish on the site yourself",
+        "This job site needs a person (for example LinkedIn Easy Apply, Workday, a login or a CAPTCHA). The package is ready for you. Apply yourself, then record the confirmation text here.",
+        "handoff",
     ),
     "emergency_stop": (
         "Emergency stop",
-        "Blocks every queued submission and message immediately. In-flight actions finish into a recorded outcome or 'outcome unknown'. Nothing is deleted; clear it when you are ready.",
+        "Stops all sending and applying immediately. Anything already in progress ends with a recorded result or 'result unclear'. Nothing is deleted. Clear it when you are ready.",
+        "emergency stop",
     ),
     "sync_states": (
-        "Sync states",
-        "'Not yet recorded on GitHub' means the tracker clone has not been pushed yet. 'Recorded on GitHub' means the commit is on the remote. A sync problem never changes whether an application was submitted.",
+        "Saving to GitHub",
+        "'Waiting to save to GitHub' means the application is recorded here but not in your GitHub tracker yet. 'Saved to GitHub' means it is there. A GitHub problem never changes whether you applied.",
+        "sync outbox states",
     ),
     "outreach_scope": (
-        "Outreach approvals",
-        "Connection notes and messages are drafted by default. Each send is a separate approval; LinkedIn sends are a manual handoff that you record afterwards.",
+        "Sending messages",
+        "Recruiter notes are drafts until you act. Each send is a separate go ahead. LinkedIn notes you send yourself and record afterwards.",
+        "outreach scope",
     ),
-    "fit_rank": ("Fit rank", "1 is a strong match, 5 a long shot. Computed from the posting against your profile; it orders batches and is never shown to employers."),
+    "fit_rank": (
+        "Fit score",
+        "1 is a strong match, 5 a long shot. Worked out from the job ad and your profile. It orders the list and is never shown to employers.",
+        "fit rank",
+    ),
     "grounding": (
-        "Grounding",
-        "Every tailored bullet must trace back to a bullet in your approved base resume. Ungrounded output is rejected and the deterministic version is used instead.",
+        "Facts check",
+        "Every claim comes from your approved facts. Each line of a tailored resume must trace back to your approved base resume. Anything else is thrown away and the rules only version is used.",
+        "grounding",
     ),
     "evidence": (
-        "Submission evidence",
-        "For automated submissions the worker keeps two screenshots with their hashes: the filled review page right before the final click (summary) and the confirmation page afterwards (receipt). An unclear outcome keeps what the site showed instead (ambiguous).",
+        "Proof of applying",
+        "When the app applies for you it keeps two screenshots: the filled form right before the final click, and the confirmation page afterwards. If the result was unclear it keeps what the site showed instead.",
+        "submission evidence",
     ),
     "regenerate": (
-        "Regenerate documents",
-        "Builds a fresh tailored DOCX (and PDF when LibreOffice is available). New files mean new hashes, so any approval for the old package is withdrawn and the package is rebuilt.",
+        "Rebuild the resume",
+        "Makes a fresh tailored DOCX (and PDF when LibreOffice is installed). New files mean a new package fingerprint, so any approval for the old package is withdrawn and the package is rebuilt.",
+        "regenerate documents",
+    ),
+    "task": (
+        "Background task",
+        "Work the app does on its own, one task per application attempt. A task pauses whenever it needs you, for example for answers or an approval.",
+        "run",
+    ),
+    "snapshot": (
+        "Copy of the job ad",
+        "The text of the job ad as it was when the app saved it, so later changes on the site do not change what you reviewed.",
+        "posting snapshot",
+    ),
+    "tracker": (
+        "Your GitHub tracker",
+        "Your private list of every application, kept in a GitHub repository. The app reads your past applications from it and saves new ones to it.",
+        "tracker / sync",
     ),
 }
 
 # One or two plain sentences per page: what it is for, what to do here.
 PAGE_INTROS: dict[str, tuple[str, str]] = {
     "index.html": (
-        "Your home base. The tiles summarise the pipeline and the list below shows only the items that need you.",
-        "Work the 'Needs your attention' list top to bottom, then import or discover new jobs.",
+        "Your home page. The tiles show where things stand and the list shows only what needs you.",
+        "Work through 'Needs your attention' from the top. Then add or search for new jobs.",
     ),
     "jobs.html": (
-        "Every posting the app knows about, with the automatic qualification result.",
-        "Paste a posting URL to import it, or open a job to tailor a resume and start a run.",
+        "Every job the app knows about, with how well it fits your rules.",
+        "Paste a link to add a job. Open a job to tailor a resume and prepare an application.",
     ),
     "job.html": (
-        "One posting, start to finish. The steps at the top show where it is and what comes next.",
-        "Use the button under the steps; everything else on this page is evidence you can read.",
+        "One job from start to finish. The steps at the top show where it is and what comes next.",
+        "Use the button under the steps. Everything else on this page is information you can read.",
     ),
     "applications.html": (
-        "Review packages the worker prepared: the resume, the answers and where they would go.",
-        "Open a package to answer questions, approve a submission, finish a handoff or check an unknown outcome.",
+        "Applications the app has prepared: the resume, the answers and where they would go.",
+        "Open one to answer questions, approve it, finish it on the site or check an unclear result.",
     ),
     "application.html": (
         "Everything that would be sent for this job, exactly as it would be sent.",
-        "Read the document and answers; approve only when you are happy. Approval covers this exact content and nothing else.",
+        "Read the resume and the answers. Approve only when you are happy. Your approval covers this exact content and nothing else.",
     ),
     "runs.html": (
-        "The worker's background jobs, one per application attempt. A run pauses whenever it needs you.",
-        "You rarely need this page; open a waiting run to jump to its package.",
+        "The app's background tasks, one per application attempt. A task pauses whenever it needs you.",
+        "You rarely need this page. Open a waiting task to jump to its package.",
     ),
-    "run.html": ("One worker run with its events and cost.", "If it is waiting, the button opens the package it is waiting on."),
+    "run.html": ("One background task with its steps and cost.", "If it is waiting, the button opens the package it is waiting on."),
     "documents.html": (
-        "Tailored resumes built from your approved base resume. The base itself is never changed.",
+        "Resumes the app tailored from your approved base resume. The base resume itself is never changed.",
         "Open a PDF to read exactly what would be uploaded, or download the DOCX.",
     ),
     "outreach.html": (
-        "Recruiter connection notes for employers where an application was confirmed.",
-        "Add recipients by LinkedIn URL, let the app draft notes, then send them yourself and record it.",
+        "Short notes to recruiters at employers where you have applied.",
+        "Add a person by LinkedIn link, let the app draft the note, send it yourself, then record that you sent it.",
     ),
     "history.html": (
-        "Your imported application history from the private GitHub tracker.",
-        "Re-import after you edit the tracker by hand; imports are idempotent and keep provenance.",
+        "Your past applications, loaded from your private GitHub tracker.",
+        "Load again after you edit the tracker by hand. Loading twice is safe.",
     ),
-    "sync.html": ("How confirmed applications get written back to the GitHub tracker.", "Nothing to do unless an item shows a conflict; then resolve it in the clone and retry."),
-    "usage.html": ("Measured model usage and cost per step.", "Fill in config/pricing.json so costs show as numbers instead of 'unknown'."),
+    "sync.html": ("How new applications get saved to your GitHub tracker.", "Nothing to do unless an item says it needs you."),
+    "usage.html": ("How much the AI has been used and what it cost, step by step.", "Add prices for your AI model so costs show as numbers instead of 'unknown'."),
     "profile.html": (
-        "The approved facts every resume claim and form answer is grounded in.",
-        "Keep it accurate; add a fact with a blank value when you do not know it, and the app will ask instead of guessing.",
+        "The facts about you that every resume line and form answer comes from.",
+        "Keep it accurate. If you do not know a value, leave it blank and the app will ask you instead of guessing.",
     ),
-    "authorizations.html": ("Every approval you have granted, single or batch, and what it covered.", "Revoke anything you no longer want; grant batch scopes sparingly."),
-    "settings.html": ("How the dashboard looks and greets you.", "Nothing here affects resumes, answers or messages."),
-    "help.html": ("How the whole thing works, in two minutes.", "Come back here whenever a label is unclear."),
+    "authorizations.html": ("Every approval you have given and what it covered.", "Withdraw anything you no longer want. Approve several jobs at once only when you are sure."),
+    "settings.html": ("How the dashboard looks and greets you.", "Nothing here changes resumes, answers or messages."),
+    "help.html": ("How the whole thing works, in two minutes.", "Come back here whenever a word is unclear."),
 }
 
 

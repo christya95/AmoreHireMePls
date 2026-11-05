@@ -228,17 +228,17 @@ def test_evidence_gallery_and_document_grouping(client, tmp_path):
     app_id, shots = _seed_submission(rt, tmp_path)
     ids = [s["artifact_id"] for s in shots]
     page = client.get(f"/applications/{app_id}").text
-    assert "Submission evidence" in page and "Filled review page" in page and "Confirmation page" in page
+    assert "Proof of applying" in page and "Filled review page" in page and "Confirmation page" in page
     for aid in ids:
         assert f"/documents/{aid}/download?kind=png&amp;inline=1" in page
     assert "2026-11-04 20:02 Toronto" in page  # 01:02 UTC is the evening before in Toronto (EST)
     assert "careers.acme.example/apply/receipt" in page and shots[0]["sha256"][:12] in page
-    assert 'target="_blank"' in page and "right before the final submit click" in page
+    assert 'target="_blank"' in page and "right before the final click" in page
     # grouped apart from documents: the documents table has no screenshot rows and the evidence section has no DOCX/PDF buttons
     for path in ("/documents", "/jobs/job_shot1"):
         html = client.get(path).text
-        assert "Submission" in html and f"/documents/{ids[0]}/download?kind=png" in html, path
-        head, _, evidence = html.partition("Submission evidence") if "Submission evidence" in html else html.partition("Submission screenshots")
+        assert ("Proof of applying" in html or "Submission screenshots" in html) and f"/documents/{ids[0]}/download?kind=png" in html, path
+        head, _, evidence = html.partition("Proof of applying") if "Proof of applying" in html else html.partition("Submission screenshots")
         assert "kind=png" not in head and "/documents/art_shot_doc/download?kind=docx" in head, path
         assert "Download DOCX" not in evidence and "Open PDF" not in evidence and f"/documents/{ids[0]}/download?kind=docx" not in html, path
         assert "Backend Developer" in html, path
@@ -251,11 +251,11 @@ def test_evidence_gallery_and_document_grouping(client, tmp_path):
     shutil.rmtree(rt.settings.artifact_dir / "jobs" / "job_shot1")
     app_id, _ = _seed_submission(rt, tmp_path, with_shots=False)
     page = client.get(f"/applications/{app_id}").text
-    assert "Submission evidence" not in page and "kind=png" not in page
+    assert "Proof of applying" not in page and "kind=png" not in page
     assert "Submission screenshots" not in client.get("/documents").text
-    assert "Submission evidence" not in client.get("/jobs/job_shot1").text
+    assert "Proof of applying" not in client.get("/jobs/job_shot1").text
     # legacy records that stored plain paths are still listed (no link when the file was never registered)
     rt.store.c("applications").update_one({"_id": app_id}, {"$set": {"evidence.screenshots": ["/old/host/20260101T000000Z_job_x_receipt.png"]}})
     page = client.get(f"/applications/{app_id}").text
-    assert "Submission evidence" in page and "Confirmation page" in page and "file not available on this host" in page and "kind=png" not in page
+    assert "Proof of applying" in page and "Confirmation page" in page and "file not available on this host" in page and "kind=png" not in page
     assert "evidence" in client.get("/help").text and "right before the final click" in client.get("/help").text

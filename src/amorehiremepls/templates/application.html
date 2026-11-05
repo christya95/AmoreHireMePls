@@ -1,23 +1,23 @@
 {% extends "base.html" %}{% block content %}
 {% from "_macros.html" import status, hint with context %}
 {% set pkg = a.review_package %}
-{% set step = {'ready_for_review': ('Read the document and the answers, then approve this exact submission.', '#authorize'),
-               'needs_input': ('Fill in the answers marked "needed" and save; the package becomes ready for approval.', '#answers'),
-               'handoff': ('Apply on the employer site yourself using the document below, then record the confirmation text here.', '#record'),
-               'needs_verification': ('Check the employer site, then record whether it was submitted.', '#record'),
-               'authorized': ('Approved. The worker submits at its next tick; nothing to do.', None),
-               'submitted': ('Submitted and recorded. Next: recruiter notes under Outreach.', '/outreach'),
-               'failed': ('The submission failed; see the execution record.', '#record')}.get(a.status) %}
+{% set step = {'ready_for_review': ('Read the resume and the answers, then approve this exact application.', '#authorize'),
+               'needs_input': ('Fill in the answers marked "needed" and save. The application is then ready for your approval.', '#answers'),
+               'handoff': ('Apply on the job site yourself using the resume below, then record the confirmation text here.', '#record'),
+               'needs_verification': ('Check the job site, then record whether it went through.', '#record'),
+               'authorized': ('Approved. The app applies within a minute. Nothing to do.', None),
+               'submitted': ('Applied and recorded. Next: short notes to recruiters under Recruiters.', '/outreach'),
+               'failed': ('Applying failed. See "What happened" below.', '#record')}.get(a.status) %}
 <div class="stack">
 <div class="card">
   <div class="welcome">
     <span class="avatar lg style-soft">{{ job.employer|initials }}</span>
     <div>
       <h1>{{ job.title }}</h1>
-      <p>{{ job.employer }} · review package <span class="mono">{{ a._id }}</span></p>
+      <p>{{ job.employer }} · application <span class="mono">{{ a._id }}</span></p>
       <div class="flex mt">{{ status(a.status) }}{% if a.reason %}<small>{{ a.reason }}</small>{% endif %}</div>
     </div>
-    <div class="actions"><a class="btn secondary sm" href="/jobs/{{ job._id }}">Job</a>{% if pkg %}<a class="btn secondary sm" href="{{ pkg.apply_url }}" target="_blank" rel="noopener">Apply page ↗</a>{% endif %}</div>
+    <div class="actions"><a class="btn secondary sm" href="/jobs/{{ job._id }}">Open the job</a>{% if pkg %}<a class="btn secondary sm" href="{{ pkg.apply_url }}" target="_blank" rel="noopener">Apply page ↗</a>{% endif %}</div>
   </div>
   {% if step %}<div class="next-action mt"><div class="body"><small class="muted">What to do now</small><strong>{{ step[0] }}</strong></div>{% if step[1] %}<a class="btn" href="{{ step[1] }}"><svg class="icon"><use href="#i-arrow"/></svg>{{ a.status|verb }}</a>{% endif %}</div>{% endif %}
 </div>
@@ -26,75 +26,76 @@
 <div class="grid-main">
   <div class="stack">
     <div class="card">
-      <div class="card-h"><h3>Package</h3><span class="pill">{{ pkg.apply_route or 'adapter by host' }}</span><span class="sub">Where it goes and what is attached. Nothing here is sent until you approve.</span></div>
+      <div class="card-h"><h3>What would be sent</h3><span class="pill">{{ pkg.apply_route|label if pkg.apply_route else 'depends on the site' }}</span><span class="sub">Where it goes and what is attached. Nothing here is sent until you approve.</span></div>
       <table class="kv compact">
-        <tr><td>Posting</td><td class="wrap"><a href="{{ pkg.posting_url }}" target="_blank" rel="noopener">{{ pkg.posting_url }}</a></td></tr>
-        <tr><td>Requisition</td><td>{{ pkg.requisition_id or '—' }}</td></tr>
+        <tr><td>Job ad</td><td class="wrap"><a href="{{ pkg.posting_url }}" target="_blank" rel="noopener">{{ pkg.posting_url }}</a></td></tr>
+        <tr><td>Job ID</td><td>{{ pkg.requisition_id or '—' }}</td></tr>
         <tr><td>Apply at</td><td class="wrap">{{ pkg.apply_url }}</td></tr>
-        <tr><td>Document</td><td>{% if pkg.document %}<span class="wrap">{{ pkg.document.filename }}</span><span class="sub">DOCX <code>{{ pkg.document.sha256[:16] }}…</code> · PDF {% if pkg.document.pdf_sha256 %}<code>{{ pkg.document.pdf_sha256[:16] }}…</code>{% else %}n/a{% endif %} · pages {{ pkg.document.pages if pkg.document.pages is not none else 'unverified' }} {% if not pkg.document.page_limit_verified %}<span class="pill warn">{{ pkg.document.render_note }}</span>{% endif %}</span>{% else %}<span class="pill bad">no document</span>{% endif %}</td></tr>
-        <tr><td>Material hash {{ hint('material_hash') }}</td><td><code>{{ a.material_hash }}</code></td></tr>
+        <tr><td>Resume</td><td>{% if pkg.document %}<span class="wrap">{{ pkg.document.filename }}</span><span class="sub">DOCX <code>{{ pkg.document.sha256[:16] }}…</code> · PDF {% if pkg.document.pdf_sha256 %}<code>{{ pkg.document.pdf_sha256[:16] }}…</code>{% else %}not made{% endif %} · pages {{ pkg.document.pages if pkg.document.pages is not none else 'not counted' }} {% if not pkg.document.page_limit_verified %}<span class="pill warn">{{ pkg.document.render_note }}</span>{% endif %}</span>{% else %}<span class="pill bad">no resume</span>{% endif %}</td></tr>
+        <tr><td>Package fingerprint {{ hint('material_hash') }}</td><td><code>{{ a.material_hash }}</code></td></tr>
         {% if doc_art %}<tr><td>Read what would be uploaded</td><td>{% with d = doc_art %}{% include "_doc_actions.html" %}{% endwith %}</td></tr>{% endif %}
       </table>
     </div>
     <div class="card flush" id="answers">
-      <div class="card-h"><h3>Answers</h3>{% if a.status == 'needs_input' %}<span class="pill warn">answers needed</span>{% endif %}<span class="sub">Each answer names the profile fact it came from. Blank "needed" fields are questions the profile cannot answer.</span></div>
+      <div class="card-h"><h3>Answers</h3>{% if a.status == 'needs_input' %}<span class="pill warn">answers needed</span>{% endif %}<span class="sub">Each answer names the fact in your profile it came from. Blank "needed" fields are questions your profile cannot answer.</span></div>
       <form method="post" action="/applications/{{ a._id }}/inputs"><input type="hidden" name="csrf" value="{{ csrf }}">
-      <div class="table-wrap"><table><thead><tr><th>Question</th><th>Answer</th><th>Basis</th></tr></thead><tbody>
+      <div class="table-wrap"><table><thead><tr><th>Question</th><th>Answer</th><th>Where it comes from</th></tr></thead><tbody>
       {% for ans in pkg.answers %}<tr><td>{{ ans.label }}{% if ans.sensitive %} <span class="pill">sensitive</span>{% endif %}</td>
         <td>{% if ans.needs_input %}<input name="input_{{ ans.field_id }}" placeholder="needed">{% else %}{{ ans.value }}{% endif %}</td><td><small>{{ ans.fact_ids|join(', ') }} {{ ans.reason }}</small></td></tr>
-      {% else %}<tr><td colspan="3"><div class="empty">No form fields scanned; the adapter uploads the document only.</div></td></tr>{% endfor %}</tbody></table></div>
+      {% else %}<tr><td colspan="3"><div class="empty">No form questions were found. Only the resume is uploaded.</div></td></tr>{% endfor %}</tbody></table></div>
       {% if a.status == 'needs_input' %}<div class="form-actions pad"><button>Save answers</button></div>{% endif %}</form>
     </div>
     <div class="card">
-      <div class="card-h"><h3>Gaps and outstanding</h3></div>
-      <p>Genuine gaps: {{ pkg.gaps|join('; ') or 'none recorded' }}</p>
+      <div class="card-h"><h3>Things the job asks for that you do not have</h3></div>
+      <p>{{ pkg.gaps|join('; ') or 'None found.' }}</p>
       {% if pkg.outstanding %}<ul>{% for o in pkg.outstanding %}<li>{{ o }}</li>{% endfor %}</ul>{% endif %}
       {% if pkg.unsupported_requirements_note %}<p class="note">{{ pkg.unsupported_requirements_note }}</p>{% endif %}
     </div>
   </div>
   <div class="stack">
     <div class="card {{ 'attention' if a.status == 'ready_for_review' }}" id="authorize">
-      <div class="card-h"><h3>Approval</h3>{{ hint('authorization') }}<svg class="icon"><use href="#i-key"/></svg></div>
-      {% for s in scopes %}<p><span class="pill ok">{{ s.mode }} scope {{ s.id }}</span> <small>used {{ s.used_count }}/{{ s.max_count }} · expires {{ s.expires_at|toronto }}</small></p>{% endfor %}
+      <div class="card-h"><h3>Your approval</h3>{{ hint('authorization') }}<svg class="icon"><use href="#i-key"/></svg></div>
+      {% for s in scopes %}<p><span class="pill ok">approved for {{ s.mode|label|lower }}</span> <code class="raw">{{ s.id }}</code> <small>used {{ s.used_count }} of {{ s.max_count }} · ends {{ s.expires_at|toronto }}</small></p>{% endfor %}
       {% if a.status == 'ready_for_review' %}
       <form method="post" action="/applications/{{ a._id }}/authorize" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}">
-        <div class="form-row"><div class="field narrow"><label>Valid for (hours)</label><input name="hours" type="number" value="24" min="1" max="168"></div><div class="field"><label>Note</label><input name="note" placeholder="optional"></div></div>
-        <button><svg class="icon"><use href="#i-check"/></svg>Approve this exact submission</button>
-        <small>Covers this job, these answers and these document hashes only. If anything changes, you will be asked again.</small></form>
-      {% elif not scopes %}<p class="note">Nothing to approve right now. The approval form appears here when the package is ready.</p>{% endif %}
+        <div class="form-row"><div class="field narrow"><label>Good for (hours)</label><input name="hours" type="number" value="24" min="1" max="168"></div><div class="field"><label>Note to yourself</label><input name="note" placeholder="optional"></div></div>
+        <button><svg class="icon"><use href="#i-check"/></svg>Approve this exact application</button>
+        <small>Covers this job, these answers and these exact files only. If anything changes, you will be asked again.</small></form>
+      {% elif not scopes %}<p class="note">Nothing to approve right now. The approve button appears here when the application is ready.</p>{% endif %}
     </div>
     {% if shots %}<div class="card" id="evidence">
-      <div class="card-h"><h3>Submission evidence</h3>{{ hint('evidence') }}<span class="sub">What the worker saw: the filled form right before the final click and the page shown afterwards. Click a capture to open it full size.</span></div>
+      <div class="card-h"><h3>Proof of applying</h3>{{ hint('evidence') }}<span class="sub">What the app saw: the filled form right before the final click and the page shown afterwards. Click a picture to open it full size.</span></div>
       {% include "_shots.html" %}
     </div>{% endif %}
     <div class="card" id="record">
-      <div class="card-h"><h3>Execution record</h3>{% if a.status == 'needs_verification' %}{{ hint('needs_verification') }}{% elif a.status == 'handoff' %}{{ hint('handoff') }}{% endif %}</div>
-      {% if action %}<p>Action <span class="mono">{{ action._id }}</span> {{ status(action.status) }} {{ action.outcome_reason or '' }}</p>
-      <details class="disclosure"><summary>Evidence</summary><pre>{{ action.evidence|json }}</pre></details>{% else %}<p class="note">Nothing has been sent for this application.</p>{% endif %}
+      <div class="card-h"><h3>What happened</h3>{% if a.status == 'needs_verification' %}{{ hint('needs_verification') }}{% elif a.status == 'handoff' %}{{ hint('handoff') }}{% endif %}</div>
+      {% if action %}<p>Attempt <code class="raw">{{ action._id }}</code> {{ status(action.status) }} {{ action.outcome_reason or '' }}</p>
+      <details class="disclosure"><summary>Technical details</summary><pre>{{ action.evidence|json }}</pre></details>{% else %}<p class="note">Nothing has been sent for this application.</p>{% endif %}
       {% if a.status == 'needs_verification' %}
       <form method="post" action="/applications/{{ a._id }}/reconcile" class="stack gap-s mt"><input type="hidden" name="csrf" value="{{ csrf }}">
-        <div class="field"><label>What did the employer site show?</label><select name="resolved"><option value="succeeded">Employer shows it was submitted</option><option value="failed">Not submitted</option></select></div>
-        <div class="field"><label>What you observed</label><input name="confirmation" placeholder="confirmation text or page"></div>
-        <div class="field narrow"><label>Application date</label><input name="application_date" placeholder="YYYY-MM-DD"></div>
-        <button class="secondary">Record result</button></form>
+        <div class="field"><label>What did the job site show?</label><select name="resolved"><option value="succeeded">It was sent</option><option value="failed">It was not sent</option></select></div>
+        <div class="field"><label>What you saw</label><input name="confirmation" placeholder="the confirmation text or page"></div>
+        <div class="field narrow"><label>Date applied</label><input name="application_date" placeholder="YYYY-MM-DD"></div>
+        <button class="secondary">Save the result</button></form>
       {% endif %}
       {% if a.status == 'handoff' %}
       <form method="post" action="/applications/{{ a._id }}/manual" class="stack gap-s mt"><input type="hidden" name="csrf" value="{{ csrf }}">
-        <div class="field"><label>Exact confirmation text seen</label><input name="confirmation" required></div>
-        <div class="form-row"><div class="field narrow"><label>Application date</label><input name="application_date" placeholder="YYYY-MM-DD" required></div><div class="field"><label>SHA-256 of the uploaded file (optional)</label><input name="resume_sha256"></div></div>
-        <button><svg class="icon"><use href="#i-hand"/></svg>Record manual submission</button></form>
+        <div class="field"><label>The exact confirmation text you saw</label><input name="confirmation" required></div>
+        <div class="form-row"><div class="field narrow"><label>Date applied</label><input name="application_date" placeholder="YYYY-MM-DD" required></div><div class="field">
+          <label>Fingerprint of the file you uploaded (optional)</label><input name="resume_sha256" placeholder="SHA-256"></div></div>
+        <button><svg class="icon"><use href="#i-hand"/></svg>I applied on the site</button></form>
       {% endif %}
-      {% if a.evidence %}<details class="disclosure mt"><summary>Application evidence</summary><pre>{{ a.evidence|json }}</pre></details>{% endif %}
+      {% if a.evidence %}<details class="disclosure mt"><summary>Technical details of the application</summary><pre>{{ a.evidence|json }}</pre></details>{% endif %}
     </div>
   </div>
 </div>
 {% else %}
-<div class="card"><div class="empty">No review package yet. The worker prepares one when the run reaches the review step.<div class="actions center mt"><a class="btn secondary sm" href="/jobs/{{ job._id }}">Open the job</a></div></div>
+<div class="card"><div class="empty">Nothing prepared yet. The app prepares the resume and answers when its task reaches the "Read package" step.<div class="actions center mt"><a class="btn secondary sm" href="/jobs/{{ job._id }}">Open the job</a></div></div>
   {% if a.status == 'handoff' %}<form method="post" action="/applications/{{ a._id }}/manual" class="form-row"><input type="hidden" name="csrf" value="{{ csrf }}">
-    <div class="field"><label>Exact confirmation text seen</label><input name="confirmation" required></div><div class="field narrow"><label>Application date</label><input name="application_date" placeholder="YYYY-MM-DD" required></div><div class="field"><label>SHA-256 (optional)</label><input name="resume_sha256"></div>
-    <button>Record manual submission</button></form>{% endif %}</div>
+    <div class="field"><label>The exact confirmation text you saw</label><input name="confirmation" required></div><div class="field narrow"><label>Date applied</label><input name="application_date" placeholder="YYYY-MM-DD" required></div><div class="field"><label>Fingerprint of the uploaded file (optional)</label><input name="resume_sha256" placeholder="SHA-256"></div>
+    <button>I applied on the site</button></form>{% endif %}</div>
 {% endif %}
 
-<div class="card"><details class="disclosure"><summary>History ({{ a.history|length if a.history else 0 }} events)</summary><pre>{{ a.history|json }}</pre></details></div>
+<div class="card"><details class="disclosure"><summary>Everything that happened to this application ({{ a.history|length if a.history else 0 }} events)</summary><pre>{{ a.history|json }}</pre></details></div>
 </div>
 {% endblock %}

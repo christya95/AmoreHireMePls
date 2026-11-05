@@ -8,7 +8,7 @@
     <h3>{{ 'Setup complete' if checklist.complete else 'Getting started' }}</h3>
     <span class="pill {{ 'ok' if checklist.complete else 'accent' }}">{{ checklist.done }} of {{ checklist.total }} done</span>
     {% if checklist.complete %}<form method="post" action="/settings/checklist" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="dismissed" value="1"><button class="ghost sm">Hide this card</button></form>{% endif %}
-    <span class="sub">{% if checklist.complete %}Everything the app needs is in place. You can bring this card back from Settings.{% else %}Do these once, in order. Each line opens the exact place to act.{% endif %}</span>
+    <span class="sub">{% if checklist.complete %}Everything the app needs is in place. You can bring this card back from Settings.{% else %}Do these once, in order. Each line opens the exact place to do it.{% endif %}</span>
   </div>
   {% if not checklist.complete %}
   <progress class="progress" value="{{ checklist.done }}" max="{{ checklist.total }}" aria-label="{{ checklist.done }} of {{ checklist.total }} setup steps done"></progress>
@@ -30,11 +30,11 @@
   <div>
     <h1>{{ greeting }}, {{ display_name }}</h1>
     <p>{% if attention %}{{ attention|length }} item{{ 's' if attention|length != 1 }} need{{ '' if attention|length != 1 else 's' }} your attention.{% else %}Nothing is waiting on you right now.{% endif %}
-    {{ counts.jobs.get('new', 0) }} new job{{ 's' if counts.jobs.get('new', 0) != 1 }} to look at · discovery {{ schedule }}.</p>
+    {{ counts.jobs.get('new', 0) }} new job{{ 's' if counts.jobs.get('new', 0) != 1 }} to look at · job search {{ schedule }}.</p>
   </div>
   <div class="actions">
-    <a class="btn secondary" href="/jobs"><svg class="icon"><use href="#i-plus"/></svg>Import a job</a>
-    <a class="btn" href="/applications"><svg class="icon"><use href="#i-arrow"/></svg>Review queue</a>
+    <a class="btn secondary" href="/jobs"><svg class="icon"><use href="#i-plus"/></svg>Add a job</a>
+    <a class="btn" href="/applications"><svg class="icon"><use href="#i-arrow"/></svg>Open applications</a>
   </div>
 </div>
 
@@ -51,8 +51,8 @@
 
 <div class="grid-main">
   <div class="card">
-    <div class="card-h"><h3>Applications submitted</h3><span class="pill accent">{{ chart.total|int }} in 12 months</span><span class="sub">Confirmed submissions per month, local and imported history, America/Toronto.</span></div>
-    <svg class="chart" viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" aria-label="Applications submitted per month">
+    <div class="card-h"><h3>Applications sent</h3><span class="pill accent">{{ chart.total|int }} in 12 months</span><span class="sub">Confirmed applications per month, including the ones loaded from your tracker. Toronto time.</span></div>
+    <svg class="chart" viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" aria-label="Applications sent per month">
       <defs><linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--accent)" stop-opacity="0.28"/><stop offset="100%" stop-color="var(--accent)" stop-opacity="0.02"/></linearGradient></defs>
       {% for t in chart.ticks %}<line class="grid-line" x1="{{ chart.x0 }}" x2="{{ chart.x1 }}" y1="{{ t.y }}" y2="{{ t.y }}"/><text class="axis" x="{{ chart.x0 - 8 }}" y="{{ t.y + 4 }}" text-anchor="end">{{ t.v }}</text>{% endfor %}
       {% if chart.area %}<path class="area" d="{{ chart.area }}"/><path class="line" d="{{ chart.line }}"/>{% endif %}
@@ -62,7 +62,7 @@
     </svg>
   </div>
   <div class="card">
-    <div class="card-h"><h3>Job pipeline</h3><a class="btn ghost sm" href="/jobs">All jobs</a></div>
+    <div class="card-h"><h3>Jobs by status</h3><a class="btn ghost sm" href="/jobs">All jobs</a></div>
     {% if pipeline.total %}
     <div class="donut-wrap">
       <svg class="donut" viewBox="0 0 36 36" role="img" aria-label="Jobs by status">
@@ -73,13 +73,13 @@
       </svg>
       <ul class="legend">{% for s in pipeline.segments %}<li><span class="sw {{ s.cls }}"></span>{{ s.label|human }}<span class="n">{{ s.value }}</span></li>{% endfor %}</ul>
     </div>
-    {% else %}<div class="empty"><svg class="icon"><use href="#i-jobs"/></svg>No jobs yet. Import a posting or add a discovery source.</div>{% endif %}
+    {% else %}<div class="empty"><svg class="icon"><use href="#i-jobs"/></svg>No jobs yet. Paste a job link or add a job board to watch.</div>{% endif %}
   </div>
 </div>
 
 <div class="grid-main">
   <div class="card {{ 'attention' if attention }}">
-    <div class="card-h"><h3>Needs your attention</h3>{% if attention %}<span class="pill warn">{{ attention|length }}</span>{% endif %}<span class="sub">One button per item; the button says what you will do.</span></div>
+    <div class="card-h"><h3>Needs your attention</h3>{% if attention %}<span class="pill warn">{{ attention|length }}</span>{% endif %}<span class="sub">One button per item. The button says what you will do.</span></div>
     {% if attention %}
     <div class="list">
       {% for it in attention %}
@@ -90,37 +90,37 @@
       </div>
       {% endfor %}
     </div>
-    {% else %}<div class="empty"><svg class="icon"><use href="#i-check"/></svg>Nothing is waiting on you. Approvals, questions, handoffs and unknown outcomes appear here.<div class="actions center mt"><a class="btn secondary sm" href="/jobs">Import a job</a></div></div>{% endif %}
+    {% else %}<div class="empty"><svg class="icon"><use href="#i-check"/></svg>Nothing is waiting on you. Approvals, questions, jobs to finish yourself and unclear results appear here.<div class="actions center mt"><a class="btn secondary sm" href="/jobs">Add a job</a></div></div>{% endif %}
   </div>
   <div class="card">
     <div class="card-h"><h3>System</h3><a class="btn ghost sm" href="/status">Details</a></div>
     <table class="kv compact">
       <tr><td>Database</td><td><span class="pill {{ 'ok' if health.ok else 'bad' }}">{{ 'ok' if health.ok else 'down' }}</span> <small>{{ health.db.version or '' }}</small></td></tr>
-      <tr><td>Worker</td><td><span class="pill {{ 'ok' if worker_ok else 'warn' }}">{{ 'heartbeat ok' if worker_ok else 'no recent heartbeat' }}</span></td></tr>
-      <tr><td>Model provider</td><td><span class="pill {{ 'ok' if health.provider_configured else 'warn' }}">{{ provider }}</span>
+      <tr><td>Background tasks</td><td><span class="pill {{ 'ok' if worker_ok else 'warn' }}">{{ 'running' if worker_ok else 'not running' }}</span></td></tr>
+      <tr><td>AI model</td><td><span class="pill {{ 'ok' if health.provider_configured else 'warn' }}">{{ provider }}</span>
         {% if provider_last %}<small>last check {{ 'ok' if provider_last.ok else 'failed' }} {{ provider_last.at|toronto }}{% if provider_last.error %} · {{ provider_last.error }}{% endif %}</small>{% endif %}
         <form method="post" action="/provider/check" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="next" value="/"><button class="ghost xs">Check now</button></form></td></tr>
-      <tr><td>Base resume</td><td><span class="pill {{ 'ok' if base_resume else 'bad' }}">{{ 'approved copy selected' if base_resume else 'not selected' }}</span></td></tr>
-      <tr><td>Discovery</td><td>{{ schedule }}</td></tr>
-      <tr><td>Usage (all time)</td><td>{{ usage.calls or 0 }} calls · ${{ '%.4f'|format(usage.cost or 0) }} known{% if usage.unknown %} · <span class="pill warn">{{ usage.unknown }} unknown</span>{% endif %}</td></tr>
+      <tr><td>Base resume</td><td><span class="pill {{ 'ok' if base_resume else 'bad' }}">{{ 'chosen' if base_resume else 'not chosen' }}</span></td></tr>
+      <tr><td>Job search</td><td>{{ schedule }}</td></tr>
+      <tr><td>AI use (all time)</td><td>{{ usage.calls or 0 }} calls · ${{ '%.4f'|format(usage.cost or 0) }} known{% if usage.unknown %} · <span class="pill warn">{{ usage.unknown }} unknown</span>{% endif %}</td></tr>
     </table>
-    {% if missing %}<p class="note mt">Missing essentials: {{ missing|join(', ') }}. <a href="/profile">Complete the profile</a>.</p>{% endif %}
+    {% if missing %}<p class="note mt">Still missing from your profile: {{ missing|join(', ') }}. <a href="/profile">Complete your profile</a>.</p>{% endif %}
   </div>
 </div>
 
 <div class="grid-main">
   <div class="card flush">
-    <div class="card-h"><h3>Recent runs</h3><a class="btn ghost sm" href="/runs">All runs</a><span class="sub">Background work by the worker. A run pauses whenever it needs you.</span></div>
+    <div class="card-h"><h3>Recent background tasks</h3><a class="btn ghost sm" href="/runs">All tasks</a><span class="sub">Work the app does on its own. A task pauses whenever it needs you.</span></div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Run</th><th>Kind</th><th>Status</th><th>Waiting on</th><th class="right">Created</th></tr></thead>
-      <tbody>{% for r in runs %}<tr><td><a href="/runs/{{ r._id }}" class="mono">{{ r._id }}</a></td><td>{{ r.kind|human }}</td><td>{{ status(r.status) }}</td><td>{{ (r.interrupt.type if r.interrupt else '')|human }}</td><td class="right nowrap">{{ r.created_at|toronto }}</td></tr>
-      {% else %}<tr><td colspan="5"><div class="empty">No runs yet. Open a job and press "Tailor and prepare" to start one.<div class="actions center mt"><a class="btn secondary sm" href="/jobs">Go to jobs</a></div></div></td></tr>{% endfor %}</tbody>
+      <thead><tr><th>Task</th><th>What</th><th>Status</th><th>Waiting for</th><th class="right">Started</th></tr></thead>
+      <tbody>{% for r in runs %}<tr><td><a href="/runs/{{ r._id }}" class="mono">{{ r._id }}</a></td><td>{{ r.kind|label }}</td><td>{{ status(r.status) }}</td><td>{{ (r.interrupt.type|label) if r.interrupt else '' }}</td><td class="right nowrap">{{ r.created_at|toronto }}</td></tr>
+      {% else %}<tr><td colspan="5"><div class="empty">No tasks yet. Open a job and press "Tailor resume" to start one.<div class="actions center mt"><a class="btn secondary sm" href="/jobs">Go to jobs</a></div></div></td></tr>{% endfor %}</tbody>
     </table></div>
   </div>
   <div class="card">
     <div class="card-h"><h3>Recent activity</h3></div>
     <div class="list timeline">
-      {% for e in activity %}<div class="list-item"><span class="t">{{ e.created_at|toronto }}</span><div class="body"><strong>{{ e.event|human }}</strong>{% if e.subject_id %}<small class="mono">{{ e.subject_id }}</small>{% endif %}</div></div>
+      {% for e in activity %}<div class="list-item"><span class="t">{{ e.created_at|toronto }}</span><div class="body"><strong>{{ e.event|label }}</strong>{% if e.subject_id %}<small class="mono">{{ e.subject_id }}</small>{% endif %}</div></div>
       {% else %}<div class="empty">No activity recorded yet.</div>{% endfor %}
     </div>
   </div>
@@ -134,9 +134,9 @@
       <td><a class="row-person" href="/jobs/{{ j._id }}"><span class="avatar style-soft">{{ j.employer|initials }}</span><span>{{ j.employer }}</span></a></td>
       <td>{{ j.title }}<span class="sub">{{ j.location or '' }}</span></td>
       <td>{{ status(j.status) }}</td>
-      <td>{% if j.fit %}rank {{ j.fit.rank }}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td>{% if j.fit %}fit {{ j.fit.rank }}{% else %}<span class="muted">—</span>{% endif %}</td>
       <td class="right nowrap">{{ j.updated_at|toronto }}</td></tr>
-    {% else %}<tr><td colspan="5"><div class="empty"><svg class="icon"><use href="#i-jobs"/></svg>No jobs yet. Paste a posting URL to import the first one.<div class="actions center mt"><a class="btn sm" href="/jobs">Import a job</a></div></div></td></tr>{% endfor %}</tbody>
+    {% else %}<tr><td colspan="5"><div class="empty"><svg class="icon"><use href="#i-jobs"/></svg>No jobs yet. Paste a job link to add the first one.<div class="actions center mt"><a class="btn sm" href="/jobs">Add a job</a></div></div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>
 
