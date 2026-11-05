@@ -543,6 +543,21 @@ th details.hint .hint-body { font-weight: 400; }
 .status .raw, .kpi .raw { font-size: 0.66rem; color: var(--muted); background: transparent; padding: 0; opacity: 0.8; }
 .kpi .raw { display: block; margin-top: 2px; }
 .checklist.complete { border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); }
+.checklist .card-h { margin-bottom: 0; }
+.checklist-h { flex: 1; min-width: 0; margin: 0; }
+.checklist-toggle {
+  display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; margin: -6px -8px; padding: 6px 8px;
+  background: transparent; border: 0; border-radius: var(--radius-sm); color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.checklist-toggle:hover { background: var(--surface-2); }
+.checklist-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.checklist-toggle .pill { font-weight: 600; }
+.checklist-toggle .chev { width: 16px; height: 16px; color: var(--muted); transition: transform 0.18s ease; transform-origin: center; flex: none; }
+.checklist-toggle[aria-expanded="false"] .chev { transform: rotate(-90deg); }
+.checklist-body { margin-top: 12px; }
+.checklist-body > .sub { color: var(--muted); font-size: 0.82rem; margin: 0 0 10px; }
+html[data-checklist="folded"] .checklist-body { display: none; }
+@media (prefers-reduced-motion: reduce) { .checklist-toggle .chev { transition: none; } }
 .progress { width: 100%; height: 8px; border: 0; border-radius: 999px; overflow: hidden; background: var(--surface-3); appearance: none; -webkit-appearance: none; margin-bottom: 10px; }
 .progress::-webkit-progress-bar { background: var(--surface-3); border-radius: 999px; }
 .progress::-webkit-progress-value { background: var(--accent); border-radius: 999px; }

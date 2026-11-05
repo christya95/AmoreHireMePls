@@ -79,6 +79,23 @@
     }
   }
 
+  // Overview: the Getting started card folds from its header. The remembered state lives in localStorage and was
+  // already applied to <html data-checklist> by the inline script before first paint; here we only sync the button
+  // and handle clicks (Enter/Space come for free on a real <button>).
+  var checklistToggle = document.querySelector(".checklist-toggle");
+  if (checklistToggle) {
+    var KEY = "amore_checklist";
+    function setFolded(folded, remember) {
+      if (folded) root.setAttribute("data-checklist", "folded"); else root.removeAttribute("data-checklist");
+      checklistToggle.setAttribute("aria-expanded", folded ? "false" : "true");
+      if (remember) { try { localStorage.setItem(KEY, folded ? "folded" : "open"); } catch (e) { /* private mode: not remembered */ } }
+    }
+    setFolded(root.getAttribute("data-checklist") === "folded", false);
+    checklistToggle.addEventListener("click", function () {
+      setFolded(checklistToggle.getAttribute("aria-expanded") !== "false", true);
+    });
+  }
+
   // Close popovers (emergency stop, account menu) when clicking elsewhere or pressing Escape.
   function closePops(except) {
     document.querySelectorAll("details.pop[open]").forEach(function (d) { if (d !== except) d.removeAttribute("open"); });

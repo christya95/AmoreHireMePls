@@ -382,6 +382,15 @@ def test_checklist_and_page_tips_remember_state(client):
     home = client.get("/").text
     assert "Getting started" in home and "Confirm your profile facts" in home and "AMORE_BROWSER_ALLOWED_HOSTS=" in home
     assert "Setup checklist" not in home or "Hide" in home
+    # the card folds from its header: a real button with aria-expanded controls the body; the remembered state is
+    # applied to <html data-checklist> by a nonce'd inline script before the card is parsed (no flash); while steps
+    # remain the script never folds on its own (only a complete checklist auto-folds on first view)
+    assert re.search(r'<h3 class="checklist-h"><button type="button" class="checklist-toggle" aria-expanded="true" aria-controls="checklist-body"', home)
+    assert 'id="checklist-body"' in home and "#i-chevron" in home
+    nonce = re.search(r'<script nonce="([^"]+)">\(function\(\)\{try\{var k="amore_checklist"', home).group(1)
+    assert nonce and f'<script nonce="{nonce}">' in home.split("</head>")[0]  # same nonce as the head script
+    assert "if(!v&&false)" in home  # not complete -> no auto fold
+    assert "Getting started" in home.split('id="checklist-body"')[0]  # title stays outside the foldable body
     r = client.post("/settings/checklist", data={"csrf": csrf, "dismissed": "1", "next": "/"})
     assert r.status_code == 303 and "Getting started" not in client.get("/").text
     assert "Show it again" in client.get("/settings").text

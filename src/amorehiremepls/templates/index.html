@@ -3,13 +3,21 @@
 <div class="stack">
 
 {% if checklist %}
-<div class="card checklist{{ ' complete' if checklist.complete }}">
+{# Folded state is remembered in localStorage ("amore_checklist": open | folded) and applied by the inline script below
+   before the card is parsed, so a remembered fold never flashes. Once every step is done the card folds itself on the
+   first view; the header stays visible and reopens it. #}
+<script nonce="{{ nonce }}">(function(){try{var k="amore_checklist",v=localStorage.getItem(k);if(!v&&{{ 'true' if checklist.complete else 'false' }}){v="folded";localStorage.setItem(k,v)}if(v==="folded")document.documentElement.setAttribute("data-checklist","folded")}catch(e){}})();</script>
+<div class="card checklist{{ ' complete' if checklist.complete }}" data-checklist-card>
   <div class="card-h">
-    <h3>{{ 'Setup complete' if checklist.complete else 'Getting started' }}</h3>
-    <span class="pill {{ 'ok' if checklist.complete else 'accent' }}">{{ checklist.done }} of {{ checklist.total }} done</span>
+    <h3 class="checklist-h"><button type="button" class="checklist-toggle" aria-expanded="true" aria-controls="checklist-body" title="Show or hide the steps">
+      <svg class="icon chev"><use href="#i-chevron"/></svg>
+      <span>{{ 'Setup complete' if checklist.complete else 'Getting started' }}</span>
+      <span class="pill {{ 'ok' if checklist.complete else 'accent' }}">{{ checklist.done }} of {{ checklist.total }} done</span>
+    </button></h3>
     {% if checklist.complete %}<form method="post" action="/settings/checklist" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="dismissed" value="1"><button class="ghost sm">Hide this card</button></form>{% endif %}
-    <span class="sub">{% if checklist.complete %}Everything the app needs is in place. You can bring this card back from Settings.{% else %}Do these once, in order. Each line opens the exact place to do it.{% endif %}</span>
   </div>
+  <div class="checklist-body" id="checklist-body">
+  <p class="sub">{% if checklist.complete %}Everything the app needs is in place. You can bring this card back from Settings.{% else %}Do these once, in order. Each line opens the exact place to do it.{% endif %}</p>
   {% if not checklist.complete %}
   <progress class="progress" value="{{ checklist.done }}" max="{{ checklist.total }}" aria-label="{{ checklist.done }} of {{ checklist.total }} setup steps done"></progress>
   <ol class="steps-list">
@@ -22,6 +30,7 @@
     {% endfor %}
   </ol>
   {% endif %}
+  </div>
 </div>
 {% endif %}
 
