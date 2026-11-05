@@ -105,6 +105,31 @@ class SyncOutbox:
         return out
 
 
+def mark_withdrawn(records: list, record_id: str) -> list | None:
+    """Set one ledger row to withdrawn and leave every other row in place.
+
+    Returns None when that id is not in the list. Refuses an empty list. Never drops a row."""
+    if not isinstance(records, list) or not records:
+        raise ValueError("empty ledger")
+    found = False
+    out: list = []
+    for row in records:
+        if not isinstance(row, dict):
+            raise ValueError("ledger row is not an object")
+        copied = dict(row)
+        if copied.get("id") == record_id:
+            found = True
+            if copied.get("status") != "withdrawn":
+                copied["status"] = "withdrawn"
+                entry = {"status": "withdrawn", "note": "Removed locally before anything new was sent. This row is kept."}
+                hist = copied.get("history")
+                copied["history"] = [*hist, entry] if isinstance(hist, list) else ([entry] if hist is None else hist)
+        out.append(copied)
+    if len(out) != len(records):
+        raise ValueError("ledger length changed")
+    return out if found else None
+
+
 def build_record(app: dict, job: dict) -> dict:
     """Map an application to the tracker's record schema. Only existing fields; evidence stays honest."""
     ev = app.get("evidence") or {}
@@ -195,6 +220,8 @@ class SyncCoordinator:
             self._release(owner)
 
     def process_item(self, item: dict) -> dict:
+        if item.get("kind") == "record_withdrawal":
+            return self._process_withdrawal(item)
         app = self._record("applications").find_one({"_id": item["application_id"]})
         job = self._record("jobs").find_one({"_id": app["job_id"]}) if app else None
         if not app or not job or app.get("status") != "submitted":
@@ -229,6 +256,55 @@ class SyncCoordinator:
             self.outbox.set(item["_id"], status, error=str(exc)[:400], attempts=attempts, next_attempt_at=utcnow() + timedelta(minutes=delay))
             self._record("applications").update_one({"_id": app["_id"]}, {"$set": {"sync.state": status, "sync.error": str(exc)[:400]}})
             return {"id": item["_id"], "status": status, "error": str(exc)[:200]}
+
+    def _process_withdrawal(self, item: dict) -> dict:
+        """Update one existing ledger row to withdrawn. Does not add a submitted row and does not mark any other outbox item pushed."""
+        app = self._record("applications").find_one({"_id": item["application_id"]})
+        if not app:
+            self.outbox.set(item["_id"], "skipped", note="application missing; the ledger was not changed")
+            return {"id": item["_id"], "status": "skipped"}
+        ev = app.get("evidence") or {}
+        if app.get("status") == "submitted" or ev.get("receipt_text") or ev.get("confirmation") or ev.get("receipt_path"):
+            self.outbox.set(item["_id"], "skipped", note="refusing to withdraw a recorded receipt")
+            return {"id": item["_id"], "status": "skipped"}
+        record_id = app.get("tracker_record_id") or item.get("record_id")
+        if not record_id:
+            self.outbox.set(item["_id"], "skipped", note="no ledger id; the GitHub list was not changed")
+            return {"id": item["_id"], "status": "skipped"}
+        if item.get("status") in ("committed_local", "local_only") and item.get("commit_sha"):
+            return self._push(item, app)
+        data_path = self.root / "data" / "applications.json"
+        if not data_path.is_file():
+            raise GitError(f"tracker clone missing at {self.root}")
+        records = json.loads(data_path.read_text(encoding="utf-8"))
+        updated = mark_withdrawn(records, record_id)
+        if updated is None:
+            self.outbox.set(item["_id"], "skipped", note="no ledger row to update; the list was left unchanged")
+            return {"id": item["_id"], "status": "skipped"}
+        data_path.write_text(json.dumps(updated, indent=2) + "\n", encoding="utf-8")
+        try:
+            script = self.root / "scripts" / "records.py"
+            if script.is_file():
+                rendered = subprocess.run([self.python, str(script), "render"], capture_output=True, text=True, cwd=self.root, timeout=120)
+                if rendered.returncode != 0:
+                    raise GitError(f"records.py render failed: {(rendered.stderr or rendered.stdout)[-300:]}")
+                checked = subprocess.run([self.python, str(script), "validate"], capture_output=True, text=True, cwd=self.root, timeout=120)
+                if checked.returncode != 0:
+                    raise GitError(f"records.py validate failed: {(checked.stderr or checked.stdout)[-300:]}")
+            git(self.root, "add", "--", *[p for p in TRACKER_PATHS if (self.root / p).exists()])
+            staged = git(self.root, "diff", "--cached", "--name-only")
+            for name in staged.splitlines():
+                if name and not any(name == p or name.startswith(p + "/") for p in TRACKER_PATHS):
+                    raise GitError(f"refusing to commit unrelated path {name}")
+            if staged:
+                git(self.root, "commit", "-q", "-m", f"Mark application {record_id} withdrawn")
+            sha = git(self.root, "rev-parse", "HEAD")
+        except Exception:
+            git(self.root, "checkout", "--", *[p for p in TRACKER_PATHS if (self.root / p).exists()], check=False)
+            raise
+        self.outbox.set(item["_id"], "committed_local", commit_sha=sha, record_id=record_id)
+        self._record("applications").update_one({"_id": app["_id"]}, {"$set": {"sync.commit_sha": sha, "sync.state": "committed_local", "updated_at": utcnow()}})
+        return self._push(self.outbox._all().find_one({"_id": item["_id"]}), app)
 
     def _fetch_and_fast_forward(self) -> None:
         try:

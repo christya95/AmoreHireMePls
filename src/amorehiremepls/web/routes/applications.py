@@ -19,6 +19,27 @@ from amorehiremepls.web.chrome import (
 from amorehiremepls.web.shots import evidence_shots
 
 
+def _can_clear(app: dict | None) -> bool:
+    from amorehiremepls.apply.applications import submission_lock_reason
+
+    return bool(app) and submission_lock_reason(app) is None
+
+
+def _clear_application(rt, app_id: str, what: str):
+    from amorehiremepls.apply.applications import ApplicationRefused
+
+    try:
+        if what == "delete":
+            outcome = rt.applications().delete_unsent(app_id, rt.settings.private_dir / "application_backups")
+            flash = "app_withdrawn" if outcome == "withdrawn" else "app_removed"
+            app = rt.store.c("applications").find_one({"_id": app_id})
+            return RedirectResponse(f"/jobs/{app['job_id']}?ok={flash}", status_code=303)
+        rt.applications().restart_unsent(app_id)
+    except ApplicationRefused as exc:
+        return RedirectResponse(f"/applications/{app_id}?err={exc.code}", status_code=303)
+    return RedirectResponse(f"/applications/{app_id}?ok=job_restarted", status_code=303)
+
+
 def register(app, rt, require_session, require_csrf, render) -> None:
     # -- applications / review ---------------------------------------------------------------
     @app.get("/applications/{app_id}", response_class=HTMLResponse)
@@ -56,6 +77,7 @@ def register(app, rt, require_session, require_csrf, render) -> None:
             hold=active_hold(rt.store, app_id),
             updates=application_timeline(a, runs),
             now_line=authorized_now(a, runs),
+            can_clear=_can_clear(a),
         )
         return render(request, "application.html", session, **ctx)
 
@@ -167,3 +189,19 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         require_csrf(request, session, csrf)
         rt.applications().reconcile(app_id, resolved, {"confirmation": confirmation, "application_date": application_date or None})
         return RedirectResponse(f"/applications/{app_id}", status_code=303)
+
+    @app.post("/applications/{app_id}/delete")
+    def application_delete(request: Request, app_id: str, session: dict = Depends(require_session), csrf: str = Form(...), confirm: str = Form("")):
+        """Back up and remove an application that was never sent. The job stays. A receipt is refused."""
+        require_csrf(request, session, csrf)
+        if confirm.strip().lower() != "delete":
+            return RedirectResponse(f"/applications/{app_id}?err=confirm_needed", status_code=303)
+        return _clear_application(rt, app_id, "delete")
+
+    @app.post("/applications/{app_id}/restart")
+    def application_restart(request: Request, app_id: str, session: dict = Depends(require_session), csrf: str = Form(...), confirm: str = Form("")):
+        """Clear the unsent package and approval, then prepare a new package. Does not submit."""
+        require_csrf(request, session, csrf)
+        if confirm.strip().lower() != "restart":
+            return RedirectResponse(f"/applications/{app_id}?err=confirm_needed", status_code=303)
+        return _clear_application(rt, app_id, "restart")

@@ -200,6 +200,11 @@ filter names remain only as aliases.
   the site", "Withdraw"). No hyphens in glossary titles.
 - Flash messages and confirmation dialogs say what happened and what it means ("The resume was rebuilt. The files
   changed, so any earlier approval for this job was withdrawn.").
+- Delete and restart ask for a typed word (`delete` or `restart`) so one click does nothing. Both are refused when
+  the application was sent or an employer confirmation is already saved. Delete leaves the job. A GitHub tracker
+  row is marked withdrawn instead of being erased. Restart clears the unsent package and its approval, then prepares
+  a new package to read. It does not send anything. Rebuilding the resume makes new files, so the old approval
+  no longer applies.
 - DOCX and PDF stay as they are. Site names, file paths and IDs stay in `<code>`.
 - Each stepper step has a one line `title` tooltip from `STEP_HELP`; `job_steps()` compares on the technical key, so a
   renamed label never changes behaviour.

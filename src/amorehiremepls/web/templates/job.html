@@ -27,6 +27,16 @@
         <form method="post" action="/jobs/{{ job._id }}/regenerate" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
           <button class="secondary sm w100">Rebuild the resume</button>
           <small>{{ glossary.regenerate[1] }}{% if scopes %} <strong>An approval for this job is active and will be withdrawn.</strong>{% endif %}</small></form>
+        {% if can_clear %}
+        <form method="post" action="/jobs/{{ job._id }}/restart" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
+          <p>Clears this unsent application and its approval. The job stays. You then read a new package and approve it again. Rebuilding the resume makes new files, so the old approval no longer applies. Nothing is sent.</p>
+          <label>Type restart to confirm <input name="confirm" autocomplete="off"></label>
+          <button class="secondary sm w100">Restart this job</button></form>
+        <form method="post" action="/jobs/{{ job._id }}/delete-application" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
+          <p>Removes this application. The job stays. This is only possible because nothing was sent. Your GitHub tracker history is not erased.</p>
+          <label>Type delete to confirm <input name="confirm" autocomplete="off"></label>
+          <button class="danger sm w100">Delete this application</button></form>
+        {% endif %}
       </div>
     </details>
   </div>

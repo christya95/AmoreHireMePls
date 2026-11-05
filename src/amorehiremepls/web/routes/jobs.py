@@ -79,7 +79,19 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         outreach_n = rt.store.c("outreach").count_documents({"employer_norm": job.get("employer_norm")}) if job.get("employer_norm") else 0
         steps, next_step = job_steps(job, local, arts, bool(scopes), active_run, outreach_n)
         docs, shots = split_screenshots(arts)
-        ctx = {"job": job, "fit": fit_score(job.get("fit")), "apps": apps, "artifacts": docs, "screenshots": shots, "runs": runs, "local_app": local, "scopes": scopes}
+        from amorehiremepls.apply.applications import submission_lock_reason
+
+        ctx = {
+            "job": job,
+            "fit": fit_score(job.get("fit")),
+            "apps": apps,
+            "artifacts": docs,
+            "screenshots": shots,
+            "runs": runs,
+            "local_app": local,
+            "scopes": scopes,
+            "can_clear": local is not None and submission_lock_reason(local) is None,
+        }
         ctx.update(steps=steps, next_step=next_step, active_run=active_run)
         return render(request, "job.html", session, **ctx)
 
@@ -191,6 +203,32 @@ def register(app, rt, require_session, require_csrf, render) -> None:
             rt.applications().prepare(job_id, fields)
             return RedirectResponse(f"/jobs/{job_id}?ok=regenerated", status_code=303)
         return RedirectResponse(f"/jobs/{job_id}?ok={'regenerated_doc_only' if local else 'regenerated'}", status_code=303)
+
+    @app.post("/jobs/{job_id}/delete-application")
+    def job_delete_application(request: Request, job_id: str, session: dict = Depends(require_session), csrf: str = Form(...), confirm: str = Form("")):
+        """Remove the unsent application for this job. The job itself stays."""
+        require_csrf(request, session, csrf)
+        if confirm.strip().lower() != "delete":
+            return RedirectResponse(f"/jobs/{job_id}?err=confirm_needed", status_code=303)
+        local = rt.store.c("applications").find_one({"job_id": job_id, "provenance.origin": "local"})
+        if local is None:
+            return RedirectResponse(f"/jobs/{job_id}?err=missing", status_code=303)
+        from amorehiremepls.web.routes.applications import _clear_application
+
+        return _clear_application(rt, local["_id"], "delete")
+
+    @app.post("/jobs/{job_id}/restart")
+    def job_restart(request: Request, job_id: str, session: dict = Depends(require_session), csrf: str = Form(...), confirm: str = Form("")):
+        """Clear the unsent application workflow so the package can be read and approved again. Does not submit."""
+        require_csrf(request, session, csrf)
+        if confirm.strip().lower() != "restart":
+            return RedirectResponse(f"/jobs/{job_id}?err=confirm_needed", status_code=303)
+        local = rt.store.c("applications").find_one({"job_id": job_id, "provenance.origin": "local"})
+        if local is None:
+            return RedirectResponse(f"/jobs/{job_id}?err=missing", status_code=303)
+        from amorehiremepls.web.routes.applications import _clear_application
+
+        return _clear_application(rt, local["_id"], "restart")
 
     @app.post("/jobs/{job_id}/qualify")
     def job_qualify(request: Request, job_id: str, session: dict = Depends(require_session), csrf: str = Form(...)):

@@ -15,6 +15,8 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+from bson import json_util
+
 from amorehiremepls.apply.ats.rules import SENSITIVE_BLANK_REASON, YEARS_RULE
 from amorehiremepls.apply.browser import Plan, normalize_screenshots
 from amorehiremepls.apply.tailoring import Tailor, page_limit_block_reason
@@ -537,6 +539,40 @@ def map_answers(
 PlanBuilder = Callable[[dict, dict, list[dict]], Plan]
 
 
+class ApplicationRefused(Exception):
+    """The dashboard asked to delete or restart an application that must stay as it is."""
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
+
+
+_LEDGER_OUTBOX = ("sync_pending", "committing", "committed_local", "local_only", "synced", "conflict")
+
+
+def submission_lock_reason(app: dict) -> str | None:
+    """Why this application must not be deleted or restarted. None when nothing has been sent."""
+    if app.get("tombstone") or app.get("status") in ("removed", "withdrawn"):
+        return "already_removed"
+    evidence = app.get("evidence") or {}
+    if app.get("status") == "submitted":
+        return "already_sent"
+    if evidence.get("receipt_text") or evidence.get("confirmation") or evidence.get("receipt_path") or evidence.get("basis") == "receipt_observed":
+        return "receipt_saved"
+    if app.get("status") == "needs_verification":
+        return "result_unclear"
+    if app.get("status") == "executing":
+        return "still_working"
+    return None
+
+
+def ledger_linked(store: Store, app: dict) -> bool:
+    """True when a GitHub ledger row or a live outbox item already exists. Those rows are not deleted."""
+    if app.get("tracker_record_id") or (app.get("provenance") or {}).get("origin") == "tracker_import":
+        return True
+    return store.db["sync_outbox"].find_one({"application_id": app["_id"], "status": {"$in": list(_LEDGER_OUTBOX)}}) is not None
+
+
 class ApplicationService:
     def __init__(
         self,
@@ -589,6 +625,102 @@ class ApplicationService:
         }
         self.apps.insert_one(app)
         return app
+
+    def _stop_unsent_work(self, app: dict) -> None:
+        """Revoke the approval and drop holds and parked tasks. A task that is still running is left alone and refused."""
+        job_id = app["job_id"]
+        if self.store.c("runs").find_one({"params.job_id": job_id, "status": "running"}):
+            raise ApplicationRefused("busy")
+        if self.store.c("challenge_retries").find_one({"idempotency_key": f"challenge_retry:{job_id}", "status": "running"}):
+            raise ApplicationRefused("busy")
+        now = utcnow()
+        self.store.c("authorizations").update_many(
+            {"kind": "application_submit", "status": "active", "binding.target_id": job_id},
+            {"$set": {"status": "revoked", "revoked_reason": "cleared before anything was sent"}},
+        )
+        self.store.c("human_holds").update_many(
+            {"application_id": app["_id"], "status": "holding"},
+            {"$set": {"status": "released", "released_at": now}},
+        )
+        self.store.c("runs").update_many(
+            {"params.job_id": job_id, "status": {"$in": ["queued", "claimed", "waiting", "paused"]}},
+            {"$set": {"status": "cancelled", "updated_at": now, "error": "cleared before anything was sent"}},
+        )
+        self.store.c("challenge_retries").update_many(
+            {"idempotency_key": f"challenge_retry:{job_id}", "status": "scheduled"},
+            {"$set": {"status": "cancelled", "updated_at": now}},
+        )
+
+    def delete_unsent(self, app_id: str, backup_dir: Path) -> str:
+        """Remove an application that was never sent. The job stays.
+
+        Returns ``removed`` when nothing was on the GitHub ledger: the document is backed up and tombstoned,
+        and nothing is queued. Returns ``withdrawn`` when a ledger row or a live outbox item exists: the local
+        document is marked withdrawn, a ``record_withdrawal`` item is queued, and existing outbox rows are not
+        marked as pushed. A submitted application or an employer receipt is refused.
+        """
+        app = self.apps.find_one({"_id": app_id})
+        if app is None:
+            raise ApplicationRefused("missing")
+        if reason := submission_lock_reason(app):
+            raise ApplicationRefused(reason)
+        self._stop_unsent_work(app)
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        path = backup_dir / f"{app_id}-{utcnow().strftime('%Y%m%dT%H%M%SZ')}.json"
+        path.write_text(json_util.dumps(app), encoding="utf-8")
+        sha = sha256_file(path)
+        now = utcnow()
+        provenance = {**(app.get("provenance") or {}), "origin": "withdrawn" if ledger_linked(self.store, app) else "removed"}
+        common = {
+            "updated_at": now,
+            "removed_at": now,
+            "backup_sha256": sha,
+            "provenance": provenance,
+            "reason": "removed before anything was sent",
+        }
+        unset = {"review_package": "", "material_hash": "", "handoff_kind": "", "next_action": ""}
+        if provenance["origin"] == "withdrawn":
+            self.apps.update_one(
+                {"_id": app_id},
+                {"$set": {**common, "status": "withdrawn", "reason": "removed before anything was sent; the ledger row is kept"}, "$unset": unset},
+            )
+            from amorehiremepls.records.sync import SyncOutbox
+
+            SyncOutbox(self.store).enqueue(app_id, "record_withdrawal")
+            self.store.audit("application_withdrawn", app_id, backup_sha256=sha)
+            return "withdrawn"
+        self.apps.update_one({"_id": app_id}, {"$set": {**common, "status": "removed", "tombstone": True}, "$unset": unset})
+        self.store.audit("application_removed", app_id, backup_sha256=sha)
+        return "removed"
+
+    def restart_unsent(self, app_id: str) -> dict:
+        """Clear an unsent package, its approval and any handoff hold, then build a fresh package for review.
+
+        Does not start a browser task and does not submit. New resume files replace the old ones, so the previous
+        approval no longer matches. A submitted application or an employer receipt is refused.
+        """
+        app = self.apps.find_one({"_id": app_id})
+        if app is None:
+            raise ApplicationRefused("missing")
+        if reason := submission_lock_reason(app):
+            raise ApplicationRefused(reason)
+        self._stop_unsent_work(app)
+        job = self.jobs.get(app["job_id"])
+        self.store.c("artifacts").update_many({"owner_id": app["job_id"], "kind": "resume_tailored"}, {"$set": {"superseded": True}})
+        self.apps.update_one(
+            {"_id": app_id},
+            {
+                "$set": {"status": "queued", "updated_at": utcnow(), "reason": "", "next_action": "read the package and approve again"},
+                "$unset": {"handoff_kind": "", "evidence": "", "review_package": "", "material_hash": ""},
+            },
+        )
+        fields = [
+            FormField(f.get("id", ""), f.get("label", ""), f.get("type", "text"), f.get("options") or [], f.get("selector", ""), bool(f.get("required")), meta=f.get("meta") or {})
+            for f in (job.get("form_plan") or {}).get("fields") or []
+        ]
+        rebuilt = self.prepare(app["job_id"], fields)
+        self.store.audit("application_restarted", app_id)
+        return rebuilt
 
     def _set(self, app_id: str, status: str | None = None, **fields: Any) -> dict:
         upd: dict[str, Any] = {"updated_at": utcnow(), **fields}

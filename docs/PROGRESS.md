@@ -296,6 +296,14 @@ Queue item 3. Owner decision recorded first (`0a57466`): tracker sync keeps runn
 - **Tests.** `tests/test_accounts.py` (6). Full suite 342 passed, ruff clean.
 - **Deployed.** `lepia/amorehiremepls:5959e62bfd09` (commit `5959e62`) on the NAS stack. Init exited 0, web and worker healthy, `/health` 200. Password-only sign-in still lands on Overview, the greeting shows the display name, and the admin has no expiry badge. People lists the `admin` sign-in with no end date. `amore migrate-users` ran once: admin created, 222 records stamped (actions 1, applications 41, artifacts 15, audit 107, authorizations 3, imports 3, jobs 39, profile 1, runs 3, usage 9). Signed-in pages were checked over HTTP without printing the display name. The People forms and `/access-ended` were not clicked on the live dashboard; those paths are covered by `tests/test_accounts.py`. No application was retried and nothing was sent.
 
+## Delete or restart an unsent application (2026-11-05, 13:48 Toronto)
+
+The dashboard can remove an application that was never sent, or clear it and prepare a fresh package. Neither action submits, and neither deletes the job. A submitted application, an employer receipt, or an unclear result is refused.
+
+- **Delete.** Two steps: open "Remove or start over" (or More actions on the job) and type `delete`. The application is backed up under the private directory and tombstoned (`origin` `removed`) when nothing is on the GitHub ledger, and no sync item is queued. When a ledger id or a live outbox item already exists, the local document is marked withdrawn, a `record_withdrawal` item is queued, and existing outbox rows are not marked as pushed. The coordinator updates that one JSON row to `withdrawn` and leaves every other row in place. It does not write an empty list.
+- **Restart.** Type `restart`. The approval, handoff hold, and parked task are cleared. Tailored resumes are marked replaced so the new package has new file fingerprints. The next step is to read that package and approve it again. No browser task is started.
+- **Tests.** `tests/test_remove_and_restart.py` (7). Full suite 349 passed, ruff clean. The live records for the Workday handoff were not deleted or restarted.
+
 ## Exact next step
 
 Queue item 5 waits for a confirmed employer receipt. Do not draft recruiter Connect notes until one exists. Do not retry the Faire application or mark the BMO job closed; those are owner decisions (handoff questions 4 and 5). Open owner questions are 1, 2, 3, 4, 5, 7, 8, and 9. Question 6 is answered: tracker sync keeps running for an expired member.

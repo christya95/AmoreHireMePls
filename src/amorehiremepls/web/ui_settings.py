@@ -285,6 +285,8 @@ STATUS_LABELS: dict[str, str] = {
     "handoff": "Finish on the site yourself",
     "needs_verification": "Result unclear, check it",
     "submitted": "Applied",
+    "removed": "Removed",
+    "withdrawn": "Removed",
     "failed": "Failed",
     "duplicate": "Already applied",
     "blocked": "Blocked by your rules",

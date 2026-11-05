@@ -17,7 +17,17 @@
       <p>{{ job.employer }} · application <span class="mono">{{ a._id }}</span></p>
       <div class="flex mt">{{ status(a.status) }}{% if a.reason %}<small>{{ a.reason|failure if a.status == 'failed' else a.reason }}</small>{% endif %}</div>
     </div>
-    <div class="actions"><a class="btn secondary sm" href="/jobs/{{ job._id }}">Open the job</a>{% if pkg %}<a class="btn secondary sm" href="{{ pkg.apply_url }}" target="_blank" rel="noopener">Apply page ↗</a>{% endif %}</div>
+    <div class="actions"><a class="btn secondary sm" href="/jobs/{{ job._id }}">Open the job</a>{% if pkg %}<a class="btn secondary sm" href="{{ pkg.apply_url }}" target="_blank" rel="noopener">Apply page ↗</a>{% endif %}
+      {% if can_clear %}<details class="pop more"><summary class="btn secondary sm">Remove or start over</summary><div class="pop-body stack gap-s">
+        <form method="post" action="/applications/{{ a._id }}/restart" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
+          <p>Clears this unsent application and its approval. The job stays. You then read a new package and approve it again. Rebuilding the resume makes new files, so the old approval no longer applies. Nothing is sent.</p>
+          <label>Type restart to confirm <input name="confirm" autocomplete="off"></label>
+          <button class="secondary sm w100">Restart this job</button></form>
+        <form method="post" action="/applications/{{ a._id }}/delete" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
+          <p>Removes this application. The job stays. This is only possible because nothing was sent. Your GitHub tracker history is not erased.</p>
+          <label>Type delete to confirm <input name="confirm" autocomplete="off"></label>
+          <button class="danger sm w100">Delete this application</button></form>
+      </div></details>{% endif %}</div>
   </div>
   {% if hold %}
   <div class="next-action mt attention" id="human-check">
