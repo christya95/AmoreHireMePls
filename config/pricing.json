@@ -1,4 +1,14 @@
 {
-  "_comment": "USD per 1M tokens; effective_date documents when the price was checked. Unknown model => cost unknown.",
-  "prices": []
+  "_comment": "USD per 1M tokens; effective_date documents when the price was checked. Unknown model => cost unknown. Standard tier (no batch/flex/fast); regional/FedRAMP endpoints add a 10% uplift not modelled here.",
+  "prices": [
+    {
+      "model": "gpt-5.4-mini",
+      "effective_date": "2026-11-05",
+      "as_of": "2026-11-05",
+      "input_per_1m": 0.75,
+      "cached_input_per_1m": 0.075,
+      "output_per_1m": 4.5,
+      "source": "https://platform.openai.com/docs/pricing"
+    }
+  ]
 }

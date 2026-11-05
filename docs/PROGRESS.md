@@ -80,19 +80,22 @@ Keep this file current. A later session should be able to continue from the "Exa
 - Tracker sync archives both PNGs with the record under the tracker's `artifacts/<record id>/<sha12>-<record id>_<label>.png` convention: receipt through `records.py add --receipt` (kind `receipt`), summary staged by the coordinator and listed on the record as kind `summary_screenshot` (validated by the tracker's own hash/path check; ledger schema unchanged).
 - Tests: fixture review page now shows every answer; browser tests assert both captures, placement, naming, hashes, fallback dir and the ambiguous case; an end-to-end test runs `ApplicationService` → adapter → fixture ATS → application record → tracker clone; Mongo tests cover structured/legacy evidence, artifact registration idempotency, ambiguous outcomes and the sync archive. Dashboard display of these captures is pending (UI work tracked separately); until then `/documents` and the job page list `screenshot` artifacts with the generic document actions.
 
+## Setup completed 2026-11-05
+
+- `AMORE_BROWSER_ALLOWED_HOSTS` set in the local `.env` to the public board hosts of the three supported discovery adapters (Greenhouse, Lever, Ashby): `boards.greenhouse.io,job-boards.greenhouse.io,boards.eu.greenhouse.io,job-boards.eu.greenhouse.io,jobs.lever.co,jobs.eu.lever.co,jobs.ashbyhq.com`. Matching is exact hostname (lower-cased, port stripped) in `config.Settings.allowed_hosts`, `BrowserAdapter._check_host` and the per-request route gate; no suffix or wildcard matching, so the EU board hosts are listed explicitly. LinkedIn and Workday stay out (handoffs). Requires a web + worker restart to take effect.
+- `config/pricing.json`: `gpt-5.4-mini` Standard tier, USD per 1M tokens: input 0.75, cached input 0.075, output 4.50; source https://platform.openai.com/docs/pricing, as of 2026-11-05 (same figures on the GPT-5.4 mini model page). Loader check: 1000 in / 200 out → $0.00165. Batch/Flex/Fast tiers and the 10% regional uplift are not modelled; the app sets no service tier. Only one model is configured, so no other entries.
+
 ## Remaining / not done
 
-- `config/pricing.json` prices for `gpt-5.4-mini` (and any other model used); until filled every cost reads "unknown".
 - Deploy the app containers to the NAS (needs SSH enabled in UGOS for the rsync/build window) or run the app on the Mac against the NAS database (works today).
 - Tailscale ACL limiting `tcp:27017` on the NAS to Joss's devices (observation: port is open to the whole tailnet, auth required).
-- `AMORE_BROWSER_ALLOWED_HOSTS` for the ATS hosts Joss wants scanned (e.g. `boards.greenhouse.io`).
+- Live form scan against a real Greenhouse/Lever/Ashby page has not been exercised since the hosts were set; the route gate also aborts third-party asset requests (CDNs, CAPTCHA), which may need extra hosts once observed.
 - Site-specific adapters beyond the generic form plan (Workday, LinkedIn Easy Apply) if wanted; currently handoffs. Optional SMTP channel.
 
 ## Open questions for Joss
 
 1. Should `Product Engineer` style titles count as a preferred role family, or stay `needs_review`? (Affects qualification of the Faire posting and similar ones.)
-2. Which ATS hosts may the worker open for form scanning (`AMORE_BROWSER_ALLOWED_HOSTS`)?
 
 ## Exact next step
 
-Joss logs in to http://127.0.0.1:8790, works through the getting-started checklist on Overview, opens the Faire job and uses More actions → Regenerate documents to get the PDF (LibreOffice is now installed), reviews the rebuilt package, sets `AMORE_BROWSER_ALLOWED_HOSTS` for the ATS hosts he wants scanned, answers the role-family question, fills `config/pricing.json` for `gpt-5.4-mini`, and grants the first authorization scope in the dashboard when ready. Deploy containers to the NAS once SSH is enabled.
+Restart `amore web` and `amore worker` so the `.env` hosts apply. Joss logs in to http://127.0.0.1:8790, works through the getting-started checklist on Overview, opens the Faire job and uses More actions → Regenerate documents to get the PDF (LibreOffice is now installed), reviews the rebuilt package (the form scan should now reach the Greenhouse page), answers the role-family question, and grants the first authorization scope in the dashboard when ready. Deploy containers to the NAS once SSH is enabled.
