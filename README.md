@@ -7,7 +7,7 @@
 <p align="center"><strong>A private job-search assistant that finds roles, tailors your resume from facts you approved, prepares every application for your review, and never sends anything without your say-so.</strong></p>
 
 <p align="center">
-  Built by Joss Christyanton · Python 3.12 · LangChain + LangGraph · MongoDB · Playwright · Docker
+  Built by Joss · Python 3.12 · LangChain + LangGraph · MongoDB · Playwright · Docker
 </p>
 
 ---
@@ -431,7 +431,7 @@ stateDiagram-v2
 
 - **Interrupts** are the human gates: `needs_input` (missing answers), `awaiting_authorization` (your approval), `handoff` (login page, CAPTCHA or an unsupported site). The dashboard answers the interrupt and the worker resumes the thread with `Command(resume=...)`.
 - **Pause, cancel, emergency stop** are checked at every node boundary. A pause raises after the checkpoint is written, so resume continues without redoing work.
-- **Restart recovery**: runs left `running` by a crashed worker are marked interrupted at startup and resumed from their checkpoint; a stale heartbeat releases a worker's claims.
+- **Restart recovery**: at startup a worker marks runs left `running` by a crashed process (its own name, an expired lease, or a stale owner heartbeat) as interrupted, so they can be resumed from the last checkpoint. External actions are protected separately: an expired action lease becomes `needs_verification`, never a re-run.
 
 ### Nothing is sent without you (idempotent actions and scopes)
 
@@ -504,12 +504,12 @@ Run the suite:
 
 ```bash
 uv run pytest                                        # mongo-marked tests skip unless 127.0.0.1:27027 is up
-TEST_MONGO_URI=mongodb://127.0.0.1:27027 uv run pytest -m mongo
+AMORE_TEST_MONGODB_URI=mongodb://127.0.0.1:27027 uv run pytest -m mongo
 uv run pytest -m browser                             # Playwright adapter against the local fixture site
 uv run ruff check src tests && uv run ruff format --check src tests
 ```
 
-**TEST_COUNT_PLACEHOLDER**
+**106 tests** as of this commit (`uv run pytest -q` on a Mac with the dev MongoDB and Chromium present; Mongo- and browser-marked tests skip when those are missing). One test scans every tracked file against hashed private tokens, so a stray personal detail in the code or docs fails the build.
 
 Tests use deterministic doubles only: a `FakeProvider` for the model, a local fixture ATS site for the browser, a local bare git repository for the tracker, and the dev MongoDB. No live application or message is part of any test.
 
@@ -590,8 +590,8 @@ If the app runs on your NAS, nothing changes: the worker keeps going, and anythi
 **Where are my resumes?**
 Tailored DOCX and PDF files live under the artifact directory (`runtime/artifacts/jobs/<job>/` on the Mac, the `artifacts` bind mount on the NAS). The Documents page lists them with their hashes and lets you open or download them; the file is re-hashed on every download. Your base resume is copied once into the private directory and never modified.
 
-**Why does a document say "regenerate"?**
-Because something it depends on changed: your profile facts, the posting, the base resume, or LibreOffice became available so a PDF can now be rendered. Regenerating creates a fresh document with new hashes, marks the old one superseded, and revokes any approval that was tied to the old hashes. You read and approve again.
+**Why would I regenerate (rebuild) a document?**
+Because something it depends on changed: your profile facts, the posting, the base resume, or LibreOffice became available so a PDF can now be rendered. The job page's *More actions* menu rebuilds the tailored DOCX (and PDF). New files mean new hashes, so the old document is marked superseded, any approval tied to the old hashes is withdrawn, and the review package is rebuilt. You read and approve again. It is refused while a run is active or after a submission.
 
 **It says "Outcome unknown, check it". Did it apply or not?**
 The worker clicked submit but could not recognise a confirmation page in time. It will not retry. Check the employer portal or your email, then record what you found on the application page.
@@ -600,7 +600,7 @@ The worker clicked submit but could not recognise a confirmation page in time. I
 No. LinkedIn offers no supported API for this, so the app drafts the note, checks it against the rules, and hands it to you to send. It also blocks a first contact until prior history with that person is confirmed.
 
 **How much does it cost to run?**
-Model usage is measured per call and summed per run and per month on the Usage page. With `gpt-5.4-mini` prices filled in, a typical tailoring call is a fraction of a cent; the default per-run cap is 2.00 USD. If a price is missing the dashboard says "unknown" rather than guessing.
+Model usage is measured per call, summed per run on the Usage page, and shown for the current month on the Overview. With the `gpt-5.4-mini` prices in `config/pricing.json`, a single tailoring call with a long posting lands around a cent or two; the default per-run cap is 2.00 USD. If a price is missing the dashboard says "unknown" rather than guessing.
 
 **Does it need the internet all the time?**
 Only for the model, the job sites and GitHub. The dashboard, database and documents are local.
