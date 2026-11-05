@@ -11,7 +11,10 @@ import uvicorn
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from tests.fixtures.greenhouse_site import router as greenhouse_router
+
 app = FastAPI()
+app.include_router(greenhouse_router)  # Greenhouse style board (see greenhouse_site.py)
 SESSIONS: dict[str, dict] = {}
 SUBMISSIONS: list[dict] = []
 
