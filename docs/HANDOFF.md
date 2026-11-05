@@ -8,8 +8,8 @@ No private values here: field names and counts only. Keep under 120 lines; finis
 - Deployed: NAS Portainer stack `amorehiremepls`, image `lepia/amorehiremepls:5959e62bfd09` (queue item 3, commit `5959e62`).
   Web and worker healthy, dashboard `http://192.168.2.49:8790` (`/health` 200, Overview greeting shows the display name,
   admin has no expiry badge, tracker on). `amore migrate-users` has been run once (admin created, 222 records stamped).
-  `origin/main` is `ecd69ce` (delete or restart an unsent application). That commit is not deployed: `op` authorization
-  timed out. The stack is still `5959e62bfd09`.
+  `origin/main` is `669e644` (posting cleanup; delete/restart is `ecd69ce`). Neither is deployed: `op` authorization
+  timed out. The stack is still `5959e62bfd09`. `/health` was 200 on that image.
 - Live and used for real: profile store, base resume registration, tracker preview/import (nothing pushed), discovery by URL,
   model check through `op run`, deterministic tailoring with a 2 page PDF, review package and approval gates, honest
   application status plus the Updates list on the Overview (built from stored events, no model call), fit check with resume
@@ -19,7 +19,9 @@ No private values here: field names and counts only. Keep under 120 lines; finis
   edit), `AMORE_TIMEZONE` and tracker settings, profession neutral code with `candidate/profile.toml` as the one customization
   surface (`amore profile import --from … [--dry-run]`, `export --to …`, `fingerprint`, Profile page Load button). The
   owner's live preferences are exported to the gitignored Mac copy of `profile.toml`; the NAS Profile card says "not found"
-  because the file is only on the Mac. Layout is the six packages in `docs/architecture.md`. Suite: 349 passed, ruff clean.
+  because the file is only on the Mac. Layout is the six packages in `docs/architecture.md`. Suite: 358 passed, ruff clean.
+  Posting cleanup is on `main` and not deployed: check open jobs, close a gone posting, delete unsent tailored resumes,
+  collapse repeated update lines. A sent application, a receipt, the base resume, and tracker history are kept.
 - Fixture tested only: Greenhouse, Lever and Ashby form filling including the hidden input upload fix and the pre fill form
   check; the salary skill; Workday posting refresh; owner notifications, the human check hold and the one later try.
 - Not verified: no live employer receipt exists yet for any ATS; nothing has ever been submitted by the app.

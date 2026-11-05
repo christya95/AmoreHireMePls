@@ -305,9 +305,19 @@ The dashboard can remove an application that was never sent, or clear it and pre
 - **Tests.** `tests/test_remove_and_restart.py` (7). Full suite 349 passed, ruff clean. The live records for the Workday handoff were not deleted or restarted.
 - **Deploy.** Not run. `op run` and `op signin` both returned `authorization timeout`, so the NAS stack is still `lepia/amorehiremepls:5959e62bfd09`. The commit on `origin/main` is `ecd69ce`.
 
+## Close a gone posting and remove unused resumes (2026-11-05, 14:12 Toronto)
+
+The open job list can be checked, and tailored resumes that were never sent can be deleted. Nothing that was submitted is removed.
+
+- **Posting check.** "Check which jobs are still posted" reads up to 25 open jobs, one at a time, and skips a job checked in the last 6 hours. "Check if this posting is still up" on the job page checks that one job anyway. HTTP 403 or 404, a page that says the job does not exist, or a page under 200 characters sets the job to Closed with "This posting is no longer up" and hides it from the open list. The record stays. A sent application, a saved receipt, or an unclear result is left open. A network error does not close the job. The outcome is one update line.
+- **Resumes.** Tailored files under the job artifact directory, and their `resume_tailored` records, are deleted when the posting is closed, when an unsent application is deleted or restarted, or when "Remove unused resumes" is confirmed with the word `remove` (one application, or every unsent application). The base resume, screenshots, a sent application's files, and GitHub tracker history stay. An approval for that job is revoked and the package no longer points at the deleted file.
+- **Updates.** Consecutive identical lines show as one line with a count. The stored events are not deleted. A failed or handoff attempt reuses the same unsent application. Preparing a job that was already submitted reports a duplicate and does not rewrite the sent record.
+- **Tests.** `tests/test_posting_cleanup.py` (9). Full suite 358 passed, ruff clean. The live Workday job was not checked, deleted, or restarted.
+- **Deploy.** Not run. `op run` returned `authorization timeout` and `op signin` reported the account is not signed in. The NAS stack is still `lepia/amorehiremepls:5959e62bfd09`. `/health` on that image was 200. The commit on `origin/main` is `669e644`. The new controls were rendered in the test client, not in the signed-in NAS pages.
+
 ## Exact next step
 
-Deploy `ecd69ce` once 1Password is signed in (`op signin`, then operating rule 3 in `docs/HANDOFF.md`). Do not delete or restart the live Workday application while checking the new controls. Queue item 5 waits for a confirmed employer receipt. Do not draft recruiter Connect notes until one exists. Do not retry the Faire application or mark the BMO job closed; those are owner decisions (handoff questions 4 and 5). Open owner questions are 1, 2, 3, 4, 5, 7, 8, and 9. Question 6 is answered: tracker sync keeps running for an expired member.
+Deploy `669e644` once 1Password is signed in (`op signin`, then operating rule 3 in `docs/HANDOFF.md`). That image also includes delete and restart from `ecd69ce`. Do not confirm a destructive action on the live Workday job while checking the new controls. Queue item 5 waits for a confirmed employer receipt. Do not draft recruiter Connect notes until one exists. Do not retry the Faire application or mark the BMO job closed; those are owner decisions (handoff questions 4 and 5). Open owner questions are 1, 2, 3, 4, 5, 7, 8, and 9. Question 6 is answered: tracker sync keeps running for an expired member.
 
 Greenhouse, Lever, and Ashby form filling, owner notifications, the human-check hold, and one later try are fixture-tested only. None of those paths has been live-submitted. Do not retry the Faire application or mark the BMO job closed; those are owner decisions (handoff questions 4 and 5).
 
