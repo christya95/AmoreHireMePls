@@ -5,11 +5,14 @@ session. No private values: field names and counts only. Keep under 120 lines; f
 
 ## State now
 
-- Deployed 13:56: NAS stack `amorehiremepls`, image `lepia/amorehiremepls:1b7083edf3b0` (commit `1b7083e`). Root cause
+- Deployed 14:35: NAS stack `amorehiremepls`, image `lepia/amorehiremepls:8fad9eac5b91` (commit `8fad9ea`: application page
+  polish, one sentence failure headline, picture placeholder). Local dashboard is DOWN: its relaunch hit two 1Password
+  `authorization timeout`s and a `promptError`; relaunch it with the owner present to approve the prompt.
+- Deployed 13:56: image `1b7083edf3b0` (commit `1b7083e`). Root cause
   of every Faire Location failure: the place list host `api-geocode-earth-proxy.greenhouse.io` was not a Greenhouse
   resource host, so the request gate aborted it and no city ever appeared; the DOM fallback then read the phone
   country code rows ("Afghanistan+93 ..."). Both fixed (host added, `data-dial-code` rows ignored). Web and worker
-  healthy, `/health` 200. Local dashboard pid 73119 predates this commit; restart it before a local run. Owner retries
+  healthy, `/health` 200. Owner retries
   the Faire application; check its Location field answer first (the 18:32 attempt typed "Yes" from a field answer).
 - Committed in `c3d1ec0` and deployed (full suite passed, ruff clean); the working tree is clean:
   - A failed attempt shows Failed in red (`chrome.py` headline); approval is no longer the headline after a failure.
