@@ -30,6 +30,8 @@
       <div class="form-row"><div class="field narrow"><label>Good for (hours)</label><input name="hours" type="number" value="24" min="1" max="168"></div><div class="field"><label>Note to yourself</label><input name="note" placeholder="optional"></div></div></details></form>
   {% elif need.kind == 'fill' %}
   <form method="post" action="/applications/{{ a._id }}/fill"><input type="hidden" name="csrf" value="{{ csrf }}"><button><svg class="icon"><use href="#i-arrow"/></svg>Fill in the form</button></form>
+  {% elif need.kind == 'cancel' %}
+  <form method="post" action="/applications/{{ a._id }}/cancel" id="cancel-attempt"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary" title="{{ glossary.cancel_attempt[1] }}"><svg class="icon"><use href="#i-stop"/></svg>Cancel this attempt</button></form>
   {% elif need.kind == 'retry' %}
   <form method="post" action="/applications/{{ a._id }}/retry"><input type="hidden" name="csrf" value="{{ csrf }}"><button><svg class="icon"><use href="#i-arrow"/></svg>Retry with the app</button></form>
   {% elif need.kind == 'manual' %}

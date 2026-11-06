@@ -1,5 +1,5 @@
 {% extends "base.html" %}{% block content %}
-{% from "_macros.html" import status, hint, company with context %}
+{% from "_macros.html" import status, hint, company, one_confirm with context %}
 <div class="stack">
 <div class="page-head"><div><h1>Applications</h1><p>Each row is one job the app has prepared for you. The button says the one thing to do next.</p></div>{% include "_app_tabs.html" %}</div>
 <div class="card flush">
@@ -12,7 +12,10 @@
       <td><a class="row-person" href="/applications/{{ a._id }}">{{ company(j.employer, j) }}<span><strong>{{ j.employer or a.job_id }}</strong><span class="sub">{{ j.title or '' }}{% if j.location %} · {{ j.location }}{% endif %}</span></span></a></td>
       <td>{{ status(a.status) }}{% if a.reason %}<span class="sub">{{ a.reason }}</span>{% endif %}</td>
       <td>{% if pkg.document %}<small class="wrap">{{ pkg.document.filename }}</small>{% else %}<span class="muted">—</span>{% endif %}</td>
-      <td><a class="btn {{ 'sm' if a.status in ['ready_for_review', 'needs_input', 'handoff', 'needs_verification'] else 'secondary sm' }}" href="/applications/{{ a._id }}">{{ a.status|verb }}</a></td>
+      <td><div class="row-actions"><a class="btn {{ 'sm' if a.status in ['ready_for_review', 'needs_input', 'handoff', 'needs_verification'] else 'secondary sm' }}" href="/applications/{{ a._id }}">{{ a.status|verb }}</a>
+        {% if a._id in clearable %}<details class="pop more row-remove"><summary class="btn secondary sm" title="{{ glossary.remove_application[1] }}">Remove</summary><div class="pop-body stack gap-s">
+          {{ one_confirm('/applications/' ~ a._id ~ '/remove', glossary.remove_application[1], 'Remove this application', danger=True) }}
+        </div></details>{% endif %}</div></td>
       <td class="right nowrap">{{ a.updated_at|local }}</td></tr>
     {% else %}<tr><td colspan="5"><div class="empty"><svg class="icon"><use href="#i-applications"/></svg>{% if status_filter %}No applications are "{{ status_filter|label }}" right now.{% else %}Nothing prepared yet. Open a job and press "Tailor resume". The app prepares the application and waits here for you.{% endif %}<div class="actions center mt"><a class="btn sm" href="/jobs">Go to jobs</a>{% if status_filter %}<a class="btn secondary sm" href="/applications">Show all</a>{% endif %}</div><small class="block mt">Applications from before this app are under <a href="/history">Past applications</a>.</small></div></td></tr>{% endfor %}</tbody>
   </table></div>

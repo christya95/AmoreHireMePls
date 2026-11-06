@@ -218,6 +218,12 @@ FLASHES = {
     "retry_started": ("The app will read the form again and prepare fresh answers. It waits for your approval before applying.", "ok"),
     "retry_unsupported": ("The app has no form filler for this job site yet, so there is nothing to retry. Finish on the site yourself.", "bad"),
     "retry_busy": ("A background task is working on this job right now. Wait for it to pause or finish.", "bad"),
+    "cancel_requested": ("Cancel received. The app stops before the final click and closes the page. Nothing is sent, and you can try again later.", "ok"),
+    "cancel_missing": ("Nothing is filling in this form right now, so there was nothing to stop.", "bad"),
+    "cancel_too_late": (
+        "The final click already happened, so this attempt cannot be stopped. The app is checking the result. Record what the site shows if it stays unclear.",
+        "bad",
+    ),
     "continue_ok": ("Continue received. The same page will be checked again. The form is not sent a second time.", "ok"),
     "continue_missing": ("That check is no longer being held.", "bad"),
     "continue_changed": ("The answers or the resume changed, so Continue was refused.", "bad"),
@@ -791,6 +797,7 @@ def what_to_do_line(app: dict, runs: list[dict], saved_reason: str = "", action:
 
 
 NOTHING_NEEDED = "Nothing is needed from you right now."
+CANCEL_OFFER = "If you want, stop this attempt. Nothing is sent, and you can try again later."
 _RESUME_MISSING = {"base_resume", "approved base resume not selected"}
 
 
@@ -824,6 +831,7 @@ def needed_now(
     can_retry: bool = False,
     can_clear: bool = False,
     working: bool = False,
+    can_cancel: bool = False,
 ) -> dict:
     """The one thing this application asks of the person, with the control it needs.
 
@@ -847,6 +855,8 @@ def needed_now(
         if re.search(r"\bcode\b", label, re.I) and re.search(r"email", str(hold.get("field_reason") or ""), re.I):
             text = "The job site emailed you a code after the final click. Open that email, type the code here, and the same page finishes sending. Nothing is clicked twice."
         return {"kind": "field", "title": label, "text": text, "field": None}
+    if working and can_cancel:
+        return {**none, "kind": "cancel", "text": CANCEL_OFFER}
     if working:
         return none
     outstanding = [str(item or "").strip() for item in pkg.get("outstanding") or []]

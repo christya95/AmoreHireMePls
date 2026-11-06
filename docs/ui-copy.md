@@ -190,6 +190,7 @@ label and bookkeeping words never appear.
 | State | Sentences | Control |
 |---|---|---|
 | nothing needed | "Nothing is needed from you right now." | none |
+| the form is being filled, final click not yet noted | "Nothing is needed from you right now. If you want, stop this attempt. Nothing is sent, and you can try again later." | Cancel this attempt (secondary) |
 | failed, clearable | headline from the saved event, e.g. "The form was not opened. Showing the result already saved." · the stop reason · "Nothing is needed from you right now. Nothing was sent. To try again, use Start over." | none (Start over is in the header) |
 | applied | "Nothing is needed from you right now. Applied and recorded. Next: short notes to recruiters at this employer." | Contact recruiters (secondary) |
 | a check appeared, one more try queued | "Nothing is needed from you right now. A check appeared. The app tries once more later, then tells you if it still needs you." | none |
@@ -259,6 +260,16 @@ filter names remain only as aliases.
   stays. A GitHub tracker row is marked withdrawn instead of being erased. After it succeeds the person lands on
   the job, ready to prepare it again. Rebuilding the resume is separate: a new resume file is made, the old
   approval no longer applies, and nothing is sent. The base resume stays.
+- Remove (`POST /applications/{id}/remove`, a quiet button in each row of Prepared applications) is the same
+  clearing as Start over from the list. Its pop says it takes the prepared application off the list with its approval
+  and resume files, nothing is sent, the job stays, and the tracker history is left as it is. The person lands back on
+  the list with the `app_removed` flash. Rows where something was sent or a receipt is saved show no Remove.
+- Cancel this attempt (`POST /applications/{id}/cancel`) appears in the status block only while the form is being
+  filled and before the final click's step line ("Sending the application") is saved. Flashes: "Cancel received. The
+  app stops before the final click and closes the page. Nothing is sent, and you can try again later." ·
+  "Nothing is filling in this form right now, so there was nothing to stop." · "The final click already happened, so
+  this attempt cannot be stopped. The app is checking the result. Record what the site shows if it stays unclear."
+  The stopped attempt reads "Cancelled from the dashboard. Nothing was sent" and offers Retry with the app.
 - "Check which jobs are still posted" (`POST /jobs/check-postings`) re-reads open jobs one at a time, up to 25, and
   skips a job checked in the last 6 hours. "Check if this posting is still up" (`POST /jobs/{id}/check-posting`)
   checks that one job even if it was checked recently. A missing page (403 or 404), a page that says the job does

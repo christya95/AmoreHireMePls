@@ -622,6 +622,79 @@ def submission_lock_reason(app: dict) -> str | None:
 
 _CLEANUP_REFUSAL = ("already_sent", "receipt_saved", "result_unclear", "still_working")
 
+CANCEL_REASON = "Cancelled from the dashboard. Nothing was sent"
+CANCEL_LATE_NOTE = "Cancel came after the final click, so the attempt was not stopped. The result is being checked."
+LIVE_RUN_STATES = ("queued", "claimed", "running")
+
+
+class AttemptCancelled(BaseException):
+    """The person pressed Cancel while the form was being filled.
+
+    A BaseException on purpose (as trio's Cancelled is): the browser's step logger swallows `Exception` so a note can
+    never break a form, and this signal must pass through it. The browser's `finally` still closes the page."""
+
+
+class CancelWatch:
+    """The browser's progress hook with a cancel check. Called before each form step with the step's note.
+
+    The run's `requested` flag is read once per step. A cancel seen before the final click clears the flag, writes one
+    line and raises `AttemptCancelled`, so the page closes with nothing sent. Once the final step's note has passed
+    the click may have happened, and from then on cancel is ignored here: the receipt wait decides the result."""
+
+    def __init__(self, store: Store, run_id: str | None, plan: Plan, note: Callable[[str], None]) -> None:
+        from amorehiremepls.apply.browser import step_note
+
+        self.store = store
+        self.run_id = run_id
+        self.note = note
+        self.final_notes = {step_note(step) for step in plan.steps if step.final}
+        self.final_seen = False
+
+    def __call__(self, message: str) -> None:
+        self.note(message)
+        if not self.run_id or self.final_seen:
+            return
+        if self.store.run_requested_state(self.run_id) == "cancel":
+            self.store.update_run(self.run_id, requested=None)
+            self.store.run_event(self.run_id, CANCEL_REASON)
+            raise AttemptCancelled()
+        if message in self.final_notes:
+            self.final_seen = True
+
+
+def final_click_noted(run: dict | None) -> bool:
+    """True once this task saved the final step's note, which is written right before the click."""
+    from amorehiremepls.apply.browser import Step, step_note
+
+    final = step_note(Step("click", "", final=True))
+    return any(str(event.get("message") or "") == final for event in (run or {}).get("events") or [])
+
+
+def request_cancel(store: Store, app: dict) -> str:
+    """Ask the live task for this application to stop before the final click. Returns `ok`, `missing` or `too_late`.
+
+    Nothing is changed on the application here; the task records the stop itself when it honours the flag."""
+    if app.get("status") not in ("authorized", "executing"):
+        return "missing"
+    live = list(store.c("runs").find({"kind": "application", "params.job_id": app["job_id"], "status": {"$in": list(LIVE_RUN_STATES)}}))
+    if not live:
+        return "missing"
+    if any(final_click_noted(run) for run in live):
+        return "too_late"
+    for run in live:
+        if run.get("requested") != "cancel":
+            store.update_run(run["_id"], requested="cancel")
+            store.run_event(run["_id"], "Cancel requested from the dashboard")
+    store.audit("application_cancel_requested", app["_id"], runs=[run["_id"] for run in live])
+    return "ok"
+
+
+def settle_late_cancel(store: Store, run_id: str | None) -> None:
+    """A cancel flag still set after the attempt finished was too late. Clear it so the task completes and records."""
+    if run_id and store.run_requested_state(run_id) == "cancel":
+        store.update_run(run_id, requested=None)
+        store.run_event(run_id, CANCEL_LATE_NOTE)
+
 
 def _job_resume_file(artifact_dir: Path, job_id: str, raw: str | None) -> Path | None:
     """A tailored file is deletable only when it sits under that job's artifact directory."""

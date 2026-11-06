@@ -511,6 +511,16 @@ GLOSSARY: dict[str, tuple[str, str, str]] = {
         "Clears this unsent attempt, its approval, and the resume files made for it. The job stays, so you can prepare it again. Nothing is sent, and the tracker history is left as it is.",
         "clear unsent application",
     ),
+    "remove_application": (
+        "Remove",
+        "Takes this prepared application off the list, with its approval and the resume files made for it. Nothing is sent, and the job stays, so you can prepare it again. The tracker history is left as it is.",
+        "clear unsent application",
+    ),
+    "cancel_attempt": (
+        "Cancel this attempt",
+        "Stops the app before the final click and closes the page. Nothing is sent, and you can try again later. Once the final click has happened the attempt cannot be stopped; the app checks the result instead.",
+        "cancel live run",
+    ),
     "task": (
         "Background task",
         "Work the app does on its own, one task per application attempt. Still waiting is at the top. "

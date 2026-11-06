@@ -27,7 +27,10 @@ def register(app, rt, require_session, render) -> None:
         apps = list(rt.store.c("applications").find(q).sort("updated_at", -1).limit(200))
         jobs = {j["_id"]: j for j in rt.store.c("jobs").find({"_id": {"$in": [a["job_id"] for a in apps]}}, {"employer": 1, "title": 1, "location": 1})}
         counts = {r["_id"]: r["n"] for r in rt.store.c("applications").aggregate([{"$match": {"provenance.origin": "local"}}, {"$group": {"_id": "$status", "n": {"$sum": 1}}}])}
-        return render(request, "applications.html", session, apps=apps, jobs=jobs, counts=counts, status_filter=status_filter, tab="packages")
+        from amorehiremepls.web.routes.applications import _can_clear
+
+        clearable = {a["_id"] for a in apps if _can_clear(a)}  # Remove is offered only when nothing was sent
+        return render(request, "applications.html", session, apps=apps, jobs=jobs, counts=counts, status_filter=status_filter, clearable=clearable, tab="packages")
 
     @app.get("/documents", response_class=HTMLResponse)
     def documents(request: Request, session: dict = Depends(require_session)):

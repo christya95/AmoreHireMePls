@@ -8,13 +8,13 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from amorehiremepls.apply.applications import ApplicationService, FormField, SalaryResearcher
+from amorehiremepls.apply.applications import CANCEL_REASON, ApplicationService, AttemptCancelled, CancelWatch, FormField, SalaryResearcher, settle_late_cancel
 from amorehiremepls.apply.browser import BrowserAdapter, BrowserConfig, Plan, Step
 from amorehiremepls.apply.network_log import NetworkLog
 from amorehiremepls.apply.tailoring import Tailor
 from amorehiremepls.candidate.candidate_docs import CandidateDocs, load_candidate_docs
 from amorehiremepls.candidate.profile import Profile, ProfileStore
-from amorehiremepls.core.actions import ActionStore
+from amorehiremepls.core.actions import ActionFailed, ActionStore
 from amorehiremepls.core.ai import AIRunner, Budget, Pricing, Provider, build_provider
 from amorehiremepls.core.authorization import AuthorizationStore
 from amorehiremepls.core.config import Settings
@@ -303,10 +303,17 @@ class RealServices:
 
         def run(plan):
             # The hold, when a check appears, keeps this same browser page. It does not start a second submit.
-            # Each step is saved as it happens so the application page can show it.
-            return self.rt.browser.run_plan(plan, site_key=plan.start_url.split("/")[2], captcha_solver=solver, hold=hold, progress=note)
+            # Each step is saved as it happens so the application page can show it; the same hook reads the
+            # dashboard's Cancel before each step and stops the page while nothing has been sent.
+            watch = CancelWatch(self.rt.store, run_id, plan, note)
+            try:
+                return self.rt.browser.run_plan(plan, site_key=plan.start_url.split("/")[2], captcha_solver=solver, hold=hold, progress=watch)
+            except AttemptCancelled:
+                raise ActionFailed(CANCEL_REASON, {"cancelled": True, "final_clicked": False}, retryable=True) from None
 
         out = svc.execute(application_id, worker, run_adapter=run)
+        if out.adapter_ran:
+            settle_late_cancel(self.rt.store, run_id)  # a cancel that arrived after the final click must not stop the recording
         return {"status": out.status, "reason": out.reason, "evidence": out.evidence, "action_id": out.action_id, "adapter_ran": out.adapter_ran}
 
     def record_manual(self, application_id: str, manual: dict) -> dict:

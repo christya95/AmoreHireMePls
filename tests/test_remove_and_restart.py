@@ -222,3 +222,32 @@ def test_start_over_is_one_button_and_clears_the_unsent_attempt(client, store):
     refused = client.post("/applications/app_again/start-over", data={"csrf": csrf})
     assert refused.status_code == 303 and refused.headers["location"].endswith("err=receipt_saved")
     assert store.c("applications").find_one({"_id": "app_again"})["evidence"]["receipt_text"] == "thank you"
+
+
+def test_the_applications_list_offers_remove_only_for_rows_where_nothing_was_sent(client, store):
+    _job(store, "job_row")
+    _app(store, "job_row", _id="app_row")
+    _job(store, "job_kept", status="needs_review")
+    _app(store, "job_kept", _id="app_kept", evidence={"receipt_text": "thank you"})
+    _job(store, "job_sent", status="applied")
+    _app(store, "job_sent", _id="app_sent", status="submitted", evidence={"confirmation": "received"})
+    csrf = _login(client)
+    page = client.get("/applications").text
+    assert page.count("Remove this application") == 1
+    assert '/applications/app_row/remove"' in page
+    assert '/applications/app_kept/remove"' not in page and '/applications/app_sent/remove"' not in page
+    assert "Nothing is sent, and the job stays" in page and "Type remove to confirm" not in page
+    untouched = client.post("/applications/app_row/remove", data={})
+    assert untouched.status_code == 422
+    assert store.c("applications").find_one({"_id": "app_row"})["status"] == "handoff"
+    refused = client.post("/applications/app_kept/remove", data={"csrf": csrf})
+    assert refused.status_code == 303 and refused.headers["location"] == "/applications?err=receipt_saved"
+    assert store.c("applications").find_one({"_id": "app_kept"})["evidence"]["receipt_text"] == "thank you"
+    removed = client.post("/applications/app_row/remove", data={"csrf": csrf})
+    assert removed.status_code == 303 and removed.headers["location"] == "/applications?ok=app_removed"
+    gone = store.c("applications").find_one({"_id": "app_row"})
+    assert gone["provenance"]["origin"] == "removed" and submission_lock_reason(gone) == "already_removed"
+    assert store.c("jobs").find_one({"_id": "job_row"})["status"] == "qualified"
+    after = client.get("/applications?ok=app_removed").text
+    assert "Remove this application" not in after and "This attempt was cleared" in after
+    assert client.post("/applications/app_missing/remove", data={"csrf": csrf}).status_code == 404

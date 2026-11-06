@@ -44,17 +44,27 @@ def _clear_block(app: dict | None) -> str:
     return ""
 
 
-def _clear_application(rt, app_id: str):
-    """Back up and clear an application that was never sent, then return to its job. A receipt is refused."""
+def _clear_application(rt, app_id: str, back_to: str | None = None):
+    """Back up and clear an application that was never sent, then return to its job (or `back_to`). A receipt is refused."""
     from amorehiremepls.apply.applications import ApplicationRefused
 
     try:
         outcome = rt.applications().delete_unsent(app_id, rt.settings.private_dir / "application_backups")
     except ApplicationRefused as exc:
-        return RedirectResponse(f"/applications/{app_id}?err={exc.code}", status_code=303)
+        return RedirectResponse(f"{back_to or '/applications/' + app_id}?err={exc.code}", status_code=303)
     flash = "app_withdrawn" if outcome == "withdrawn" else "app_removed"
     app = rt.store.c("applications").find_one({"_id": app_id})
-    return RedirectResponse(f"/jobs/{app['job_id']}?ok={flash}", status_code=303)
+    return RedirectResponse(f"{back_to or '/jobs/' + app['job_id']}?ok={flash}", status_code=303)
+
+
+def _can_cancel(app: dict, runs: list[dict], filling: bool) -> bool:
+    """Cancel is offered only while a task is filling the form and the final click has not been noted yet."""
+    from amorehiremepls.apply.applications import LIVE_RUN_STATES, final_click_noted
+
+    if not filling or app.get("status") not in ("authorized", "executing"):
+        return False
+    live = [run for run in runs if run.get("status") in LIVE_RUN_STATES]
+    return bool(live) and not any(final_click_noted(run) for run in live)
 
 
 def application_view(rt, a: dict, job: dict, session: dict, runs: list[dict] | None = None) -> dict:
@@ -86,8 +96,9 @@ def application_view(rt, a: dict, job: dict, session: dict, runs: list[dict] | N
     happening = plain_headline(what_to_do_line(a, runs, saved_reason, action, field_hold), show_status)
     can_fill = bool(a.get("status") == "authorized" and answers_differ(a, action) and not filling and not live and RealServices(rt).has_authorization(a))
     can_clear = _can_clear(a)
+    can_cancel = _can_cancel(a, runs, filling)
     show_reason = shown_status_reason(a, action, show_status)
-    need = needed_now(a, show_status, hold, can_fill=can_fill, can_retry=can_retry, can_clear=can_clear, working=filling)
+    need = needed_now(a, show_status, hold, can_fill=can_fill, can_retry=can_retry, can_clear=can_clear, working=filling, can_cancel=can_cancel)
     return dict(
         a=a,
         job=job,
@@ -106,6 +117,7 @@ def application_view(rt, a: dict, job: dict, session: dict, runs: list[dict] | N
         answers_changed=answers_differ(a, action),
         can_fill=can_fill,
         can_clear=can_clear,
+        can_cancel=can_cancel,
         clear_block="" if can_clear else _clear_block(a),
         need=need,
     )
@@ -307,6 +319,29 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         """Clear an unsent attempt and return to the job. The button is the confirmation. Nothing is sent."""
         require_csrf(request, session, csrf)
         return _clear_application(rt, app_id)
+
+    @app.post("/applications/{app_id}/remove")
+    def application_remove(request: Request, app_id: str, session: dict = Depends(require_session), csrf: str = Form(...)):
+        """The same clearing as Start over, from a row of the Applications list. Returns to the list. Nothing is sent."""
+        require_csrf(request, session, csrf)
+        if not rt.store.c("applications").find_one({"_id": app_id}, {"_id": 1}):
+            raise HTTPException(404)
+        return _clear_application(rt, app_id, back_to="/applications")
+
+    @app.post("/applications/{app_id}/cancel")
+    def application_cancel(request: Request, app_id: str, session: dict = Depends(require_session), csrf: str = Form(...)):
+        """Stop the attempt that is filling the form now, before the final click. The task closes the page and records
+        the stop itself; a cancel that arrives after the final click is refused so the receipt wait decides."""
+        require_csrf(request, session, csrf)
+        from amorehiremepls.apply.applications import request_cancel
+
+        a = rt.store.c("applications").find_one({"_id": app_id})
+        if not a:
+            raise HTTPException(404)
+        result = request_cancel(rt.store, a)
+        flash = {"ok": "cancel_requested", "missing": "cancel_missing", "too_late": "cancel_too_late"}[result]
+        code = "ok" if result == "ok" else "err"
+        return RedirectResponse(f"/applications/{app_id}?{code}={flash}", status_code=303)
 
     @app.post("/applications/{app_id}/remove-resumes")
     def application_remove_resumes(request: Request, app_id: str, session: dict = Depends(require_session), csrf: str = Form(...), confirm: str = Form("")):

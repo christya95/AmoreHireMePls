@@ -77,8 +77,9 @@ session. No private values: field names and counts only. Keep under 120 lines; f
 
 ## Queue
 
-1. Done locally, not deployed: one Start over button on the application page and the job page. It clears the unsent
-   attempt, approval, and tailored files, then returns to the job. No typed word. A receipt hides it and says so.
+1. Committed, not yet deployed: Remove in each Prepared applications row (`POST /applications/{id}/remove`, same clearing as
+   Start over) and Cancel this attempt while a form is being filled (`POST /applications/{id}/cancel`; `CancelWatch` in
+   `core/runtime.py` reads the run's `requested=cancel` before each step, honoured only before the final click). Fixture tested only.
 2. Not done: a higher score resume rebuild through the tailored resume skill (never started). Size: M. Needs the owner's go.
 3. Not done: deploy of the local batch (owner has not asked; question 6). Sequence: tests + lint, commit, push `main`,
    `scripts/deploy_nas.sh` via `op run`, then restart the Mac dashboard.
@@ -113,8 +114,7 @@ the Faire answers so years and location use the new code, then let the owner app
 - `docs/PROGRESS.md` (history, deploy tags, next step), `docs/architecture.md` (package map), `docs/ui-copy.md` (copy rules).
 - `apply/applications.py` and `apply/ats/rules.py`: `FIELD_RULES`, `SELF_ID_RULES`, `YEARS_RULE`, `pick_years_bucket`,
   `keep_typed_answers`. `apply/ats/`: Greenhouse, Lever, Ashby adapters; `apply/browser.py` runs their plans.
-- `web/chrome.py` (`needed_now`, headline status), `web/routes/applications.py: application_view`,
-  `web/templates/_macros.html` (`status_block`, `fold`, `tech`, `confirm_action`).
+- `web/chrome.py` (`needed_now`, headline status), `web/routes/applications.py: application_view`, `web/templates/_macros.html` (`status_block`, `fold`, `one_confirm`).
 - `candidate/candidate_profile.py` and `candidate/profile.example.toml`: the customization surface.
 - `scripts/deploy_nas.sh`, `deploy/nas/compose.yaml`, `docs/nas-deployment.md`: deploy variables and sequence.
 - `tests/test_regressions.py`, `tests/test_customization.py`: private token and neutrality guards; `docs/capability-map.md`.
