@@ -276,6 +276,16 @@
     });
   });
 
+  // A proof picture whose file lives on another host shows a quiet placeholder, never a broken image.
+  document.addEventListener("error", function (ev) {
+    var img = ev.target;
+    if (!(img instanceof HTMLImageElement) || !img.closest(".shot-pic")) return;
+    var box = document.createElement("div");
+    box.className = "shot-pic shot-missing";
+    box.textContent = "picture not on this host";
+    img.closest(".shot-pic").replaceWith(box);
+  }, true);
+
   // Double-submit guard for state-changing forms.
   document.querySelectorAll("form[method='post']").forEach(function (form) {
     form.addEventListener("submit", function () {

@@ -63,7 +63,7 @@ def application_view(rt, a: dict, job: dict, session: dict, runs: list[dict] | N
     from amorehiremepls.apply.ats import adapter_for
     from amorehiremepls.core.human_check import active_hold
     from amorehiremepls.core.runtime import RealServices
-    from amorehiremepls.web.chrome import answer_gap_line, needed_now, reason_adds, without_costs
+    from amorehiremepls.web.chrome import answer_gap_line, needed_now, plain_headline, reason_adds, without_costs
 
     app_id = a["_id"]
     action = rt.actions.by_key(f"submit:{a['job_id']}")
@@ -83,7 +83,7 @@ def application_view(rt, a: dict, job: dict, session: dict, runs: list[dict] | N
     field_hold = {"label": hold.get("field_label") or "", "reason": hold.get("field_reason") or ""} if hold and hold.get("purpose") == "field" else None
     filling = form_filling_now(a, runs, action) and not field_hold
     live = any(run.get("status") in ("queued", "claimed", "running", "waiting", "paused") for run in runs)
-    happening = what_to_do_line(a, runs, saved_reason, action, field_hold)
+    happening = plain_headline(what_to_do_line(a, runs, saved_reason, action, field_hold), show_status)
     can_fill = bool(a.get("status") == "authorized" and answers_differ(a, action) and not filling and not live and RealServices(rt).has_authorization(a))
     can_clear = _can_clear(a)
     show_reason = shown_status_reason(a, action, show_status)

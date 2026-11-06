@@ -234,6 +234,14 @@ def test_failure_reasons_become_plain_sentences():
     assert plain_failure(raw) == "The job site did not respond in time. Nothing was sent."
     assert plain_failure("the form did not respond in time at step 6 (Resume/CV); nothing was sent") == "The job site did not respond in time. Nothing was sent."
     assert plain_failure("resume field not found: Resume/CV. Nothing was filled in or sent") == "The form had no place to attach the resume. Nothing was sent."
+    offered = "option 'Lakeside' is not offered; the site offers ['Aland+358', 'Albania+355']"
+    assert plain_failure(offered) == "The job site did not list Lakeside among its choices. Nothing was sent."
+    from amorehiremepls.web.chrome import plain_headline, reason_adds
+
+    headline = plain_headline(f"Applying failed. {offered}", "failed")
+    assert headline == "Applying failed. The job site did not list Lakeside among its choices. Nothing was sent."
+    assert not reason_adds(headline, plain_failure(offered))  # the note below the headline does not repeat it
+    assert plain_headline(f"Applying failed. {offered}", "handoff") == f"Applying failed. {offered}"
     missing = "the form is missing fields the app expected: Phone, Resume/CV. Nothing was filled in or sent"
     assert plain_failure(missing) == "The form did not have: Phone, Resume/CV. Nothing was sent."
     unconfirmed = "could not confirm the resume was attached: 'A_Resume.pdf' is not shown on the form. Nothing was sent"

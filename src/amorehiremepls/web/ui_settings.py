@@ -775,6 +775,7 @@ _FAILURE_PLAIN: list[tuple[re.Pattern, str]] = [
     (re.compile(r"^could not confirm the resume was attached.*", re.I | re.S), "The resume did not show as attached on the form"),
     (re.compile(r"^the form is missing fields the app expected:\s*([^.]+)", re.I), r"The form did not have: \1"),
     (re.compile(r"^the form did not respond in time[^;.]*", re.I), "The job site did not respond in time"),
+    (re.compile(r"^option '?(.+?)'? is not offered;?\s*the site offers\s*\[.*$", re.I | re.S), r"The job site did not list \1 among its choices"),
     (re.compile(r"^timeout before final action.*", re.I | re.S), "The job site did not respond in time"),
     (re.compile(r"^the form reported a problem:\s*\[?([^\]]*)\]?", re.I), r"The job site reported a problem: \1"),
     (re.compile(r"^form validation errors:\s*\[?([^\]]*)\]?", re.I), r"The job site reported a problem: \1"),

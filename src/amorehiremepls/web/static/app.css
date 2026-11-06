@@ -581,10 +581,10 @@ code.path { user-select: all; font-size: 0.78em; }
 
 /* ---------- welcome / page hero ---------- */
 .welcome { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
-.welcome h1 { font-size: 1.5rem; }
-.welcome > div { min-width: 0; }
+.welcome h1 { font-size: 1.5rem; line-height: 1.2; text-wrap: balance; }
+.welcome > div { min-width: 0; flex: 1 1 200px; }  /* the title gives way before the actions drop to a new line */
 .welcome p { color: var(--text-2); margin: 4px 0 0; }
-.welcome .actions { margin-left: auto; }
+.welcome .actions { margin-left: auto; flex: 0 0 auto; justify-content: flex-end; }
 
 /* ---------- banners, popovers ---------- */
 .banner { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-radius: var(--radius-sm); margin-bottom: 18px; font-weight: 500; }
@@ -926,7 +926,7 @@ ul.plain li strong { color: var(--text); }
   .card.flush > .card-h { padding: 14px 16px 0; }
   .card.flush .pad { padding: 0 16px 14px; }
   .kpi .value { font-size: 1.5rem; }
-  .welcome .actions { margin-left: 0; width: 100%; }
+  .welcome .actions { margin-left: 0; width: 100%; justify-content: flex-start; }
   .next-action { grid-template-columns: minmax(0, 1fr); padding: var(--s-4); }
   .next-action .act { align-items: stretch; }
   .next-action .act form { justify-content: stretch; }

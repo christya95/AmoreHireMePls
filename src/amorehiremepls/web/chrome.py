@@ -794,11 +794,22 @@ NOTHING_NEEDED = "Nothing is needed from you right now."
 _RESUME_MISSING = {"base_resume", "approved base resume not selected"}
 
 
+_FAILED_HEAD = f"{_HISTORY_LINE['failed']}. "
+
+
+def plain_headline(happening: str, show_status: str) -> str:
+    """The bold line of a failed attempt reads as one plain sentence; the raw reason stays in the timeline and the details."""
+    line = str(happening or "")
+    if show_status != "failed" or not line.startswith(_FAILED_HEAD):
+        return line
+    return f"{_FAILED_HEAD}{plain_failure(line[len(_FAILED_HEAD) :])}"
+
+
 def reason_adds(happening: str, reason: str, app: dict | None = None, action: dict | None = None) -> bool:
     """True when the saved reason says something the status line does not already say."""
     text = " ".join(str(reason or "").split())
     line = " ".join(str(happening or "").split())
-    if not text or text == line or text == REPLAY_LABEL:
+    if not text or text == line or text in line or text == REPLAY_LABEL:
         return False
     if _stall_sentence(text, app, action) == line:
         return False
