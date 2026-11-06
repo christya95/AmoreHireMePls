@@ -81,6 +81,7 @@ _ROW_JS = (
     "els => els.map(el => {"
     " const style = window.getComputedStyle(el);"
     " if (el.hidden || style.display === 'none' || style.visibility === 'hidden') return '';"
+    " if (el.hasAttribute('data-dial-code')) return '';"  # a phone field's country code list is not a place list
     " return (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();"
     " })"
 )
@@ -101,6 +102,8 @@ _MENU_ROWS_JS = """() => {
   const labels = [];
   for (const el of document.querySelectorAll('.select__option, [role="option"], .pac-item')) {
     if (!visible(el)) continue;
+    // a phone field's country code list is not a place list
+    if (el.hasAttribute('data-dial-code') || el.closest('[class*="country-list"], .iti')) continue;
     const text = (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();
     if (text && !labels.includes(text)) labels.push(text);
   }
@@ -109,6 +112,7 @@ _MENU_ROWS_JS = """() => {
 _MENU_CLICK_JS = """(label) => {
   const want = (label || '').replace(/\\s+/g, ' ').trim();
   for (const el of document.querySelectorAll('.select__option, [role="option"], .pac-item')) {
+    if (el.hasAttribute('data-dial-code')) continue;
     const text = (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();
     if (text !== want) continue;
     el.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));

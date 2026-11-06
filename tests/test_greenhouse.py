@@ -103,6 +103,7 @@ def test_build_plan_targets_both_layouts_and_ties_the_receipt_to_the_job_id():
     assert plan.steps[-1].final and "#submit_app" in plan.steps[-1].selector and "#application-form button[type=submit]" in plan.steps[-1].selector
     assert plan.receipt_url_pattern == "/confirmation" and plan.receipt_url_must_include == ["123456"] and plan.frame_selector is None
     assert "job-boards.cdn.greenhouse.io" in plan.resource_hosts and "www.recaptcha.net" in plan.resource_hosts and plan.site == "Greenhouse"
+    assert "api-geocode-earth-proxy.greenhouse.io" in plan.resource_hosts  # the place list is fetched from here; blocked, no list appears
     assert len([s for s in plan.steps if s.type == "fill"]) == 1  # blank answers produce no steps
     embedded = GreenhouseAdapter().build_plan({**job, "posting_url": pkg["apply_url"]}, {**pkg, "apply_url": "https://careers.acme.example/jobs/1"}, answers)
     assert embedded.frame_selector == "#grnhse_iframe" and embedded.receipt_url_must_include == ["123456"]

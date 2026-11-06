@@ -60,6 +60,8 @@ RESOURCE_HOSTS = [
     "c.spl.greenhouse.io",
     "my.greenhouse.io",
     "boards-api.greenhouse.io",
+    "api-geocode-earth-proxy.greenhouse.io",  # the Location (City) suggestion list; blocked, no place list ever appears
+    "email-address-validator.us.greenhouse.io",  # the email field's check (XHR from the page)
     "grnhse-*.s3.amazonaws.com",  # resume / cover letter upload bucket (POST from the page, never a navigation)
     "grnhse-*.s3.*.amazonaws.com",
     "www.recaptcha.net",
