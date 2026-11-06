@@ -18,7 +18,7 @@ from typing import Any
 from bson import json_util
 
 from amorehiremepls.apply.ats.rules import SENSITIVE_BLANK_REASON, YEARS_RULE
-from amorehiremepls.apply.browser import Plan, normalize_screenshots
+from amorehiremepls.apply.browser import Plan, apply_location_fallbacks, normalize_screenshots
 from amorehiremepls.apply.tailoring import Tailor, page_limit_block_reason
 from amorehiremepls.candidate.profile import BandEvidence, Fact, Profile, compute_experience, desired_salary
 from amorehiremepls.core.actions import ActionHandoff, ActionStore, Outcome
@@ -403,6 +403,17 @@ class Answer:
 
     def as_dict(self) -> dict:
         return self.__dict__.copy()
+
+
+def location_choice_line(saved: str, typed: str, chosen: str) -> str | None:
+    """A plain update when the form had to use a later place. The saved place itself stays quiet."""
+    typed_clean = (typed or "").strip()
+    if not typed_clean or typed_clean.casefold() == (saved or "").strip().casefold():
+        return None
+    place = (chosen or typed_clean).strip()
+    if not place:
+        return None
+    return f"The location list did not offer the saved place, so the form used {place}."
 
 
 def _pick_option(options: list[str], want_yes: bool) -> str | None:
@@ -1010,6 +1021,7 @@ class ApplicationService:
             plan = builder(job, pkg, pkg["answers"])
             if not plan.job_id:
                 plan.job_id = job["_id"]  # screenshots are named after and stored with the job's artifacts
+            apply_location_fallbacks(plan, self.profile.preferences.location_fallbacks)
             return run_adapter(plan)
 
         try:
@@ -1027,10 +1039,26 @@ class ApplicationService:
             kind = "human_check" if exc.evidence.get("challenge") else "handoff"
             self._set(app_id, "handoff", reason=str(exc), next_action=nxt, evidence=ev, handoff_kind="human_check" if kind == "human_check" else "login")
             self.store.audit("application_handoff", app_id, host=host, challenge=exc.evidence.get("challenge"), captcha_attempts=len(exc.evidence.get("captcha_attempts") or []))
+            self._note_location_choice(app, ev)
             self._notify(self.apps.find_one({"_id": app_id}), kind)
             return Outcome("handoff", str(exc), ev, action["_id"])
+        self._note_location_choice(app, outcome.evidence)
         self._apply_outcome(app, job, outcome, worker)
         return outcome
+
+    def _saved_location(self, app: dict) -> str:
+        for answer in (app.get("review_package") or {}).get("answers") or []:
+            label = str(answer.get("label") or "")
+            if answer.get("field_id") == "location" or re.match(r"location\b", label, re.I):
+                return str(answer.get("value") or "").strip()
+        return ""
+
+    def _note_location_choice(self, app: dict, evidence: Any) -> None:
+        if not isinstance(evidence, dict):
+            return
+        line = location_choice_line(self._saved_location(app), str(evidence.get("location_typed") or ""), str(evidence.get("location_chosen") or ""))
+        if line:
+            self.apps.update_one({"_id": app["_id"]}, {"$push": {"history": {"at": utcnow(), "text": line}}})
 
     def _apply_outcome(self, app: dict, job: dict, outcome: Outcome, worker: str) -> None:
         app_id = app["_id"]

@@ -154,6 +154,8 @@ class Preferences(BaseModel):
     # Title phrases that stay allowed even when an excluded family word appears in the same title.
     excluded_role_family_exceptions: list[str] = Field(default_factory=list)
     locations: list[str] = Field(default_factory=list)  # place words that make a posting's location acceptable
+    # Tried, in order, when a form's location list does not offer the saved city (with its region, then the city alone).
+    location_fallbacks: list[str] = Field(default_factory=list)
     remote_eligible_terms: list[str] = Field(default_factory=list)  # posting words that make a remote role acceptable
     region_label: str = ""  # how the acceptable region is named in review reasons, e.g. "the UK" or "Greater Vancouver"
     remote_rule: str = ""  # free text shown on the profile page, e.g. "remote must be open to residents of my province"

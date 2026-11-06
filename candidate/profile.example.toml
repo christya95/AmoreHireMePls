@@ -107,6 +107,8 @@ excluded_role_families = ["sdr", "bdr", "inside sales", "retail", "call centre",
 excluded_role_family_exceptions = ["strategic account director"]
 # Places you will work from. Blank list = anywhere. Remote jobs are accepted when they name one of the remote terms.
 locations = ["London", "Manchester", "Reading", "United Kingdom", "UK"]
+# When a form's location list has no "City, Region" and no city alone, these are tried in order.
+location_fallbacks = ["Manchester", "Reading"]
 remote_eligible_terms = ["uk", "united kingdom", "uk based", "uk residents"]
 region_label = "the UK"                          # how the app names your area in review notes
 remote_rule = "Remote roles must be open to UK residents."   # shown on the Profile page as a reminder to you

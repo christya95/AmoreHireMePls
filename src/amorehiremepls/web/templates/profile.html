@@ -74,6 +74,7 @@
     </div>
     <div class="form-grid">
       <div class="field"><label>Places you want</label><input name="locations" value="{{ p.preferences.locations|join(', ') }}" placeholder="cities, regions, countries"><span class="hint">Blank means any location. {{ p.preferences.remote_rule }}</span></div>
+      <div class="field"><label>If your city is not offered, try these places</label><input name="location_fallbacks" value="{{ p.preferences.location_fallbacks|join(', ') }}" placeholder="another city, then another"><span class="hint">A location list is tried as your city and region, then your city alone, then these places in order.</span></div>
       <div class="field"><label>Remote jobs must say they are open to</label><input name="remote_eligible_terms" value="{{ p.preferences.remote_eligible_terms|join(', ') }}" placeholder="e.g. your province or country"></div>
       <div class="field"><label>How to name your area in messages</label><input name="region_label" value="{{ p.preferences.region_label }}" placeholder="e.g. the UK"></div>
     </div>

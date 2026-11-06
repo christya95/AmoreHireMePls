@@ -181,7 +181,7 @@ A failed attempt keeps its technical reason in the evidence; the page shows one 
 | Last load: facts N, answers N, jobs N, education N, skills N; sections … | `ImportReport` (counts only, never values) | note under the pill |
 | Your profession | `candidate.profession` | rules form; fed to the AI as `candidate_profession` |
 | Kinds of role you want / Kinds of role you do not want / Exceptions to that | `role_families` / `excluded_role_families` / `excluded_role_family_exceptions` | rules form |
-| Places you want / Remote jobs must say they are open to / How to name your area in messages | `locations` / `remote_eligible_terms` / `region_label` | rules form |
+| Places you want / If your city is not offered, try these places / Remote jobs must say they are open to / How to name your area in messages | `locations` / `location_fallbacks` / `remote_eligible_terms` / `region_label` | rules form |
 | Currency / Lowest base salary you accept / Salary you aim for | `compensation.currency` / `floor_base` / `target_base` | rules form |
 | Extra phrases that mean a very small company in your field | `startup_signals_extra` | rules form |
 | Roles to ask about / One line about what you do | `outreach_rules.role_phrase` / `one_liner` | rules form; used by `template_connect_note` and `draft_outreach` |

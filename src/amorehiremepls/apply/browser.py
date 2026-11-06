@@ -142,6 +142,59 @@ def normalize_screenshots(raw: Any) -> list[dict[str, Any]]:
     return out
 
 
+def location_queries(value: str, fallbacks: list[str] | None = None) -> list[str]:
+    """Places to type into a location box, in order.
+
+    The saved value comes first. When it names a city and a region, the city alone is next. Each saved
+    alternate place follows. Blank and repeated queries are dropped.
+    """
+    queries: list[str] = []
+    seen: set[str] = set()
+
+    def add(text: str) -> None:
+        cleaned = " ".join((text or "").split())
+        key = cleaned.casefold()
+        if cleaned and key not in seen:
+            seen.add(key)
+            queries.append(cleaned)
+
+    add(value)
+    head = (value or "").split(",", 1)[0]
+    if head.strip().casefold() != (value or "").strip().casefold():
+        add(head)
+    for item in fallbacks or []:
+        add(item)
+    return queries
+
+
+def suggestion_rank(query: str, suggestion: str) -> int | None:
+    """How well a suggestion matches a typed place. None means it does not. Higher is a closer match.
+
+    A two letter word in the suggestion counts as a region when the typed region starts with those letters,
+    so a short region code still matches the saved region name.
+    """
+    want = " ".join(query.casefold().split())
+    got = " ".join(suggestion.casefold().split())
+    if not want or not got:
+        return None
+    if got == want:
+        return 3
+    if want in got:
+        return 2
+    parts = [p.strip() for p in want.split(",") if p.strip()]
+    if len(parts) < 2:
+        return 1 if want in got else None
+    words = re.findall(r"[a-z0-9]+", got)
+
+    def part_ok(part: str) -> bool:
+        if part in got:
+            return True
+        head = part.split()[0]
+        return len(head) >= 4 and any(len(word) == 2 and head.startswith(word) for word in words)
+
+    return 1 if all(part_ok(part) for part in parts) else None
+
+
 def _label_from_path(path: str) -> str:
     stem = Path(path).stem
     for label in sorted(SCREENSHOT_LABELS, key=len, reverse=True):
@@ -167,6 +220,7 @@ class Step:
     option_selectors: list[str] = field(default_factory=list)  # choose/choose_multi: per-option radio/checkbox selectors (same order as options)
     optional: bool = False  # skip silently when the control does not exist on this layout
     sensitive: bool = False  # self-identification answer: error messages and evidence never quote the value
+    fallbacks: list[str] = field(default_factory=list)  # autocomplete: further queries when the value is not offered
 
 
 @dataclass
@@ -183,6 +237,14 @@ class Plan:
     frame_selector: str | None = None  # run the steps inside this iframe when it exists (embedded boards)
     resource_hosts: list[str] = field(default_factory=list)  # extra hosts for scripts/styles/frames (never navigation)
     site: str = ""  # plain site name for messages ("Greenhouse")
+
+
+def apply_location_fallbacks(plan: Plan, fallbacks: list[str]) -> None:
+    """Attach alternate places to location suggestion steps. The approved answer stays the first query."""
+    extras = [item.strip() for item in fallbacks if item and item.strip()]
+    for step in plan.steps:
+        if step.type == "autocomplete" and (step.label or "").strip().casefold() == "location":
+            step.fallbacks = extras
 
 
 @dataclass
@@ -606,7 +668,7 @@ class BrowserAdapter:
         elif step.type == "choose_multi":
             self._choose_multi(scope, step)
         elif step.type == "autocomplete":
-            self._autocomplete(scope, step)
+            self._autocomplete(scope, step, evidence)
         else:
             raise ActionFailed(f"unknown step type {step.type}")
 
@@ -679,15 +741,68 @@ class BrowserAdapter:
                 box = self._in_group(scope, step.label, opt) or scope.get_by_label(opt, exact=True).first
                 box.check(timeout=step.timeout_ms)
 
-    def _autocomplete(self, scope: _Scope, step: Step) -> None:
-        """Type into a suggestion box and pick the first suggestion that contains the typed value (city, country)."""
+    def _autocomplete(self, scope: _Scope, step: Step, evidence: dict | None = None) -> None:
+        """Type into a suggestion box and pick a suggestion for the value, then each later place."""
         loc = self._require(scope, step)
         if loc is None:
             return
+        queries = location_queries(step.value, step.fallbacks)
         if self._kind(loc) == "select":
-            loc.select_option(label=step.value, timeout=step.timeout_ms)
+            last: Exception | None = None
+            for query in queries:
+                try:
+                    loc.select_option(label=query, timeout=step.timeout_ms)
+                except Exception as exc:
+                    last = exc
+                    continue
+                self._note_place(evidence, step, query, query)
+                return
+            shown = "the chosen personal answer" if step.sensitive else f"'{step.value}'"
+            raise ActionFailed(f"option {shown} is not offered by the site", {} if step.sensitive else {"value": step.value}) from last
+        offered: list[str] = []
+        for query in queries:
+            try:
+                chosen = self._type_and_pick(scope, loc, query, step.timeout_ms, step.sensitive)
+            except ActionFailed as exc:
+                offered = list(exc.evidence.get("offered") or offered)
+                continue
+            self._note_place(evidence, step, query, chosen)
             return
-        self._pick_option(scope, loc, step.value, step.timeout_ms, exact=False)
+        shown = "the chosen personal answer" if step.sensitive else f"'{step.value}'"
+        detail = {} if step.sensitive else {"value": step.value, "offered": offered[:20]}
+        if step.sensitive:
+            raise ActionFailed(f"option {shown} is not offered by the site", {"offered": offered[:20]})
+        raise ActionFailed(f"option {shown} is not offered; the site offers {offered[:8]}", detail)
+
+    def _note_place(self, evidence: dict | None, step: Step, query: str, chosen: str) -> None:
+        if evidence is None or (step.label or "").strip().casefold() != "location" or step.sensitive:
+            return
+        evidence["location_typed"] = query
+        evidence["location_chosen"] = chosen
+
+    def _type_and_pick(self, scope: _Scope, loc, query: str, timeout_ms: int, sensitive: bool) -> str:
+        shown = "the chosen personal answer" if sensitive else f"'{query}'"
+        loc.click(timeout=timeout_ms)
+        loc.fill("", timeout=timeout_ms)
+        loc.fill(query, timeout=timeout_ms)
+        options = scope.locator('[role="option"]:visible, .select__option:visible')
+        try:
+            options.first.wait_for(state="visible", timeout=min(timeout_ms, 5000))
+        except Exception as exc:
+            raise ActionFailed(f"no suggestions appeared for {shown}", {} if sensitive else {"value": query, "offered": []}) from exc
+        texts = [t.strip() for t in options.all_inner_texts()]
+        best_at: int | None = None
+        best_rank = 0
+        for index, text in enumerate(texts):
+            rank = suggestion_rank(query, text)
+            if rank is not None and (best_at is None or rank > best_rank):
+                best_at, best_rank = index, rank
+        if best_at is None:
+            if sensitive:
+                raise ActionFailed(f"option {shown} is not offered by the site", {"offered": texts[:20]})
+            raise ActionFailed(f"option '{query}' is not offered; the site offers {texts[:8]}", {"value": query, "offered": texts[:20]})
+        options.nth(best_at).click(timeout=timeout_ms)
+        return texts[best_at]
 
     def _pick_option(self, scope: _Scope, loc, value: str, timeout_ms: int, exact: bool, sensitive: bool = False) -> None:
         shown = "the chosen personal answer" if sensitive else f"'{value}'"  # a self-identification value never lands in evidence

@@ -85,6 +85,7 @@ def register(app, rt, require_session, require_csrf, safe_next, render) -> None:
         excluded_role_families: str = Form(""),
         excluded_role_family_exceptions: str = Form(""),
         locations: str = Form(""),
+        location_fallbacks: str = Form(""),
         remote_eligible_terms: str = Form(""),
         region_label: str = Form(""),
         employment_types: str = Form("permanent"),
@@ -115,6 +116,7 @@ def register(app, rt, require_session, require_csrf, safe_next, render) -> None:
         p.preferences.excluded_role_families = [x.lower() for x in split(excluded_role_families)]
         p.preferences.excluded_role_family_exceptions = [x.lower() for x in split(excluded_role_family_exceptions)]
         p.preferences.locations = split(locations)
+        p.preferences.location_fallbacks = split(location_fallbacks)
         p.preferences.remote_eligible_terms = [x.lower() for x in split(remote_eligible_terms)]
         p.preferences.region_label = region_label.strip()
         p.preferences.employment_types = split(employment_types)
