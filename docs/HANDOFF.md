@@ -5,10 +5,10 @@ session. No private values: field names and counts only. Keep under 120 lines; f
 
 ## State now
 
-- Deployed: NAS Portainer stack `amorehiremepls`, image `lepia/amorehiremepls:329d1c022adf` (commit `329d1c0`). NAS web and
-  worker healthy, `/health` 200, tracker on. Local dashboard restarted 12:46 onto this uncommitted tree (pid 73119,
-  `127.0.0.1:8790`, `/health` 200). The white application page was the 10:46 process: the new template asks for `need`,
-  and that process never passed it, so Jinja returned an empty error page.
+- Deployed 13:40: NAS stack `amorehiremepls`, image `lepia/amorehiremepls:c3d1ec06f44d` (commit `c3d1ec0`, the whole
+  local batch plus the location fix: a click blocked by the open place list reads that list and chooses the matching
+  city row). Web and worker healthy, `/health` 200. Local dashboard pid 73119 runs the same code. Faire location failed 4
+  times before this deploy (old worker); the 18:32 attempt also typed "Yes" into Location from a dashboard field answer.
 - Saved locally, uncommitted, not deployed (each verified in `git diff`; full suite 413 passed, ruff clean per the last agent):
   - A failed attempt shows Failed in red (`chrome.py` headline); approval is no longer the headline after a failure.
   - A value the person types on the application wins for every field; profile facts fill only untouched fields; typed values
