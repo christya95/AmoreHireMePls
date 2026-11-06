@@ -50,8 +50,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from amorehiremepls.apply.network_log import sensitive_values, watch_network
 from amorehiremepls.core.actions import ActionFailed, ActionHandoff, AmbiguousOutcome
-from amorehiremepls.core.util import sha256_file, utcnow
+from amorehiremepls.core.util import redact_free, sha256_file, utcnow
 
 log = logging.getLogger(__name__)
 
@@ -239,6 +240,29 @@ class Plan:
     site: str = ""  # plain site name for messages ("Greenhouse")
 
 
+def _note_text(message: str) -> str:
+    """One saved step line. Drops the browser call log and anything the existing secret filter covers."""
+    text = " ".join((message or "").split())
+    cut = text.lower().find("call log:")
+    if cut >= 0:
+        text = text[:cut].strip()
+    return redact_free(text)[:300]
+
+
+def _timeout_text(exc: BaseException) -> str:
+    return _note_text(str(exc))[:180]
+
+
+def timeout_failure_note(plan: Plan, evidence: dict | None) -> str:
+    """Why a step stopped waiting. Names the field. Does not include the typed value."""
+    step_no = int((evidence or {}).get("steps_done") or 0) + 1
+    steps = plan.steps if plan is not None else []
+    step = steps[step_no - 1] if 0 < step_no <= len(steps) else None
+    label = ((step.label or step.type) if step else "").strip()
+    what = f" at step {step_no} ({label})" if label else ""
+    return f"the form did not respond in time{what}; nothing was sent"
+
+
 def step_note(step: Step) -> str:
     """One line for What to do now, taken from the step itself. A personal answer is never included."""
     name = (step.label or "").strip()
@@ -257,22 +281,48 @@ def step_note(step: Step) -> str:
     return step.type or "Working"
 
 
-def location_attempt_note(label: str, query: str, chosen: str | None = None, missed: bool = False) -> str:
+def _option_list(options: list[str] | None, limit: int = 4) -> str:
+    """The first few choices a list actually showed, for a difficulty line."""
+    cleaned: list[str] = []
+    for item in options or []:
+        text = " ".join(str(item).split())[:40]
+        if text and text not in cleaned:
+            cleaned.append(text)
+        if len(cleaned) >= limit:
+            break
+    if not cleaned:
+        return ""
+    if len(cleaned) == 1:
+        return cleaned[0]
+    return ", ".join(cleaned[:-1]) + ", and " + cleaned[-1]
+
+
+def location_attempt_note(label: str, query: str, chosen: str | None = None, missed: bool = False, offered: list[str] | None = None) -> str:
     """What the location box just did, using the place that was typed."""
     name = (label or "").strip() or "Location"
     if chosen:
         return f"{name}: chose {chosen}"
     if missed:
-        return f"{name}: no places appeared for {query}"
+        options = _option_list(offered)
+        if options:
+            return f"{name}: a list appeared for {query} but none matched. The site showed {options}"
+        return f"{name}: no list appeared for {query}"
     return f"{name}: typing {query}"
 
 
-def location_failure_reason(queries: list[str]) -> str:
-    """Plain reason when none of the typed places produced a suggestion."""
+def location_failure_reason(queries: list[str], offered: list[str] | None = None) -> str:
+    """Places that were typed, and whether any list appeared. Unmatched choices are named when a list did."""
     places = ", then ".join(query for query in queries if query)
+    options = _option_list(offered)
     if not places:
-        return "The location box did not show a place"
-    return f"The location box did not show a place for {places}"
+        return "The location box did not show a place. No list appeared." if not options else f"The location box showed {options}, and none matched."
+    if options:
+        return f"The location box typed {places}. A list appeared but none matched. The site showed {options}."
+    return f"The location box typed {places}. No list appeared."
+
+
+ANSWERABLE_FIELDS = {"fill", "select", "choose", "choose_multi", "autocomplete"}
+PAGE_NOT_CONTINUED = "The page could not stay open while waiting for an answer. A new visit starts from the beginning and does not continue this form. Nothing was sent."
 
 
 def apply_location_fallbacks(plan: Plan, fallbacks: list[str]) -> None:
@@ -341,9 +391,11 @@ class _Scope:
 
 
 class BrowserAdapter:
-    def __init__(self, config: BrowserConfig, captcha_solver: Any | None = None) -> None:
+    def __init__(self, config: BrowserConfig, captcha_solver: Any | None = None, network: Any | None = None) -> None:
         self.config = config
         self.captcha_solver = captcha_solver  # opt-in; only ever used from the application-submit path
+        self.network = network  # per-job request log; each row is saved as Chromium sees it
+        self._progress = None
 
     def _shot_target(self, plan: Plan | None = None) -> _ShotTarget:
         job_id = plan.job_id if plan else None
@@ -400,6 +452,9 @@ class BrowserAdapter:
             if state and state.exists():
                 ctx_kwargs["storage_state"] = str(state)
             context = browser.new_context(**ctx_kwargs)
+            # Record every request from this moment, before the first page load and before any form step.
+            if self.network is not None and plan.job_id:
+                watch_network(context, self.network, plan.job_id, sensitive_values(plan))
             context.set_default_timeout(self.config.default_timeout_ms)
             allowed = self.config.allowed_hosts
             resources = {h.lower() for h in [*self.config.resource_hosts, *plan.resource_hosts]}
@@ -471,14 +526,15 @@ class BrowserAdapter:
                 raise
             except PWTimeout as exc:
                 if evidence.get("final_clicked"):
+                    short = _timeout_text(exc)
+                    self._say(f"timeout after the form was sent: {short}" if short else "timeout after the form was sent")
                     self._snapshot(page, evidence, "ambiguous", shots)
                     raise AmbiguousOutcome(f"timeout after final action: {exc}", evidence) from exc
+                evidence["error"] = _timeout_text(exc)[:400]
+                reason = timeout_failure_note(plan, evidence)
+                self._say(reason)
                 self._snapshot(page, evidence, "failed", shots)
-                evidence["error"] = str(exc)[:400]
-                step_no = int(evidence.get("steps_done") or 0) + 1
-                step = plan.steps[step_no - 1] if 0 < step_no <= len(plan.steps) else None
-                what = f" at step {step_no} ({step.label or step.type})" if step else ""
-                raise ActionFailed(f"the form did not respond in time{what}; nothing was sent", evidence, retryable=True) from exc
+                raise ActionFailed(reason, evidence, retryable=True) from exc
             finally:
                 context.close()
                 browser.close()
@@ -487,18 +543,22 @@ class BrowserAdapter:
     def _say(self, message: str) -> None:
         """Record one real step so the application page can show it. A note that fails does not stop the form."""
         note = getattr(self, "_progress", None)
-        text = " ".join((message or "").split())
+        text = _note_text(message)
         if not note or not text:
             return
         try:
-            note(text[:300])
+            note(text)
         except Exception:
             log.exception("could not record the current step")
 
     def _run_steps(self, scope: _Scope, plan: Plan, evidence: dict, shots: _ShotTarget, solver: Any | None, hold: Any | None) -> None:
+        from playwright.sync_api import TimeoutError as PWTimeout
+
         page = scope.page
         self._preflight(scope, plan, evidence, shots)
         for i, step in enumerate(plan.steps):
+            if evidence.get("user_finished"):
+                return
             if step.final:
                 # the filled-in review state exactly as it looked before the irreversible click
                 self._snapshot(page, evidence, "summary", shots)
@@ -506,12 +566,97 @@ class BrowserAdapter:
                 evidence["final_url_before"] = page.url
             if step.type != "autocomplete":
                 self._say(step_note(step))
-            self._do_step(scope, step, plan, evidence)
+            try:
+                self._do_step(scope, step, plan, evidence)
+            except (ActionFailed, PWTimeout) as exc:
+                if not self._should_ask(step, evidence, hold):
+                    raise
+                reason = self._difficulty_line(plan, evidence, step, exc)
+                answer = self._ask_for_answer(scope, plan, step, evidence, hold, reason)
+                if evidence.get("user_finished"):
+                    return
+                if not answer:
+                    self._say(PAGE_NOT_CONTINUED)
+                    raise ActionFailed(PAGE_NOT_CONTINUED, evidence, retryable=False) from exc
+                self._type_supplied(scope, step, answer, evidence)
             evidence["steps_done"] = i + 1
             if step.type in ("click",) and not step.final:
                 self._detect_login(page, evidence, shots)
                 self._detect_validation_errors(scope, evidence, shots)
         self._await_receipt(scope, plan, evidence, shots, solver, hold)
+
+    def _should_ask(self, step: Step, evidence: dict, hold: Any | None) -> bool:
+        """A required field that did not complete can wait for one dashboard answer. Optional fields are unchanged."""
+        if hold is None or step.optional or step.final or evidence.get("final_clicked"):
+            return False
+        return step.type in ANSWERABLE_FIELDS
+
+    def _difficulty_line(self, plan: Plan, evidence: dict, step: Step, exc: BaseException) -> str:
+        """Why this field stopped. A sensitive value is never included."""
+        if step.sensitive:
+            name = (step.label or "This field").strip()
+            return f"{name} needs an answer."
+        if isinstance(exc, ActionFailed):
+            saved = str((exc.evidence or {}).get("difficulty") or "").strip()
+            if saved:
+                return saved
+            text = _note_text(str(exc))
+            if text:
+                return text
+        return timeout_failure_note(plan, evidence)
+
+    def _ask_for_answer(self, scope: _Scope, plan: Plan, step: Step, evidence: dict, hold: Any, reason: str) -> str:
+        """Keep this same page open until the dashboard sends one answer. Does not navigate or open another browser."""
+        self._say(reason)
+        label = (step.label or "This field").strip()
+        field = {"purpose": "field", "field_label": label, "field_reason": reason, "sensitive": bool(step.sensitive)}
+        outcome = self._hold_page(scope, plan, hold, evidence.get("cdp_port"), field=field)
+        if outcome == "receipt":
+            evidence["user_finished"] = True
+            hold.finish("continued")
+            return ""
+        if outcome != "continue":
+            hold.finish("timeout")
+            return ""
+        hold.finish("continued")
+        reader = getattr(hold, "supplied_answer", None)
+        text = " ".join(str(reader() or "").split()) if reader else ""
+        return text[:200]
+
+    def _type_supplied(self, scope: _Scope, step: Step, answer: str, evidence: dict) -> None:
+        """Type the dashboard answer into the same control and continue. A sensitive value is not recorded."""
+        label = (step.label or "This field").strip()
+        if step.sensitive:
+            self._say(f"Answer received for {label}")
+        else:
+            self._say(f"{label}: typing {answer}")
+        loc = self._require(scope, step)
+        if loc is None:
+            raise ActionFailed(f"{label} is not on the page, so the answer could not be typed. Nothing was sent", retryable=False)
+        if step.type == "autocomplete":
+            if self._kind(loc) == "select":
+                loc.select_option(label=answer, timeout=step.timeout_ms)
+                chosen = answer
+            else:
+                chosen = self._type_and_pick(scope, loc, answer, step.timeout_ms, step.sensitive)
+            self._note_place(evidence, step, "" if step.sensitive else answer, "" if step.sensitive else chosen)
+            if not step.sensitive:
+                self._say(location_attempt_note(label, answer, chosen=chosen))
+            return
+        if step.type == "fill":
+            loc.fill(answer, timeout=step.timeout_ms)
+            return
+        if step.type == "select":
+            loc.select_option(label=answer, timeout=step.timeout_ms)
+            return
+        if step.type == "choose":
+            self._pick_option(scope, loc, answer, step.timeout_ms, exact=False, sensitive=step.sensitive)
+            return
+        if step.type == "choose_multi":
+            box = self._in_group(scope, step.label, answer) or scope.get_by_label(answer, exact=True).first
+            box.check(timeout=step.timeout_ms)
+            return
+        raise ActionFailed(f"{label} could not take the answer. Nothing was sent", retryable=False)
 
     # -- form check before anything is typed ------------------------------------------------------------
     def _preflight(self, scope: _Scope, plan: Plan, evidence: dict, shots: _ShotTarget) -> None:
@@ -615,15 +760,16 @@ class BrowserAdapter:
             return True
         return any(p.search(scope.body_text()) for p in patterns)
 
-    def _hold_page(self, scope: _Scope, plan: Plan, hold: Any, cdp_port: int | None) -> str:
-        """Keep the page open until Continue, a confirmation, or the hold deadline. Does not click."""
+    def _hold_page(self, scope: _Scope, plan: Plan, hold: Any, cdp_port: int | None, field: dict | None = None) -> str:
+        """Keep this same page open until Continue, a confirmation, or the hold deadline. Does not navigate or click."""
         from amorehiremepls.core.human_check import run_hold
 
+        extra = field or {}
         return run_hold(
             minutes=hold.minutes,
             poll_seconds=hold.poll_seconds,
             sleep=lambda seconds: scope.page.wait_for_timeout(int(seconds * 1000)),
-            heartbeat=lambda: hold.heartbeat({"cdp_port": cdp_port}),
+            heartbeat=lambda: hold.heartbeat({"cdp_port": cdp_port, **extra}),
             continue_requested=hold.continue_requested,
             receipt_visible=lambda: self._receipt_ready(scope, plan),
         )
@@ -806,6 +952,7 @@ class BrowserAdapter:
         if loc is None:
             return
         queries = location_queries(step.value, step.fallbacks)
+        shown: list[str] = []
         if self._kind(loc) == "select":
             last: Exception | None = None
             for query in queries:
@@ -815,36 +962,53 @@ class BrowserAdapter:
                     loc.select_option(label=query, timeout=step.timeout_ms)
                 except Exception as exc:
                     last = exc
+                    got = [] if step.sensitive else self._choice_texts(loc)
+                    self._remember_choices(shown, got)
                     if not step.sensitive:
-                        self._say(location_attempt_note(step.label, query, missed=True))
+                        self._say(location_attempt_note(step.label, query, missed=True, offered=got))
                     continue
                 self._note_place(evidence, step, query, query)
                 if not step.sensitive:
                     self._say(location_attempt_note(step.label, query, chosen=query))
                 return
-            if step.sensitive:
-                raise ActionFailed("option the chosen personal answer is not offered by the site", {}) from last
-            raise ActionFailed(location_failure_reason(queries), {"value": step.value, "tried": queries}, retryable=True) from last
-        offered: list[str] = []
+            self._fail_autocomplete(step, queries, shown, last)
         for query in queries:
             if not step.sensitive:
                 self._say(location_attempt_note(step.label, query))
             try:
                 chosen = self._type_and_pick(scope, loc, query, step.timeout_ms, step.sensitive)
             except ActionFailed as exc:
-                offered = list(exc.evidence.get("offered") or offered)
+                got = [] if step.sensitive else [str(item).strip() for item in (exc.evidence.get("offered") or []) if str(item).strip()]
+                self._remember_choices(shown, got)
                 if not step.sensitive:
-                    self._say(location_attempt_note(step.label, query, missed=True))
+                    self._say(location_attempt_note(step.label, query, missed=True, offered=got))
                 continue
             self._note_place(evidence, step, query, chosen)
             if not step.sensitive:
                 self._say(location_attempt_note(step.label, query, chosen=chosen))
             return
-        shown = "the chosen personal answer" if step.sensitive else location_failure_reason(queries)
-        detail = {} if step.sensitive else {"value": step.value, "tried": queries, "offered": offered[:20]}
+        self._fail_autocomplete(step, queries, shown, None)
+
+    def _remember_choices(self, shown: list[str], got: list[str]) -> None:
+        for item in got:
+            if item and item not in shown:
+                shown.append(item)
+
+    def _choice_texts(self, loc) -> list[str]:
+        try:
+            return [text.strip() for text in loc.locator("option").all_inner_texts() if text and text.strip()][:8]
+        except Exception:
+            return []
+
+    def _fail_autocomplete(self, step: Step, queries: list[str], shown: list[str], last: Exception | None) -> None:
+        """Every saved place was tried. The reason names those places, or hides a sensitive value."""
         if step.sensitive:
-            raise ActionFailed(f"option {shown} is not offered by the site", {"offered": offered[:20]})
-        raise ActionFailed(shown, detail, retryable=True)
+            name = (step.label or "This field").strip()
+            reason = f"{name} needs an answer."
+            raise ActionFailed(reason, {"difficulty": reason}, retryable=True) from last
+        reason = location_failure_reason(queries, shown)
+        detail = {"value": step.value, "tried": queries, "offered": shown[:8], "difficulty": reason}
+        raise ActionFailed(reason, detail, retryable=True) from last
 
     def _suggestion_options(self, scope: _Scope):
         """Suggestion rows, including a menu drawn on the top page while the form sits in a frame."""

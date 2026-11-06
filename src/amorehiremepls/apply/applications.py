@@ -21,7 +21,7 @@ from amorehiremepls.apply.ats.rules import SENSITIVE_BLANK_REASON, YEARS_RULE
 from amorehiremepls.apply.browser import Plan, apply_location_fallbacks, normalize_screenshots
 from amorehiremepls.apply.tailoring import Tailor, page_limit_block_reason
 from amorehiremepls.candidate.profile import BandEvidence, Fact, Profile, compute_experience, desired_salary
-from amorehiremepls.core.actions import ActionHandoff, ActionStore, Outcome
+from amorehiremepls.core.actions import REPLAY_LABEL, ActionHandoff, ActionStore, Outcome
 from amorehiremepls.core.authorization import material_hash
 from amorehiremepls.core.db import Store
 from amorehiremepls.core.util import local_zone, new_id, sha256_file, to_local, utcnow
@@ -1010,9 +1010,12 @@ class ApplicationService:
             reserved = self.store.reserve("jobs", {"_id": job["_id"]}, worker, [s for s in [job["status"]] if s != "executing"], "executing")
         if reserved is None:
             return Outcome("in_progress", "job reserved by another worker")
-        action = self.actions.prepare(
-            "application_submit", job["_id"], f"submit:{job['_id']}", {"application_id": app_id, "apply_url": pkg["apply_url"]}, app["material_hash"], host=host
-        )
+        submit_key = f"submit:{job['_id']}"
+        previous = self.actions.by_key(submit_key)
+        # A finished failure for a different set of answers stays on record. This set gets its own attempt.
+        if previous and previous.get("status") == "failed" and previous.get("material_hash") != app.get("material_hash"):
+            self.actions.retire_failed_attempt(previous)
+        action = self.actions.prepare("application_submit", job["_id"], submit_key, {"application_id": app_id, "apply_url": pkg["apply_url"]}, app["material_hash"], host=host)
         if action.get("material_hash") != app["material_hash"] and action["status"] in ("succeeded", "needs_verification"):
             self.store.release("jobs", {"_id": job["_id"]}, worker, job["status"] if job["status"] != "executing" else "qualified")
             return Outcome(action["status"], "an earlier submission for this job already exists; reconcile first", action_id=action["_id"])
@@ -1042,7 +1045,8 @@ class ApplicationService:
             self._note_location_choice(app, ev)
             self._notify(self.apps.find_one({"_id": app_id}), kind)
             return Outcome("handoff", str(exc), ev, action["_id"])
-        self._note_location_choice(app, outcome.evidence)
+        if outcome.adapter_ran:
+            self._note_location_choice(app, outcome.evidence)
         self._apply_outcome(app, job, outcome, worker)
         return outcome
 
@@ -1095,12 +1099,18 @@ class ApplicationService:
             self._set(app_id, "needs_verification", reason=outcome.reason, evidence=ev, next_action="check the employer account or email, then record the result")
             self.store.release("jobs", {"_id": job["_id"]}, worker, "needs_verification")
             self._notify(self.apps.find_one({"_id": app_id}), "needs_verification")
+        elif outcome.status == "failed" and not outcome.adapter_ran:
+            # The attempt already failed. Do not add a newer line that hides the saved step.
+            self._keep_saved_failure(app, outcome.reason)
+            self.store.release("jobs", {"_id": job["_id"]}, worker, "qualified")
         elif outcome.status == "failed":
             ev = self._with_screenshots(job["_id"], app_id, outcome.evidence)
             missing = [m.get("label") for m in ((ev or {}).get("preflight") or {}).get("missing") or []] if isinstance(ev, dict) else []
             if missing:
                 gone = ", ".join(str(m) for m in missing)
                 nxt = f"Nothing was sent. The form did not have: {gone}. Retry with the app reads the form again; if it still fails, apply on the site yourself."
+            elif "does not continue this form" in str(outcome.reason or ""):
+                nxt = str(outcome.reason)
             elif outcome.retryable:
                 nxt = "Nothing was sent. The app stopped before the final click, so Retry with the app is safe."
             else:
@@ -1117,6 +1127,13 @@ class ApplicationService:
             self.store.release("jobs", {"_id": job["_id"]}, worker, job["status"] if job["status"] != "executing" else "qualified")
         else:
             self.store.release("jobs", {"_id": job["_id"]}, worker, job["status"] if job["status"] != "executing" else "qualified")
+
+    def _keep_saved_failure(self, app: dict, reason: str) -> None:
+        """A replay keeps the failure already saved. It does not write a new history line."""
+        saved = (reason or "").strip()
+        current = str(app.get("reason") or "").strip()
+        if current == REPLAY_LABEL and saved and saved != REPLAY_LABEL:
+            self.apps.update_one({"_id": app["_id"]}, {"$set": {"reason": saved, "updated_at": utcnow()}})
 
     def _with_screenshots(self, job_id: str, app_id: str, evidence: Any) -> Any:
         if not isinstance(evidence, dict) or not evidence.get("screenshots"):

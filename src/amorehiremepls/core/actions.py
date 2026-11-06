@@ -3,8 +3,9 @@
     prepare -> (authorization check) -> reserve (atomic) -> record intent -> adapter -> record outcome
 
 Re-running `execute` for the same idempotency key never calls the adapter again: it returns the
-recorded outcome, or reports that another worker holds the lease, or that the earlier attempt ended
-ambiguously (`needs_verification`) and must be reconciled first.
+outcome already saved (`outcome_reason` when one was recorded), or reports that another worker holds
+the lease, or that the earlier attempt ended ambiguously (`needs_verification`) and must be reconciled
+first. The replay label is only a fallback when nothing was saved.
 """
 
 from __future__ import annotations
@@ -19,6 +20,9 @@ from amorehiremepls.core.db import Store
 from amorehiremepls.core.util import new_id, utcnow
 
 log = logging.getLogger(__name__)
+
+# Used only when a finished action has no saved reason. Callers must not treat it as the failure.
+REPLAY_LABEL = "recorded outcome (replay)"
 
 ACTION_SCOPE: dict[str, ScopeKind] = {
     "application_submit": "application_submit",
@@ -107,6 +111,19 @@ class ActionStore:
     def by_key(self, idempotency_key: str) -> dict | None:
         return self.coll.find_one({"idempotency_key": idempotency_key})
 
+    def retire_failed_attempt(self, action: dict) -> bool:
+        """Keep a finished failure and free its key so a different set of answers can be tried.
+
+        The old document stays. A later prepare with the original key inserts a new attempt."""
+        if not action or action.get("status") != "failed" or not action.get("_id") or not action.get("idempotency_key"):
+            return False
+        prior = f"{action['idempotency_key']}:prior:{action['_id']}"
+        result = self.coll.update_one(
+            {"_id": action["_id"], "status": "failed"},
+            {"$set": {"idempotency_key": prior, "superseded_at": utcnow(), "updated_at": utcnow()}},
+        )
+        return result.modified_count == 1
+
     def execute(
         self, action_id: str, owner: str, adapter: Callable[[dict], dict], *, job: dict | None = None, has_material_unknowns: bool = False, lease_seconds: int = 900
     ) -> Outcome:
@@ -115,7 +132,7 @@ class ActionStore:
             return Outcome("not_found", "unknown action")
         terminal = {"succeeded", "failed", "needs_verification"}
         if action["status"] in terminal:
-            return Outcome(action["status"], "recorded outcome (replay)", action.get("evidence", {}), action_id)
+            return _recorded_outcome(action, action_id)
         if self.store.emergency_stop_active():
             self.coll.update_one({"_id": action_id}, {"$set": {"status": "blocked", "blocked_reason": "emergency stop", "updated_at": utcnow()}})
             return Outcome("blocked", "emergency stop active", action_id=action_id)
@@ -131,7 +148,7 @@ class ActionStore:
         if reserved is None:
             current = self.get(action_id) or {}
             if current.get("status") in terminal:
-                return Outcome(current["status"], "recorded outcome (replay)", current.get("evidence", {}), action_id)
+                return _recorded_outcome(current, action_id)
             if current.get("status") == "executing" and current.get("reserved_until") and current["reserved_until"] < utcnow():
                 # Another worker's lease expired mid-execution. The side effect may or may not have happened:
                 # never take it over and run the adapter again.
@@ -139,7 +156,7 @@ class ActionStore:
                 if swept:
                     return Outcome("needs_verification", swept["outcome_reason"], swept.get("evidence", {}), action_id)
                 current = self.get(action_id) or {}
-                return Outcome(current.get("status", "in_progress"), "recorded outcome (replay)", current.get("evidence", {}), action_id)
+                return _recorded_outcome(current, action_id)
             return Outcome("in_progress", f"held by {current.get('reserved_by')}", action_id=action_id)
         attempt = {"owner": owner, "started_at": utcnow()}
         self.coll.update_one({"_id": action_id}, {"$push": {"attempts": attempt}})
@@ -229,3 +246,10 @@ class ActionStore:
 
     def pending_verification(self) -> list[dict]:
         return list(self.coll.find({"status": "needs_verification"}))
+
+
+def _recorded_outcome(action: dict, action_id: str) -> Outcome:
+    """The attempt already finished. Keep the reason that was saved with it."""
+    saved = str(action.get("outcome_reason") or "").strip()
+    evidence = action.get("evidence") or {}
+    return Outcome(action.get("status") or "in_progress", saved or REPLAY_LABEL, evidence, action_id)

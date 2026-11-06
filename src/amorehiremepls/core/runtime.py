@@ -10,6 +10,7 @@ from typing import Any
 
 from amorehiremepls.apply.applications import ApplicationService, FormField, SalaryResearcher
 from amorehiremepls.apply.browser import BrowserAdapter, BrowserConfig, Plan, Step
+from amorehiremepls.apply.network_log import NetworkLog
 from amorehiremepls.apply.tailoring import Tailor
 from amorehiremepls.candidate.candidate_docs import CandidateDocs, load_candidate_docs
 from amorehiremepls.candidate.profile import Profile, ProfileStore
@@ -86,7 +87,8 @@ class Runtime:
                 resource_hosts=settings.resource_hosts,
                 captcha_max_attempts=settings.captcha_max_attempts,
                 cdp_port=settings.human_check_cdp_port,
-            )
+            ),
+            network=NetworkLog(self.store),
         )
         self.sync = SyncCoordinator(self.store, settings.tracker_clone_dir, settings.tracker_remote, settings.tracker_branch, settings.tracker_push_enabled)
         smtp = (
@@ -284,7 +286,7 @@ class RealServices:
             return self.rt.browser.run_plan(plan, site_key=plan.start_url.split("/")[2], captcha_solver=solver, hold=hold, progress=note)
 
         out = svc.execute(application_id, worker, run_adapter=run)
-        return {"status": out.status, "reason": out.reason, "evidence": out.evidence, "action_id": out.action_id}
+        return {"status": out.status, "reason": out.reason, "evidence": out.evidence, "action_id": out.action_id, "adapter_ran": out.adapter_ran}
 
     def record_manual(self, application_id: str, manual: dict) -> dict:
         return self.rt.applications().record_manual_submission(

@@ -148,6 +148,47 @@ def test_an_already_approved_package_is_applied_without_preparing_again(store):
     assert done["status"] == "completed" and svc.exec_calls == 1
 
 
+def test_the_same_answers_are_not_queued_and_changed_answers_are(store):
+    from amorehiremepls.core.orchestration import queue_approved_send
+
+    when = datetime(2026, 11, 6, tzinfo=UTC)
+    app = {
+        "_id": "app_gap",
+        "job_id": "job_gap",
+        "status": "authorized",
+        "material_hash": "m1",
+        "history": [{"at": when, "status": "authorized"}],
+        "review_package": {},
+        "provenance": {"origin": "local"},
+    }
+    store.c("applications").insert_one(app)
+    store.c("actions").insert_one(
+        {
+            "_id": "act_gap",
+            "idempotency_key": "submit:job_gap",
+            "kind": "application_submit",
+            "target_id": "job_gap",
+            "status": "failed",
+            "material_hash": "m1",
+            "outcome_reason": "saved",
+        }
+    )
+    assert queue_approved_send(store, app, True) is False
+    assert store.c("runs").count_documents({"params.application_id": "app_gap"}) == 0
+    store.c("applications").update_one({"_id": "app_gap"}, {"$set": {"material_hash": "m2"}})
+    changed = store.c("applications").find_one({"_id": "app_gap"})
+    assert queue_approved_send(store, changed, True) is True
+    run = store.c("runs").find_one({"params.application_id": "app_gap", "status": "queued"})
+    assert run["params"]["phase"] == "execute" and run["params"]["material_hash"] == "m2"
+    assert queue_approved_send(store, changed, True) is False
+    store.c("runs").update_one({"_id": run["_id"]}, {"$set": {"status": "completed"}})
+    store.c("applications").update_one({"_id": "app_gap"}, {"$unset": {"fill_for": ""}, "$set": {"send_queued_at": datetime(2026, 11, 6, 2, tzinfo=UTC)}})
+    changed = store.c("applications").find_one({"_id": "app_gap"})
+    assert queue_approved_send(store, changed, True) is False
+    assert queue_approved_send(store, changed, True, replace_repeat=True) is True
+    assert store.c("runs").count_documents({"params.application_id": "app_gap", "params.material_hash": "m2"}) == 2
+
+
 def test_handoff_interrupt_then_manual_record(store):
     svc = FakeServices(store, needs_input=False, authorized=True, exec_status="handoff")
     runner = _runner(store, svc)

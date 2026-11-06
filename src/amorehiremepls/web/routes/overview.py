@@ -10,6 +10,7 @@ from amorehiremepls.web.chrome import (
     HTMLResponse,
     Request,
     donut,
+    event_log,
     line_chart,
     month_buckets,
     next_action_label,
@@ -68,6 +69,7 @@ def register(app, rt, ui_store, require_session, render) -> None:
             pipeline=jobs_donut(counts["jobs"]),
             attention=attention_items(),
             activity=list(s.c("audit").find({"event": {"$nin": ["login", "login_failed"]}}).sort("created_at", -1).limit(10)),
+            recent_log=event_log(runs, limit=12),
             recent_jobs=list(s.c("jobs").find().sort("updated_at", -1).limit(6)),
             schedule=next_slot_description(rt),
             provider=rt.settings.effective_model or "not configured (default provider: openai)",
@@ -262,17 +264,15 @@ def register(app, rt, ui_store, require_session, render) -> None:
         hold_jobs = {j["_id"]: j for j in s.c("jobs").find({"_id": {"$in": [h["job_id"] for h in holds]}}, {"employer": 1, "title": 1})}
         for hold in holds:
             j = hold_jobs.get(hold["job_id"], {})
-            items.append(
-                item(
-                    "Human check needed",
-                    f"{j.get('employer', '?')} · {j.get('title', '')}",
-                    "Finish the check if you can see the page, then press Continue. If you cannot see it, wait.",
-                    "warn",
-                    "alert",
-                    f"/applications/{hold['application_id']}",
-                    "Continue",
-                )
-            )
+            if hold.get("purpose") == "field":
+                title = hold.get("field_label") or "Answer needed"
+                hint = hold.get("field_reason") or "Type the answer here. The same form stays open."
+                action = "Answer"
+            else:
+                title = "Human check needed"
+                hint = "Finish the check if you can see the page, then press Continue. If you cannot see it, wait."
+                action = "Continue"
+            items.append(item(title, f"{j.get('employer', '?')} · {j.get('title', '')}", hint, "warn", "alert", f"/applications/{hold['application_id']}", action))
 
         apps = list(s.c("applications").find({"status": {"$in": list(ATTENTION_STATUSES)}, "provenance.origin": "local"}).sort("updated_at", -1).limit(12))
         jobs = {j["_id"]: j for j in s.c("jobs").find({"_id": {"$in": [a["job_id"] for a in apps]}}, {"employer": 1, "title": 1})}

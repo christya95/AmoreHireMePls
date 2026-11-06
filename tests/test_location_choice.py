@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 from amorehiremepls.apply.applications import location_choice_line
 from amorehiremepls.apply.browser import Plan, Step, apply_location_fallbacks, location_attempt_note, location_failure_reason, location_queries, step_note, suggestion_rank
-from amorehiremepls.web.chrome import form_in_progress, situation_line
+from amorehiremepls.web.chrome import application_timeline, form_in_progress, shown_failure_reason, situation_line
 
 
 def test_location_queries_try_the_city_then_each_later_place():
@@ -38,10 +38,12 @@ def test_later_places_attach_only_to_the_location_box():
 
 def test_what_to_do_now_is_the_latest_saved_step_and_names_the_place_that_was_typed():
     reason = location_failure_reason(["Lakeside, Northland", "Lakeside", "Harbor"])
-    assert reason == "The location box did not show a place for Lakeside, Northland, then Lakeside, then Harbor"
+    assert reason == "The location box typed Lakeside, Northland, then Lakeside, then Harbor. No list appeared."
+    offered = location_failure_reason(["Lakeside"], ["West Harbor", "East Harbor"])
+    assert "Lakeside" in offered and "A list appeared" in offered and "West Harbor" in offered and "East Harbor" in offered
     assert step_note(Step("fill", label="Phone")) == "Filling Phone"
     assert "secret" not in step_note(Step("choose", value="secret", label="Gender", sensitive=True))
-    assert location_attempt_note("Location", "Lakeside", missed=True) == "Location: no places appeared for Lakeside"
+    assert location_attempt_note("Location", "Lakeside", missed=True) == "Location: no list appeared for Lakeside"
     when = datetime(2026, 11, 6, tzinfo=UTC)
     later = datetime(2026, 11, 6, 0, 1, tzinfo=UTC)
     newest = datetime(2026, 11, 6, 0, 2, tzinfo=UTC)
@@ -56,6 +58,29 @@ def test_what_to_do_now_is_the_latest_saved_step_and_names_the_place_that_was_ty
         }
     ]
     assert situation_line(app, runs) == "Location: no places appeared for Lakeside"
+
+
+def test_a_failed_replay_shows_the_saved_reason_and_keeps_the_latest_step():
+    saved = "The location box did not show a place for Lakeside, Northland, then Lakeside"
+    early = datetime(2026, 11, 6, 0, 0, tzinfo=UTC)
+    failed_at = datetime(2026, 11, 6, 0, 1, tzinfo=UTC)
+    done = datetime(2026, 11, 6, 0, 2, tzinfo=UTC)
+    replay_at = datetime(2026, 11, 6, 0, 3, tzinfo=UTC)
+    app = {
+        "status": "failed",
+        "reason": "recorded outcome (replay)",
+        "history": [
+            {"at": failed_at, "status": "failed", "reason": saved},
+            {"at": replay_at, "status": "failed", "reason": "recorded outcome (replay)"},
+        ],
+    }
+    runs = [{"status": "completed", "events": [{"at": early, "message": "Location: no places appeared for Lakeside"}, {"at": done, "message": "completed"}]}]
+    action = {"outcome_reason": saved, "status": "failed"}
+    assert shown_failure_reason(app, action) == saved
+    assert situation_line(app, runs, saved) == "Location: no places appeared for Lakeside"
+    rows = application_timeline(app, runs, saved)
+    assert all("recorded outcome" not in row["text"] for row in rows)
+    assert any(row["text"] == f"Applying failed. {saved}" for row in rows)
 
 
 def test_the_form_animation_runs_only_while_a_task_is_working():

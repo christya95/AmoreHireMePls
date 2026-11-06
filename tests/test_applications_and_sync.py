@@ -8,7 +8,7 @@ from amorehiremepls.apply.applications import ApplicationService, FormField, map
 from amorehiremepls.apply.browser import Plan, Step
 from amorehiremepls.apply.tailoring import Tailor
 from amorehiremepls.candidate.profile import BandEvidence, BaseResume
-from amorehiremepls.core.actions import ActionStore, AmbiguousOutcome
+from amorehiremepls.core.actions import ActionFailed, ActionStore, AmbiguousOutcome
 from amorehiremepls.core.authorization import AuthorizationStore, ScopeBinding
 from amorehiremepls.core.util import sha256_file
 from amorehiremepls.jobs.jobs import JobStore
@@ -129,6 +129,64 @@ def test_prepare_requires_inputs_then_changed_document_invalidates_authorization
     svc3.apps.update_one({"_id": app2["_id"]}, {"$set": {"status": "ready_for_review"}})
     out = svc3.execute(app2["_id"], "w1", run_adapter=lambda plan: {"verified": True})
     assert out.status == "denied" and "material content changed" in out.reason
+
+
+def test_replaying_a_failed_submit_keeps_the_saved_reason(store, tmp_path):
+    profile = _profile(tmp_path)
+    builders = {"ats.example": lambda job, pkg, answers: Plan(start_url=pkg["apply_url"], steps=[], receipt_text="received")}
+    svc = _service(store, tmp_path, profile, builders)
+    job = _job(store, req="R-replay")
+    app = svc.prepare(job["_id"], [f for f in FIELDS if f.id != "why"])
+    AuthorizationStore(store).grant("application_submit", ScopeBinding(target_id=job["_id"], material_hash=app["material_hash"]))
+    saved = "The location box did not show a place for Lakeside, Northland, then Lakeside"
+    calls = []
+
+    def fail(_plan):
+        calls.append(1)
+        raise ActionFailed(saved, {"value": "Lakeside, Northland"}, retryable=False)
+
+    first = svc.execute(app["_id"], "w1", fail)
+    assert first.status == "failed" and first.reason == saved and len(calls) == 1
+    again = svc.execute(app["_id"], "w2", fail)
+    assert again.status == "failed" and again.reason == saved and not again.adapter_ran and len(calls) == 1
+    stored = svc.apps.find_one({"_id": app["_id"]})
+    assert stored["reason"] == saved
+    failed = [entry.get("reason") for entry in stored["history"] if entry.get("status") == "failed"]
+    assert failed == [saved]
+    assert JobStore(store).get(job["_id"])["status"] == "qualified"
+
+
+def test_a_changed_answer_starts_a_new_attempt_and_keeps_the_old_failure(store, tmp_path):
+    profile = _profile(tmp_path)
+    builders = {"ats.example": lambda job, pkg, answers: Plan(start_url=pkg["apply_url"], steps=[], receipt_text="received")}
+    svc = _service(store, tmp_path, profile, builders)
+    job = _job(store, req="R-changed")
+    app = svc.prepare(job["_id"], [f for f in FIELDS if f.id != "why"])
+    AuthorizationStore(store).grant("application_submit", ScopeBinding(target_id=job["_id"], material_hash=app["material_hash"]))
+    calls = []
+
+    def fail(_plan):
+        calls.append("old")
+        raise ActionFailed("no suggestions appeared for Lakeside", {"value": "Lakeside", "location_typed": "Lakeside"}, retryable=False)
+
+    first = svc.execute(app["_id"], "w1", fail)
+    assert first.status == "failed" and first.adapter_ran and calls == ["old"]
+    changed = svc.supply_inputs(app["_id"], {"fn": "River"})
+    assert changed["material_hash"] != app["material_hash"]
+    AuthorizationStore(store).grant("application_submit", ScopeBinding(target_id=job["_id"], material_hash=changed["material_hash"]))
+
+    def succeed(_plan):
+        calls.append("new")
+        return {"verified": True, "receipt_text": "received", "final_clicked": True}
+
+    second = svc.execute(changed["_id"], "w2", succeed)
+    assert second.status == "succeeded" and second.adapter_ran and calls == ["old", "new"]
+    kept = svc.actions.get(first.action_id)
+    assert kept["status"] == "failed" and f":prior:{first.action_id}" in kept["idempotency_key"]
+    current = svc.actions.by_key(f"submit:{job['_id']}")
+    assert current["_id"] != first.action_id and current["material_hash"] == changed["material_hash"]
+    again = svc.execute(changed["_id"], "w3", succeed)
+    assert again.status == "succeeded" and not again.adapter_ran and calls == ["old", "new"]
 
 
 def test_no_base_resume_surfaces_question_not_old_resume(store, tmp_path):

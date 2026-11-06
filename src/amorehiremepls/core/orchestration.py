@@ -19,8 +19,9 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, StateGraph
 from langgraph.types import Command, interrupt
 
+from amorehiremepls.core.actions import REPLAY_LABEL
 from amorehiremepls.core.db import CHECKPOINT_COLLECTION, CHECKPOINT_WRITES_COLLECTION, Store
-from amorehiremepls.core.util import utcnow
+from amorehiremepls.core.util import redact_free, utcnow
 
 log = logging.getLogger(__name__)
 
@@ -126,10 +127,29 @@ def build_application_graph(services: Services, store: Store | None, checkpointe
     def route_after_review(state: AppState) -> str:
         return "execute" if state.get("status") == "authorized" else END
 
+    def _note_saved_failure(state: AppState, outcome: dict) -> None:
+        """A later pass that only replays a finished attempt still records the earlier stop line."""
+        if outcome.get("status") not in ("failed", "needs_verification"):
+            return
+        reason = str(outcome.get("reason") or "").strip()
+        if reason != REPLAY_LABEL:
+            return
+        line = ""
+        if store is not None and outcome.get("action_id"):
+            action = store.c("actions").find_one({"_id": outcome["action_id"]}, {"outcome_reason": 1, "last_failure": 1}) or {}
+            stored = str(action.get("outcome_reason") or action.get("last_failure") or "").strip()
+            if stored and stored != REPLAY_LABEL:
+                line = _plain_log(stored)
+        if not line:
+            line = evidence_failure_line(reason, outcome.get("evidence"))
+        if line:
+            step(state, line)
+
     def execute(state: AppState) -> dict:
         guard(state)
         step(state, "Applying on the job site")
         outcome = services.execute(state["application_id"], state.get("worker", "worker"))
+        _note_saved_failure(state, outcome)
         if outcome["status"] == "handoff":
             manual = interrupt({"type": "handoff", "application_id": state["application_id"], "reason": outcome.get("reason"), "evidence": outcome.get("evidence", {})})
             if manual and manual.get("manual"):
@@ -254,32 +274,89 @@ class Runner:
         return {"values": _public_state(snap.values), "next": list(snap.next), "tasks": [getattr(t, "name", str(t)) for t in snap.tasks]}
 
 
+def _plain_log(text: str) -> str:
+    cleaned = " ".join(str(text or "").split())
+    cut = cleaned.lower().find("call log:")
+    if cut >= 0:
+        cleaned = cleaned[:cut].strip()
+    return redact_free(cleaned)[:300]
+
+
+def evidence_failure_line(reason: str, evidence: Any) -> str:
+    """The earlier stop line kept when a later pass only has the replay label. Typed values stay out."""
+    if str(reason or "").strip() != REPLAY_LABEL:
+        return ""
+    ev = evidence if isinstance(evidence, dict) else {}
+    err = _plain_log(str(ev.get("error") or ""))
+    if err:
+        return err
+    missing: list[str] = []
+    pre = ev.get("preflight") if isinstance(ev.get("preflight"), dict) else {}
+    for item in pre.get("missing") or []:
+        if isinstance(item, dict) and item.get("label"):
+            missing.append(str(item["label"]))
+    if missing:
+        return _plain_log("the form is missing fields the app expected: " + ", ".join(missing))
+    errs = [str(item) for item in (ev.get("validation_errors") or [])][:3]
+    if errs:
+        return _plain_log("the form reported a problem: " + "; ".join(errs))
+    return ""
+
+
 def _public_state(values: dict) -> dict:
     return {k: v for k, v in (values or {}).items() if k != "__interrupt__"}
 
 
 LIVE_RUN = ("queued", "claimed", "running", "waiting", "paused")
+_FINISHED = ("succeeded", "failed", "needs_verification")
 
 
-def queue_approved_send(store: Store, app: dict, allowed: bool) -> bool:
-    """Queue one apply task for a package that is already approved and has no task working on it.
+def _same_finished_answers(action: dict | None, app: dict) -> bool:
+    """True when queueing would only hand back a result already saved for these answers."""
+    if not action or action.get("status") not in _FINISHED:
+        return False
+    if action.get("material_hash") == app.get("material_hash"):
+        return True
+    return action.get("status") in ("succeeded", "needs_verification")
 
-    Does not read the form again and does not rebuild the resume. A second call after the same approval
-    does nothing, so a failed attempt is not sent again until the owner approves once more."""
+
+def queue_approved_send(store: Store, app: dict, allowed: bool, *, replace_repeat: bool = False) -> bool:
+    """Queue one apply task for an approved application that has no task working on it.
+
+    Does not read the form again and does not rebuild the resume. The same answers are not opened again
+    after a finished attempt. A different set of answers, once approved, is a new attempt. `replace_repeat`
+    is the explicit button after a finished failure: it queues that new attempt even when an earlier
+    approval already queued a task that only returned the saved result."""
     if not allowed or app.get("status") != "authorized" or not app.get("_id") or not app.get("job_id"):
         return False
     if store.c("runs").find_one({"params.job_id": app["job_id"], "status": {"$in": list(LIVE_RUN)}}):
         return False
+    action = store.c("actions").find_one({"idempotency_key": f"submit:{app['job_id']}"})
+    if _same_finished_answers(action, app):
+        return False
+    now = utcnow()
+    params = {"job_id": app["job_id"], "application_id": app["_id"], "phase": "execute", "material_hash": app.get("material_hash")}
+    if replace_repeat:
+        taken = store.c("applications").update_one(
+            {"_id": app["_id"], "status": "authorized", "fill_for": {"$ne": app.get("material_hash")}},
+            {"$set": {"send_queued_at": now, "fill_for": app.get("material_hash"), "updated_at": now}},
+        )
+        if taken.modified_count != 1:
+            return False
+        store.create_run("application", params)
+        return True
     approved_at = max((h.get("at") for h in (app.get("history") or []) if h.get("status") == "authorized" and h.get("at")), default=None)
     queued_at = app.get("send_queued_at")
     if queued_at and (approved_at is None or queued_at >= approved_at):
         return False
-    now = utcnow()
     fresh = [{"send_queued_at": None}, {"send_queued_at": {"$exists": False}}]
     if approved_at is not None:
         fresh.append({"send_queued_at": {"$lt": approved_at}})
-    taken = store.c("applications").update_one({"_id": app["_id"], "status": "authorized", "$or": fresh}, {"$set": {"send_queued_at": now, "updated_at": now}})
+    taken = store.c("applications").update_one(
+        {"_id": app["_id"], "status": "authorized", "$or": fresh},
+        {"$set": {"send_queued_at": now, "fill_for": app.get("material_hash"), "updated_at": now}},
+    )
     if taken.modified_count != 1:
         return False
-    store.create_run("application", {"job_id": app["job_id"], "application_id": app["_id"], "phase": "execute"})
+    store.create_run("application", params)
     return True

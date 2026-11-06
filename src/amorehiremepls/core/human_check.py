@@ -73,7 +73,17 @@ class HumanHold:
             self.actions.extend_lease(action["_id"], action.get("reserved_by") or self.worker, seconds=180)
         self.store.c("jobs").update_one({"_id": self.job_id, "status": "executing"}, {"$set": {"reserved_until": until, "updated_at": now}})
         self.store.set_control("worker_heartbeat", {"at": now, "name": self.worker})
-        self.store.c("human_holds").update_one({"_id": self.hold_id}, {"$set": {"heartbeat_at": now}})
+        fields = {"heartbeat_at": now, **_field_hold_fields(evidence)}
+        self.store.c("human_holds").update_one({"_id": self.hold_id}, {"$set": fields})
+
+    def supplied_answer(self) -> str:
+        """The answer typed on the dashboard, if this hold is waiting on a field. Empty when none was sent."""
+        if not self.hold_id:
+            return ""
+        doc = self.store.c("human_holds").find_one({"_id": self.hold_id}, {"answer": 1, "continue_requested": 1})
+        if not doc or not doc.get("continue_requested"):
+            return ""
+        return " ".join(str(doc.get("answer") or "").split())[:200]
 
     def continue_requested(self) -> bool:
         if not self.hold_id:
@@ -107,9 +117,22 @@ class HumanHold:
             "started_at": now,
             "heartbeat_at": now,
             "expires_at": now + timedelta(minutes=self.minutes),
+            **_field_hold_fields(evidence),
         }
         self.store.c("human_holds").insert_one(doc)
         self.hold_id = doc["_id"]
+
+
+def _field_hold_fields(evidence: dict) -> dict:
+    """Label and difficulty for a field wait. The typed answer is not stored here."""
+    if evidence.get("purpose") != "field":
+        return {}
+    return {
+        "purpose": "field",
+        "field_label": str(evidence.get("field_label") or "")[:120],
+        "field_reason": str(evidence.get("field_reason") or "")[:300],
+        "sensitive": bool(evidence.get("sensitive")),
+    }
 
 
 def active_hold(store: Store, application_id: str, max_age_seconds: int = HOLD_FRESH_SECONDS) -> dict | None:
@@ -128,7 +151,7 @@ def request_continue(store: Store, application: dict) -> str:
     Returns `ok`, `missing`, or `changed`.
     """
     hold = active_hold(store, application["_id"])
-    if hold is None:
+    if hold is None or hold.get("purpose") == "field":
         return "missing"
     if hold.get("material_hash") != application.get("material_hash"):
         return "changed"
@@ -138,6 +161,29 @@ def request_continue(store: Store, application: dict) -> str:
     if action.get("_id") != hold.get("action_id"):
         return "changed"
     store.c("human_holds").update_one({"_id": hold["_id"], "status": "holding"}, {"$set": {"continue_requested": True, "continue_at": utcnow()}})
+    return "ok"
+
+
+def submit_field_answer(store: Store, application: dict, answer: str) -> str:
+    """Save one dashboard answer on the open field hold. The same page types it. Returns ok, empty, missing, or changed.
+
+    The answer stays on the hold so the browser can type it. It is not written to a run event here.
+    """
+    hold = active_hold(store, application["_id"])
+    if hold is None or hold.get("purpose") != "field":
+        return "missing"
+    if hold.get("material_hash") != application.get("material_hash"):
+        return "changed"
+    action = store.c("actions").find_one({"idempotency_key": hold.get("idempotency_key")})
+    if action is None or action.get("material_hash") != application.get("material_hash") or action.get("_id") != hold.get("action_id"):
+        return "changed"
+    text = " ".join(str(answer or "").split())[:200]
+    if not text:
+        return "empty"
+    store.c("human_holds").update_one(
+        {"_id": hold["_id"], "status": "holding"},
+        {"$set": {"answer": text, "continue_requested": True, "continue_at": utcnow()}},
+    )
     return "ok"
 
 

@@ -172,9 +172,11 @@ def test_approving_after_the_task_finished_queues_a_send_and_the_page_shows_the_
     assert queued is not None
     page = client.get(f"/applications/{app_id}")
     assert page.status_code == 200 and "What is happening" in page.text and "You approved this package" in page.text
+    assert "Nothing is being filled in right now." in page.text and "The form is being filled in now." not in page.text
     activity = client.get(f"/applications/{app_id}/activity")
     body = activity.json()
-    assert activity.status_code == 200 and body["live"] is True and body["working"] is False and body["now"] == "You approved this package"
+    assert activity.status_code == 200 and body["live"] is True and body["working"] is False
+    assert body["state"] == "Nothing is being filled in right now." and body["now"] == "The form opens within a minute."
 
 
 def test_regenerate_documents_supersedes_artifacts_and_invalidates_approval(client, tmp_path):
@@ -231,3 +233,76 @@ def test_regenerate_documents_supersedes_artifacts_and_invalidates_approval(clie
     r = client.post(f"/jobs/{job_id}/regenerate", data={"csrf": csrf})
     assert r.headers["location"].endswith("err=already_submitted")
     assert rt.store.c("artifacts").count_documents({"owner_id": job_id, "kind": "resume_tailored"}) == 2
+
+
+def test_application_page_copy_buttons_are_wired_to_each_details_block(client):
+    import html
+    import json
+    import re
+    from datetime import UTC, datetime
+
+    _login(client)
+    rt = client.app.state.rt
+    now = datetime.now(UTC)
+    technical = {"verified": True, "seen": "the page after submit"}
+    application = {"kept": "local note"}
+    history = [{"status": "submitted", "text": "saved here"}]
+    rt.store.c("jobs").insert_one(
+        {
+            "_id": "job_copy",
+            "employer": "Acme",
+            "employer_norm": "acme",
+            "title": "Backend Developer",
+            "status": "applied",
+            "posting_url": "https://careers.example/jobs/1",
+            "apply_url": "https://careers.example/jobs/1",
+            "sources": ["manual"],
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+    rt.store.c("applications").insert_one(
+        {
+            "_id": "app_copy",
+            "job_id": "job_copy",
+            "status": "needs_verification",
+            "provenance": {"origin": "local"},
+            "material_hash": "m-copy",
+            "review_package": {"apply_url": "https://careers.example/jobs/1", "posting_url": "https://careers.example/jobs/1", "answers": [], "gaps": []},
+            "evidence": application,
+            "history": history,
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+    rt.store.c("actions").insert_one(
+        {
+            "_id": "act_copy",
+            "kind": "application_submit",
+            "target_id": "job_copy",
+            "idempotency_key": "submit:job_copy",
+            "status": "needs_verification",
+            "material_hash": "m-copy",
+            "evidence": technical,
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+    page = client.get("/applications/app_copy")
+    assert page.status_code == 200
+    expected = {
+        "technical-details": json.dumps(technical, indent=1),
+        "application-details": json.dumps(application, indent=1),
+    }
+    assert "application-history" not in page.text and "Everything that happened to this application" not in page.text
+    for pre_id, body in expected.items():
+        match = re.search(
+            rf'<button type="button" class="secondary sm" data-copy="{pre_id}">Copy</button>\s*<pre id="{pre_id}">(.*?)</pre>',
+            page.text,
+            flags=re.S,
+        )
+        assert match, pre_id
+        assert html.unescape(match.group(1)) == body
+    script = client.get("/static/app.js").text
+    assert "isSecureContext" in script and "writeText" in script and 'execCommand("copy")' in script
+    assert "Copied" in script and "Copy failed" in script

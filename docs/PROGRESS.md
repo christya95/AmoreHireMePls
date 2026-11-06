@@ -347,6 +347,30 @@ Approving a package only resumed a task that was still waiting. If that task had
 
 What to do now shows the latest step already saved, and the page replaces that line while a task is working. While a form is actually being filled, the same bar shows "Filling out the form" with moving dots so it is obvious the app is working; the real step stays underneath. The dots stop when the work stops. There is no fixed sentence for the step itself. Every page eases in, buttons lift slightly on hover, and cards shift colour. A location box types each place, because a pasted value does not open the list. It tries the saved city and region, then the city alone, then each place in `preferences.location_fallbacks`. Each try is saved as it happens, including when a place produces no list and which place was chosen. `tests/test_location_choice.py`. Full suite 378 passed, ruff clean. Deployed as `lepia/amorehiremepls:2f1a834556d0`. Init exited 0, web and worker healthy. `/health` 200. The Mac dashboard was restarted. The Overview greeting was not re-checked. The live profile still has no later places saved. The Faire attempt stopped before this, with no suggestions, and nothing was sent.
 
+## Copy buttons on the application page (2026-11-06)
+
+Technical details, Technical details of the application, and the history dump each have a Copy button that copies the exact text in that block, using the clipboard API on localhost and a temporary text box on plain HTTP, and this change is not deployed.
+
+## Failed replay keeps the saved reason (2026-11-06)
+
+A replayed failure was shown as "Applying failed. recorded outcome (replay)" instead of the reason already saved on the attempt, and that label replaced What to do now; the saved reason is shown and What to do now stays the latest saved step. Not deployed.
+
+## Application log (2026-11-06)
+
+The application page has a closed Log of saved steps (time and message, newest first), a timed-out field records that field and the timeout, and this is not deployed.
+
+## An answer on the same open form (2026-11-06)
+
+When a required field still will not complete, the application page names that field and why it stopped. A location box types the full place, then the city, then each saved later place, and only then asks; the line says whether a list appeared and names a few unmatched choices when one did. The same page stays open. An answer from the dashboard is typed into that field and the remaining steps continue, including the final click only when the plan reaches it. A sensitive answer is not written into the log. If the wait ends or the page cannot stay open, the application says a new visit starts over and does not continue the half-filled form. Not deployed.
+
+## Network tab (2026-11-06)
+
+Each application page has its own Network Tab of browser requests, saved as Chromium sees them and refreshed about once a second while that task is live, and Clear removes only that job's rows; this is not deployed.
+
+## What the page shows about a fill (2026-11-06)
+
+The application page says "The form is being filled in now." while a form is actually being filled, and "Nothing is being filled in right now." otherwise. When the answer on the page differs from what was typed last time, both are named and the new answer is described as not typed yet. Changing the answers and approving, or pressing Fill in the form, starts a real fill; the same answers are not opened again. Skill gaps are a short coloured list. Missing answers sit in Still needed as plain sentences, never as raw field keys. The approval line has no raw id, bookkeeping lines are hidden, and the history dump is gone. A pass that did not open the form says "The form was not opened. Showing the result already saved." Request recording starts when the page session opens, before the first page load. The Network Tab opens while a fill is starting or running and refreshes about once a second until nothing is live. An earlier fill that finished before recording existed stays empty. This is not deployed.
+
 ## Exact next step
 
 Queue item 5 waits for a confirmed employer receipt. Do not draft recruiter Connect notes until one exists. Do not retry the Faire application or mark the BMO job closed; those are owner decisions (handoff questions 4 and 5). The employment-type rule is deployed; the owner uses Check fit again on the skipped job. An already approved package with no task is picked up by the worker; do not start that send by hand. The location list order is deployed as `2f1a834556d0`. The live profile still has no later places; save those before relying on them. Do not confirm a destructive action on the live Workday job unless the owner asks. Open owner questions are 1, 2, 3, 4, 5, 7, 8, and 9. Question 6 is answered: tracker sync keeps running for an expired member.

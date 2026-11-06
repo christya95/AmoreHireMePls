@@ -135,41 +135,178 @@
     document.querySelectorAll("details.more[open]").forEach(reserveMore);
   });
 
-  // Application page: refresh the step list while a task is working. No model call; the lines are the saved steps.
+  // Application page: refresh saved steps about every four seconds, and this job's network rows about once a second, while the task is live.
+  function networkPiece(row) {
+    var status = row.status === 0 || row.status ? String(row.status) : "";
+    return [row.id || "", row.method || "", status, row.timing || "", row.type || "", row.url || "", row.body || ""].join("\t");
+  }
+  function networkSig(rows) {
+    return (rows || []).map(networkPiece).join("\n");
+  }
+  function renderNetworkRow(row) {
+    var el = document.createElement("div");
+    el.className = "list-item";
+    el.setAttribute("data-id", row.id || "");
+    el.setAttribute("data-piece", networkPiece(row));
+    var when = document.createElement("span");
+    when.className = "t";
+    when.textContent = row.at || "";
+    var what = document.createElement("span");
+    what.className = "msg";
+    var line = document.createElement("span");
+    line.className = "line";
+    var status = row.status === 0 || row.status ? String(row.status) : "—";
+    line.textContent = [row.method || "", status, row.type || ""].filter(Boolean).join(" ") + (row.timing ? " · " + row.timing : "");
+    var url = document.createElement("span");
+    url.className = "url";
+    url.textContent = row.url || "";
+    what.appendChild(line);
+    what.appendChild(url);
+    if (row.body) {
+      var body = document.createElement("span");
+      body.className = "body";
+      body.textContent = row.body;
+      what.appendChild(body);
+    }
+    el.appendChild(when);
+    el.appendChild(what);
+    return el;
+  }
+  function paintNetwork(rows) {
+    var box = document.getElementById("network-lines");
+    var empty = document.getElementById("network-empty");
+    if (!box) return;
+    var sig = networkSig(rows);
+    if (box.getAttribute("data-sig") === sig) return;
+    var y = window.scrollY;
+    var have = {};
+    Array.prototype.forEach.call(box.children, function (el) {
+      var id = el.getAttribute("data-id");
+      if (id) have[id] = el;
+    });
+    var frag = document.createDocumentFragment();
+    (rows || []).forEach(function (row) {
+      var id = row.id || "";
+      var piece = networkPiece(row);
+      var el = have[id];
+      if (el && el.getAttribute("data-piece") === piece) frag.appendChild(el);
+      else frag.appendChild(renderNetworkRow(row));
+    });
+    box.replaceChildren(frag);
+    box.setAttribute("data-sig", sig);
+    if (empty) empty.hidden = !!(rows && rows.length);
+    window.scrollTo(0, y);
+  }
+  function paintFlags(data) {
+    var banner = document.getElementById("activity-banner");
+    if (banner) banner.classList.toggle("working", !!data.working);
+    var state = document.getElementById("activity-state");
+    if (state && data.state) state.textContent = data.state;
+    var dots = document.getElementById("activity-dots");
+    if (dots) dots.hidden = !data.working;
+    var now = document.getElementById("activity-now");
+    if (now && data.now !== undefined) {
+      now.hidden = !data.now;
+      if (data.now && now.textContent !== data.now) now.textContent = data.now;
+    }
+    var fieldBox = document.getElementById("field-answer");
+    if (data.field && data.field.label) {
+      if (!fieldBox) {
+        window.location.reload();
+        return;
+      }
+      var fieldLabel = document.getElementById("field-answer-label");
+      var fieldReason = document.getElementById("field-answer-reason");
+      if (fieldLabel) fieldLabel.textContent = data.field.label;
+      if (fieldReason) fieldReason.textContent = data.field.reason || "";
+      if (banner) banner.hidden = true;
+    } else if (fieldBox) {
+      fieldBox.remove();
+    }
+  }
+  function paintSteps(data) {
+    var box = document.getElementById("activity-lines");
+    if (!box) return;
+    box.replaceChildren();
+    (data.lines || []).forEach(function (line) {
+      var row = document.createElement("div");
+      row.className = "list-item";
+      var when = document.createElement("span");
+      when.className = "t";
+      when.textContent = line.at || "";
+      var what = document.createElement("span");
+      what.textContent = line.text + (line.count > 1 ? " (" + line.count + ")" : "");
+      row.appendChild(when);
+      row.appendChild(what);
+      box.appendChild(row);
+    });
+  }
+  var networkBox = document.getElementById("network-lines");
+  var networkSeed = document.getElementById("network-seed");
+  if (networkBox && networkSeed) {
+    try { networkBox.setAttribute("data-sig", networkSig(JSON.parse(networkSeed.textContent || "[]"))); } catch (err) { /* the next pass paints */ }
+  }
   var activity = document.getElementById("updates");
-  if (activity && activity.getAttribute("data-live") === "1") {
+  var networkCard = document.getElementById("network");
+  var liveNode = activity && activity.getAttribute("data-live") === "1" ? activity : (networkCard && networkCard.getAttribute("data-live") === "1" ? networkCard : null);
+  if (liveNode) {
+    var ticks = 0;
     var activityTimer = setInterval(function () {
-      fetch(activity.getAttribute("data-activity"), { credentials: "same-origin", headers: { Accept: "application/json" } })
+      fetch(liveNode.getAttribute("data-activity"), { credentials: "same-origin", headers: { Accept: "application/json" } })
         .then(function (response) { return response.ok ? response.json() : null; })
         .then(function (data) {
           if (!data) return;
-          var banner = document.getElementById("activity-banner");
-          var phase = document.getElementById("activity-phase");
-          if (banner) banner.classList.toggle("working", !!data.working);
-          if (phase) phase.hidden = !data.working;
-          var now = document.getElementById("activity-now");
-          if (now && data.now) now.textContent = data.now;
-          var box = document.getElementById("activity-lines");
-          if (box) {
-            box.replaceChildren();
-            (data.lines || []).forEach(function (line) {
-              var row = document.createElement("div");
-              row.className = "list-item";
-              var when = document.createElement("span");
-              when.className = "t";
-              when.textContent = line.at || "";
-              var what = document.createElement("span");
-              what.textContent = line.text + (line.count > 1 ? " (" + line.count + ")" : "");
-              row.appendChild(when);
-              row.appendChild(what);
-              box.appendChild(row);
-            });
+          if (data.network_open) {
+            var tab = document.getElementById("network-tab");
+            if (tab) tab.open = true;
           }
+          paintNetwork(data.network || []);
+          ticks += 1;
+          paintFlags(data);
+          if (ticks % 4 === 0) paintSteps(data);
           if (!data.live) clearInterval(activityTimer);
         })
         .catch(function () { /* the next pass tries again */ });
-    }, 4000);
+    }, 1000);
   }
+
+  // Copy the exact text of a details block. A secure page (localhost) tries the clipboard API first.
+  // A plain HTTP dashboard has no clipboard API, so a temporary text box and execCommand cover that case.
+  function legacyCopy(text) {
+    return new Promise(function (resolve, reject) {
+      var area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.cssText = "position:fixed;top:0;left:0;width:2em;height:2em;padding:0;border:0;outline:none;opacity:0";
+      document.body.appendChild(area);
+      area.focus();
+      area.select();
+      var ok = false;
+      try { ok = document.execCommand("copy"); } catch (err) { ok = false; }
+      document.body.removeChild(area);
+      if (ok) resolve(); else reject();
+    });
+  }
+  function copyText(text) {
+    if (window.isSecureContext && navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).catch(function () { return legacyCopy(text); });
+    }
+    return legacyCopy(text);
+  }
+  document.querySelectorAll("button[data-copy]").forEach(function (btn) {
+    btn.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      var pre = document.getElementById(btn.getAttribute("data-copy") || "");
+      function flash(label) {
+        btn.textContent = label;
+        if (btn._copyTimer) clearTimeout(btn._copyTimer);
+        btn._copyTimer = setTimeout(function () { btn.textContent = "Copy"; }, 1600);
+      }
+      if (!pre) { flash("Copy failed"); return; }
+      copyText(pre.textContent).then(function () { flash("Copied"); }, function () { flash("Copy failed"); });
+    });
+  });
 
   // Double-submit guard for state-changing forms.
   document.querySelectorAll("form[method='post']").forEach(function (form) {

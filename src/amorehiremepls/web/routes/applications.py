@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+
+from amorehiremepls.apply.network_log import NetworkLog
 from amorehiremepls.web.chrome import (
     Depends,
     Form,
@@ -11,12 +14,16 @@ from amorehiremepls.web.chrome import (
     Request,
     ScopeBinding,
     activity_payload,
+    answers_differ,
     application_timeline,
     continue_waiting_runs,
-    form_in_progress,
-    situation_line,
+    form_filling_now,
+    network_public,
+    network_streaming,
+    shown_failure_reason,
     timedelta,
     utcnow,
+    what_to_do_line,
 )
 from amorehiremepls.web.shots import evidence_shots
 
@@ -67,6 +74,15 @@ def register(app, rt, require_session, require_csrf, render) -> None:
             a = without_costs(a)
             action = without_costs(action) if action else action
             runs = without_costs(runs)
+        saved_reason = shown_failure_reason(a, action)
+        if a.get("status") == "failed" and saved_reason != (a.get("reason") or ""):
+            a = {**a, "reason": saved_reason}
+        network_rows = network_public(NetworkLog(rt.store).for_job(a["job_id"]))
+        from amorehiremepls.core.runtime import RealServices
+        from amorehiremepls.web.chrome import answer_gap_line
+
+        filling = form_filling_now(a, runs, action)
+        live = any(run.get("status") in ("queued", "claimed", "running", "waiting", "paused") for run in runs)
         ctx = dict(
             a=a,
             job=job,
@@ -77,10 +93,16 @@ def register(app, rt, require_session, require_csrf, render) -> None:
             can_retry=can_retry,
             site_label=site_adapter.site_label if site_adapter else None,
             hold=active_hold(rt.store, app_id),
-            updates=application_timeline(a, runs),
-            now_line=situation_line(a, runs),
-            activity_live=activity_payload(a, runs)["live"],
-            filling=form_in_progress(a, runs),
+            updates=application_timeline(a, runs, saved_reason),
+            network_rows=network_rows,
+            network_seed=json.dumps(network_rows).replace("<", "\\u003c"),
+            now_line=what_to_do_line(a, runs, saved_reason, action),
+            gap=answer_gap_line(a, action),
+            activity_live=activity_payload(a, runs, saved_reason, action=action)["live"],
+            network_open=network_streaming(a, runs, action),
+            filling=filling,
+            answers_changed=answers_differ(a, action),
+            can_fill=bool(a.get("status") == "authorized" and answers_differ(a, action) and not filling and not live and RealServices(rt).has_authorization(a)),
             can_clear=_can_clear(a),
         )
         return render(request, "application.html", session, **ctx)
@@ -93,7 +115,15 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         if not a:
             raise HTTPException(404)
         runs = list(rt.store.c("runs").find({"params.job_id": a["job_id"]}).sort("created_at", -1))
-        return JSONResponse(activity_payload(a, runs))
+        action = rt.actions.by_key(f"submit:{a['job_id']}")
+        from amorehiremepls.core.human_check import active_hold
+
+        hold = active_hold(rt.store, app_id)
+        field = None
+        if hold and hold.get("purpose") == "field":
+            field = {"label": hold.get("field_label") or "", "reason": hold.get("field_reason") or ""}
+        network = NetworkLog(rt.store).for_job(a["job_id"])
+        return JSONResponse(activity_payload(a, runs, shown_failure_reason(a, action), field, network, action))
 
     @app.post("/applications/{app_id}/inputs")
     async def application_inputs(request: Request, app_id: str, session: dict = Depends(require_session)):
@@ -127,6 +157,20 @@ def register(app, rt, require_session, require_csrf, render) -> None:
             from amorehiremepls.core.runtime import RealServices
 
             queue_approved_send(rt.store, a, RealServices(rt).has_authorization(a))
+        return RedirectResponse(f"/applications/{app_id}", status_code=303)
+
+    @app.post("/applications/{app_id}/fill")
+    def application_fill(request: Request, app_id: str, session: dict = Depends(require_session), csrf: str = Form(...)):
+        """Open the form with the answers on the page. A finished attempt for different answers is not reused."""
+        require_csrf(request, session, csrf)
+        a = rt.store.c("applications").find_one({"_id": app_id})
+        if not a or a.get("status") != "authorized":
+            raise HTTPException(409, "approve these answers first")
+        from amorehiremepls.core.orchestration import queue_approved_send
+        from amorehiremepls.core.runtime import RealServices
+
+        if not continue_waiting_runs(rt, a):
+            queue_approved_send(rt.store, a, RealServices(rt).has_authorization(a), replace_repeat=True)
         return RedirectResponse(f"/applications/{app_id}", status_code=303)
 
     @app.post("/applications/{app_id}/manual")
@@ -170,6 +214,9 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         for run in rt.store.c("runs").find({"params.job_id": job["_id"], "status": {"$in": ["waiting", "paused"]}}):
             rt.store.update_run(run["_id"], status="cancelled", requested=None, interrupt=None, finished_at=utcnow(), note="replaced by a retry with the app")
             rt.store.run_event(run["_id"], "cancelled: replaced by a retry with the app")
+        previous = rt.actions.by_key(f"submit:{job['_id']}")
+        if previous and previous.get("status") == "failed":
+            rt.actions.retire_failed_attempt(previous)
         fp = {k: v for k, v in (job.get("form_plan") or {}).items() if k not in ("fields", "source", "external_job_id", "read_at")}
         status = "qualified" if job.get("status") in ("executing", "needs_verification") else job["status"]
         rt.jobs.set_status(job["_id"], status, form_plan=fp, apply_route=None)  # the form is read again through the adapter
@@ -194,6 +241,29 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         code = "ok" if result == "ok" else "err"
         return RedirectResponse(f"/applications/{app_id}?{code}={flash}", status_code=303)
 
+    @app.post("/applications/{app_id}/field-answer")
+    def application_field_answer(
+        request: Request,
+        app_id: str,
+        session: dict = Depends(require_session),
+        csrf: str = Form(...),
+        material_hash: str = Form(...),
+        answer: str = Form(""),
+    ):
+        """Type one answer into the same open form. Any signed-in dashboard can send it. The value is not written to the log here."""
+        require_csrf(request, session, csrf)
+        from amorehiremepls.core.human_check import submit_field_answer
+
+        a = rt.store.c("applications").find_one({"_id": app_id})
+        if not a or a.get("material_hash") != material_hash:
+            raise HTTPException(409, "package changed; refresh and review again")
+        result = submit_field_answer(rt.store, a, answer)
+        if result == "ok":
+            rt.store.audit("field_answer_submitted", app_id)
+        flash = {"ok": "field_ok", "missing": "field_missing", "changed": "field_changed", "empty": "field_empty"}[result]
+        code = "ok" if result == "ok" else "err"
+        return RedirectResponse(f"/applications/{app_id}?{code}={flash}", status_code=303)
+
     @app.post("/applications/{app_id}/reconcile")
     def application_reconcile(
         request: Request,
@@ -206,6 +276,16 @@ def register(app, rt, require_session, require_csrf, render) -> None:
     ):
         require_csrf(request, session, csrf)
         rt.applications().reconcile(app_id, resolved, {"confirmation": confirmation, "application_date": application_date or None})
+        return RedirectResponse(f"/applications/{app_id}", status_code=303)
+
+    @app.post("/applications/{app_id}/network/clear")
+    def application_network_clear(request: Request, app_id: str, session: dict = Depends(require_session), csrf: str = Form(...)):
+        """Remove this job's network rows. The application, the resume, and the screenshots stay."""
+        require_csrf(request, session, csrf)
+        a = rt.store.c("applications").find_one({"_id": app_id})
+        if not a:
+            raise HTTPException(404)
+        NetworkLog(rt.store).clear(a["job_id"])
         return RedirectResponse(f"/applications/{app_id}", status_code=303)
 
     @app.post("/applications/{app_id}/delete")

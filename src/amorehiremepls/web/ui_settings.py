@@ -369,6 +369,7 @@ STATUS_LABELS: dict[str, str] = {
     "application_retry": "Retried with the app",
     "action_handoff": "Stopped for a person before sending",
     "captcha_autosolve_changed": "Captcha switch changed",
+    "field_answer_submitted": "Answer saved for the open form",
     "authorization_granted": "Approval given",
     "authorization_revoked": "Approval withdrawn",
     "avatar_uploaded": "Avatar changed",
@@ -705,6 +706,50 @@ _EVIDENCE_ID = r"(?:(?:emp|fact|exp|proj|skill|pskill|cert|b)_[A-Za-z0-9]+|resum
 _EVIDENCE_ID_RE = re.compile(rf"\b{_EVIDENCE_ID}\b")
 _EVIDENCE_PAREN_RE = re.compile(rf"\s*\((?:\s*{_EVIDENCE_ID}\s*,)*\s*{_EVIDENCE_ID}\s*\)")
 _EVIDENCE_PREFIX_RE = re.compile(rf"^(?:{_EVIDENCE_ID}\s*:\s*)+")
+
+
+_NEEDED_SENTENCE = {
+    "base_resume": "A resume still needs to be selected.",
+    "approved base resume not selected": "A resume still needs to be selected.",
+    "legal_first_name": "A legal first name is still needed.",
+    "legal_last_name": "A legal last name is still needed.",
+    "email": "Email is still needed.",
+    "phone": "A phone number is still needed.",
+    "city": "A city is still needed.",
+    "work_authorization": "Work authorization is still needed.",
+    "tailored resume failed grounding": "The prepared resume could not be checked against your facts.",
+}
+_SNAKE_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
+_SNAKE_TOKEN = re.compile(r"\b[a-z]+_[a-z0-9_]+\b")
+_NEEDED_GENERIC = "Something else is still needed."
+
+
+def needed_lines(items: Any) -> list[str]:
+    """Plain sentences for missing answers and blockers. Skill gaps stay in their own list. Raw keys are never shown."""
+    lines: list[str] = []
+    seen: set[str] = set()
+    for raw in items or []:
+        text = " ".join(str(raw or "").split())
+        if not text:
+            continue
+        if text in _NEEDED_SENTENCE:
+            line = _NEEDED_SENTENCE[text]
+        elif text.lower().startswith("answer needed:"):
+            label = text.split(":", 1)[1].strip()
+            if not label or _SNAKE_KEY.fullmatch(label) or "_" in label:
+                line = _NEEDED_GENERIC
+            elif label.endswith("?"):
+                line = f"An answer is still needed: {label}"
+            else:
+                line = f"{label} is still needed."
+        elif _SNAKE_KEY.fullmatch(text) or _SNAKE_TOKEN.search(text):
+            line = _NEEDED_GENERIC
+        else:
+            line = text
+        if line not in seen:
+            seen.add(line)
+            lines.append(line)
+    return lines
 
 
 def plain_fit_line(value: Any) -> str:

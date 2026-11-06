@@ -82,8 +82,7 @@ def test_repeated_update_lines_collapse_to_one_line_with_a_count_and_the_events_
         {"events": [{"at": NOW + timedelta(seconds=2), "message": "running"}, {"at": NOW + timedelta(seconds=3), "message": "running"}], "interrupt": {"type": "handoff"}},
     ]
     rows = application_timeline(app, runs)
-    started = next(row for row in rows if row["text"] == "Task started")
-    assert started["count"] == 2
+    assert all(row["text"] != "Task started" for row in rows)
     waiting = next(row for row in rows if row["text"].startswith("Stopped before anything was sent"))
     assert waiting["count"] == 2
     assert len(app["history"]) == 2 and len(runs[0]["events"]) == 2

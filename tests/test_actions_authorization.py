@@ -101,6 +101,26 @@ def test_concurrent_workers_execute_once(store):
     assert len(ran) == 1
 
 
+def test_replay_of_a_failed_action_returns_the_saved_reason(store):
+    acts = ActionStore(store)
+    mat = material_hash(answers={"q": "place"})
+    _grant(store, "job-replay", mat)
+    action = acts.prepare("application_submit", "job-replay", "submit:job-replay", {}, mat)
+    saved = "The location box did not show a place for Lakeside, Northland, then Lakeside"
+    calls = []
+
+    def fail(_doc):
+        calls.append(1)
+        raise ActionFailed(saved, {"value": "Lakeside, Northland"}, retryable=False)
+
+    first = acts.execute(action["_id"], "w1", fail)
+    assert first.status == "failed" and first.adapter_ran and first.reason == saved
+    second = acts.execute(action["_id"], "w2", fail)
+    assert second.status == "failed" and not second.adapter_ran and second.reason == saved and len(calls) == 1
+    assert "replay" not in second.reason
+    assert acts.get(action["_id"])["outcome_reason"] == saved
+
+
 def test_emergency_stop_blocks_and_failure_stops_scope(store):
     acts = ActionStore(store)
     mat = material_hash(answers={"a": 1})

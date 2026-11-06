@@ -13,11 +13,15 @@ from amorehiremepls.web.chrome import (
     Path,
     RedirectResponse,
     Request,
+    answer_gap_line,
     fit_score,
+    form_filling_now,
     json,
     plain_failure,
+    shown_failure_reason,
     status_label,
     utcnow,
+    what_to_do_line,
 )
 from amorehiremepls.web.shots import split_screenshots
 
@@ -102,7 +106,19 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         scopes = [s for s in rt.auth.active("application_submit") if s.binding.target_id == job_id]
         active_run = next((r for r in runs if r["status"] in ("queued", "claimed", "running", "waiting", "paused")), None)
         outreach_n = rt.store.c("outreach").count_documents({"employer_norm": job.get("employer_norm")}) if job.get("employer_norm") else 0
-        steps, next_step = job_steps(job, local, arts, bool(scopes), active_run, outreach_n)
+        if local and local.get("status") == "failed":
+            real = shown_failure_reason(local, rt.actions.by_key(f"submit:{job_id}"))
+            if real != (local.get("reason") or ""):
+                local = {**local, "reason": real}
+        action = rt.actions.by_key(f"submit:{job_id}")
+        filling = bool(local) and form_filling_now(local, runs, action)
+        gap = answer_gap_line(local, action) if local else ""
+        soon = ""
+        if local and not filling:
+            line = what_to_do_line(local, runs, (local or {}).get("reason") or "", action)
+            if line == "The form opens within a minute.":
+                soon = line
+        steps, next_step = job_steps(job, local, arts, bool(scopes), active_run, outreach_n, filling, gap, soon)
         docs, shots = split_screenshots(arts)
         from amorehiremepls.apply.applications import submission_lock_reason
 
@@ -120,7 +136,17 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         ctx.update(steps=steps, next_step=next_step, active_run=active_run)
         return render(request, "job.html", session, **ctx)
 
-    def job_steps(job: dict, app_doc: dict | None, arts: list, scope_active: bool, active_run: dict | None, outreach_n: int) -> tuple[list[dict], dict]:
+    def job_steps(
+        job: dict,
+        app_doc: dict | None,
+        arts: list,
+        scope_active: bool,
+        active_run: dict | None,
+        outreach_n: int,
+        filling: bool = False,
+        gap: str = "",
+        soon: str = "",
+    ) -> tuple[list[dict], dict]:
         """Linear workflow for one job with the current step and the single next action under it."""
         st = (app_doc or {}).get("status")
         if job.get("status") == "closed":
@@ -136,9 +162,9 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         recorded = submitted and (bool((app_doc or {}).get("tracker_record_id")) or sync_state in ("synced", "not_applicable") or job.get("status") == "applied_historical")
         flags = [
             ("import", True),
-            ("qualify", bool(job.get("qualification"))),
-            ("tailor", bool(arts)),
-            ("review", bool(pkg) and st not in ("needs_input", "queued", "preparing")),
+            ("qualify", after_approval or bool(job.get("qualification"))),
+            ("tailor", after_approval or bool(arts)),
+            ("review", after_approval or (bool(pkg) and st not in ("needs_input", "queued", "preparing"))),
             ("authorize", after_approval or scope_active),
             ("submit", submitted),
             ("record", recorded),
@@ -183,11 +209,11 @@ def register(app, rt, require_session, require_csrf, render) -> None:
             elif st == "needs_verification":
                 nxt = {"label": "The result is unclear. Check the job site", "href": app_href, "verb": "Check result", "note": ""}
             elif st == "failed":
-                nxt = {"label": "Applying stopped early. Nothing was sent", "href": app_href, "verb": "See what failed", "note": plain_failure((app_doc or {}).get("reason"))}
-            elif st == "executing":
-                nxt = {"label": "Applying now", "href": run_href or app_href, "verb": "Watch", "note": ""}
+                nxt = {"label": "Nothing is being filled in right now.", "href": app_href, "verb": "See what happened", "note": gap or plain_failure((app_doc or {}).get("reason"))}
+            elif filling:
+                nxt = {"label": "The form is being filled in now.", "href": run_href or app_href, "verb": "Open it", "note": ""}
             elif active_run and active_run.get("status") in ("queued", "claimed", "running"):
-                nxt = {"label": "The app is applying now", "href": run_href or app_href, "verb": "Watch", "note": ""}
+                nxt = {"label": "Nothing is being filled in right now.", "href": app_href, "verb": "Open it", "note": gap or soon or "These answers have not been typed yet."}
             elif active_run and active_run.get("requested") == "resume":
                 nxt = {"label": "Approved. The task will continue within a minute", "href": run_href or app_href, "verb": "Watch", "note": ""}
             else:

@@ -134,6 +134,7 @@
       {% for e in activity %}<div class="list-item"><span class="t">{{ e.created_at|local }}</span><div class="body"><strong>{{ e.event|label }}</strong>{% if e.subject_id %}<small class="mono">{{ e.subject_id }}</small>{% endif %}</div></div>
       {% else %}<div class="empty">No activity recorded yet.</div>{% endfor %}
     </div>
+    {% if recent_log %}<details class="disclosure mt"><summary>Log</summary><div class="timeline log">{% for line in recent_log %}<div class="list-item"><span class="t">{{ line.at|local }}</span><span class="msg">{{ line.text }}</span></div>{% endfor %}</div></details>{% endif %}
   </div>
 </div>
 

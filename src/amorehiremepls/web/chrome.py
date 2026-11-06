@@ -25,9 +25,10 @@ from amorehiremepls.apply.browser import normalize_screenshots
 from amorehiremepls.candidate.candidate_profile import CONTROL_KEY as TOML_CONTROL_KEY
 from amorehiremepls.candidate.candidate_profile import PROFILE_TOML_NAME, ProfileTomlError, apply_profile_toml, load_profile_toml, toml_status
 from amorehiremepls.candidate.profile import ExcludedEmployer, Provenance, RecipientExclusion
+from amorehiremepls.core.actions import REPLAY_LABEL
 from amorehiremepls.core.authorization import ScopeBinding, StopConditions
 from amorehiremepls.core.runtime import Runtime
-from amorehiremepls.core.util import sha256_file, to_local, utcnow, zone_label
+from amorehiremepls.core.util import redact_free, sha256_file, to_local, utcnow, zone_label
 from amorehiremepls.core.worker import next_slot_description, worker_healthy
 from amorehiremepls.jobs.discovery import SOURCES
 from amorehiremepls.jobs.logos import EMPLOYER_DOMAINS, REQUEST_TIMEOUT
@@ -53,6 +54,7 @@ from amorehiremepls.web.ui_settings import (
     initials,
     line_chart,
     month_buckets,
+    needed_lines,
     next_action_label,
     normalize_accent,
     normalize_tint,
@@ -96,6 +98,7 @@ TEMPLATES.env.filters["label"] = status_label
 TEMPLATES.env.filters["verb"] = next_action_label
 TEMPLATES.env.filters["initials"] = initials
 TEMPLATES.env.filters["plain"] = plain_fit_line
+TEMPLATES.env.filters["needed"] = needed_lines
 TEMPLATES.env.filters["failure"] = plain_failure
 TEMPLATES.env.filters["evidence"] = evidence_source
 STATIC_DIR = Path(__file__).parent / "static"
@@ -218,6 +221,10 @@ FLASHES = {
     "continue_ok": ("Continue received. The same page will be checked again. The form is not sent a second time.", "ok"),
     "continue_missing": ("That check is no longer being held.", "bad"),
     "continue_changed": ("The package changed, so Continue was refused.", "bad"),
+    "field_ok": ("Answer received. It will be typed into the same open form. The form is not started over.", "ok"),
+    "field_missing": ("That field is no longer waiting.", "bad"),
+    "field_empty": ("Type an answer first. Nothing was entered on the form.", "bad"),
+    "field_changed": ("The package changed, so that answer was refused.", "bad"),
     "notify_sent": ("Test notification sent.", "ok"),
     "notify_failed": ("The test notification could not be sent. Check the mail server settings and try again.", "bad"),
     "notify_off": ("Nothing is set up to send a notification yet.", "bad"),
@@ -342,49 +349,115 @@ def continue_waiting_runs(rt: Runtime, app: dict) -> bool:
     return asked
 
 
-def application_timeline(app: dict, runs: list[dict]) -> list[dict]:
+def saved_failure_reason(app: dict | None, action: dict | None = None) -> str:
+    """The failure text already saved on the attempt. A replay label is not a reason."""
+    app = app or {}
+    text = str((action or {}).get("outcome_reason") or "").strip()
+    if text and text != REPLAY_LABEL:
+        return text
+    current = str(app.get("reason") or "").strip()
+    if current and current != REPLAY_LABEL:
+        return current
+    for entry in reversed(app.get("history") or []):
+        text = str(entry.get("reason") or "").strip()
+        if text and text != REPLAY_LABEL:
+            return text
+    return ""
+
+
+def shown_failure_reason(app: dict | None, action: dict | None = None) -> str:
+    """Reason to show for a failed attempt. A replay label yields the reason saved on the action."""
+    if not app:
+        return ""
+    current = str(app.get("reason") or "").strip()
+    saved = saved_failure_reason(app, action)
+    if app.get("status") == "failed" and current == REPLAY_LABEL:
+        return saved
+    return current or saved
+
+
+def event_log(runs: list[dict], limit: int = 40, saved: str = "", saved_at: Any = None) -> list[dict]:
+    """Newest saved step lines: time plus the saved message. The replay label is skipped. Secrets the existing filter covers are not shown."""
+    rows: list[dict] = []
+    for run in runs or []:
+        for event in run.get("events") or []:
+            text = redact_free(" ".join(str(event.get("message") or "").split()))[:300]
+            if event.get("at") and text and text != REPLAY_LABEL:
+                rows.append({"at": event["at"], "text": text})
+    extra = redact_free(" ".join(str(saved or "").split()))[:300]
+    if saved_at and extra and extra != REPLAY_LABEL and all(row["text"] != extra for row in rows):
+        rows.append({"at": saved_at, "text": extra})
+    rows.sort(key=lambda row: row["at"], reverse=True)
+    return rows[:limit]
+
+
+def application_timeline(app: dict, runs: list[dict], saved_reason: str = "") -> list[dict]:
     """Plain updates from records already saved. No model call."""
+    saved = str(saved_reason or "").strip()
+    if not saved or saved == REPLAY_LABEL:
+        saved = saved_failure_reason(app)
     rows: list[dict] = []
     for entry in app.get("history") or []:
         if entry.get("text"):
             text = str(entry["text"])
+            replay = False
+            step = True
         else:
             status = entry.get("status") or ""
             text = _HISTORY_LINE.get(status, status.replace("_", " "))
             reason = (entry.get("reason") or "").strip()
-            if reason:
+            replay = reason == REPLAY_LABEL
+            step = False
+            if replay:
+                text = "The form was not opened. Showing the result already saved."
+                reason = ""
+            elif reason == REPLAY_LABEL:
+                reason = saved
+            if reason and reason != REPLAY_LABEL:
                 text = f"{text}. {reason}"
         if entry.get("at"):
-            rows.append({"at": entry["at"], "text": text})
+            rows.append({"at": entry["at"], "text": text, "replay": replay, "step": step})
     for run in runs:
         for event in run.get("events") or []:
             text = _run_event_line(run, event)
             if event.get("at") and text:
-                rows.append({"at": event["at"], "text": text})
+                rows.append({"at": event["at"], "text": text, "replay": False, "step": text not in _BOOKKEEPING})
     rows.sort(key=lambda row: row["at"], reverse=True)
     kept: list[dict] = []
     for row in rows:
         if kept and kept[-1]["text"] == row["text"]:
             kept[-1]["count"] = kept[-1].get("count", 1) + 1
+            if not row.get("replay"):
+                kept[-1]["replay"] = False
+            if row.get("step"):
+                kept[-1]["step"] = True
             continue
-        kept.append({**row, "count": 1})
-    return kept[:20]
+        kept.append({**row, "count": 1, "step": row.get("step", False)})
+    replayed = any(row.get("replay") for row in kept)
+    shown = {row["text"] for row in kept if not row.get("replay")}
+    display = [row for row in kept if not (row.get("replay") and row["text"] in shown)]
+    if replayed:
+        for row in display:
+            row["replayed_failure"] = True
+    return display[:20]
 
 
 def _run_event_line(run: dict, event: dict) -> str:
-    message = event.get("message") or ""
+    message = redact_free(event.get("message") or "")
+    outcome = (run.get("state") or {}).get("outcome") or {}
+    repeated = isinstance(outcome, dict) and outcome.get("adapter_ran") is False
+    if message in ("running", "queued", "Picked up", "hidden from the task list", REPLAY_LABEL, "Task started", "Task finished", "Task queued"):
+        return ""
+    if message == "completed":
+        return "The form was not opened. Showing the result already saved." if repeated else ""
+    if repeated and message == "Applying on the job site":
+        return ""
     if message == "waiting":
         return _WAIT_LINE.get((run.get("interrupt") or {}).get("type"), "Paused")
-    if message == "running":
-        return "Task started"
-    if message == "completed":
-        return "Task finished"
     if message == "failed":
         return f"Task stopped: {(run.get('error') or 'it stopped')[:180]}"
     if message.startswith("cancelled"):
         return "Task was replaced"
-    if message == "queued":
-        return "Task queued"
     return message
 
 
@@ -408,16 +481,33 @@ def authorized_now(app: dict, runs: list[dict]) -> str | None:
 
 
 # Bookkeeping written when a task changes state. What to do now skips these when a real step is already saved.
-_BOOKKEEPING = {"Task finished", "Task started", "Task queued", "Paused"}
+_BOOKKEEPING = {
+    "Task finished",
+    "Task started",
+    "Task queued",
+    "Paused",
+    "Picked up",
+    "hidden from the task list",
+    "The form was not opened. Showing the result already saved.",
+}
 
 
-def situation_line(app: dict, runs: list[dict]) -> str:
-    """What to do now is the latest thing already saved. No fixed sentence and no model call."""
-    rows = application_timeline(app, runs)
+def situation_line(app: dict, runs: list[dict], saved_reason: str = "") -> str:
+    """What to do now is the latest thing already saved. A replay label is not that line."""
+    rows = application_timeline(app, runs, saved_reason)
+    # A replayed failure must not cover the latest step. The saved reason stays in the list.
+    if any(row.get("replay") or row.get("replayed_failure") for row in rows):
+        for row in rows:
+            if row.get("step"):
+                return row["text"]
     for row in rows:
-        if row["text"] not in _BOOKKEEPING:
+        if row.get("replay") or row["text"] in _BOOKKEEPING:
+            continue
+        return row["text"]
+    for row in rows:
+        if not row.get("replay"):
             return row["text"]
-    return rows[0]["text"] if rows else ""
+    return ""
 
 
 def form_in_progress(app: dict, runs: list[dict]) -> bool:
@@ -427,11 +517,134 @@ def form_in_progress(app: dict, runs: list[dict]) -> bool:
     return any(run.get("status") in ("claimed", "running") for run in runs)
 
 
-def activity_payload(app: dict, runs: list[dict]) -> dict:
-    """The lines already saved for this application, for the page to refresh. No model call."""
-    lines = [{"at": _local(row["at"], "%Y-%m-%d %H:%M"), "text": row["text"], "count": row["count"]} for row in application_timeline(app, runs)]
+FILLING_LINE = "The form is being filled in now."
+IDLE_LINE = "Nothing is being filled in right now."
+OPENING_LINE = "The form opens within a minute."
+_FINISHED_ACTION = {"succeeded", "failed", "needs_verification"}
+_LOCATION_LABEL = re.compile(r"location\b", re.I)
+
+
+def form_filling_now(app: dict, runs: list[dict], action: dict | None = None) -> bool:
+    """True while the form is actually being filled. A task that only returns a saved result does not count."""
+    if not form_in_progress(app, runs):
+        return False
+    if action and action.get("status") in _FINISHED_ACTION and action.get("material_hash") == app.get("material_hash"):
+        return False
+    return True
+
+
+def opening_soon(app: dict, runs: list[dict], action: dict | None = None) -> bool:
+    """A queued task will open the form. A queued repeat of a finished result will not."""
+    if form_filling_now(app, runs, action):
+        return False
+    if not any(run.get("status") == "queued" for run in runs):
+        return False
+    if not action or action.get("status") not in _FINISHED_ACTION:
+        return True
+    if action.get("material_hash") == app.get("material_hash"):
+        return False
+    return action.get("status") == "failed"
+
+
+def network_streaming(app: dict, runs: list[dict], action: dict | None = None) -> bool:
+    """True while a real fill is starting or running, so the request list stays open and refreshes."""
+    if app.get("status") not in ("authorized", "executing"):
+        return False
+    return form_filling_now(app, runs, action) or opening_soon(app, runs, action)
+
+
+def _typed_place(evidence: dict) -> str:
+    typed = str(evidence.get("location_typed") or "").strip()
+    if typed:
+        return typed
+    value = str(evidence.get("value") or "").strip()
+    if value and len(value) <= 120 and "\n" not in value:
+        return value
+    return ""
+
+
+def answer_gap_line(app: dict | None, action: dict | None = None) -> str:
+    """Plain sentence when the answer on the page is not the value that was typed last time."""
+    if not app:
+        return ""
+    label, current = "", ""
+    for answer in (app.get("review_package") or {}).get("answers") or []:
+        name = str(answer.get("label") or "").strip()
+        if answer.get("field_id") == "location" or _LOCATION_LABEL.match(name):
+            label = name or "Location"
+            current = str(answer.get("value") or "").strip()
+            break
+    if not label or not current:
+        return ""
+    typed = ""
+    for source in (action, app):
+        evidence = (source or {}).get("evidence")
+        if isinstance(evidence, dict):
+            typed = _typed_place(evidence)
+            if typed:
+                break
+    if not typed or typed.casefold() == current.casefold():
+        return ""
+    return f"Last time, {label} was filled in as {typed}. This page now says {current}. That new answer has not been typed yet."
+
+
+def answers_differ(app: dict | None, action: dict | None) -> bool:
+    """The saved attempt failed for a different set of answers than the ones on the page."""
+    if not app or not action or action.get("status") != "failed":
+        return False
+    return action.get("material_hash") != app.get("material_hash")
+
+
+def what_to_do_line(app: dict, runs: list[dict], saved_reason: str = "", action: dict | None = None) -> str:
+    """The line under the filling state. A difference between the page and the last typed value comes first."""
+    if form_filling_now(app, runs, action):
+        return situation_line(app, runs, saved_reason)
+    gap = answer_gap_line(app, action)
+    if gap:
+        return gap
+    if opening_soon(app, runs, action):
+        return OPENING_LINE
+    return situation_line(app, runs, saved_reason)
+
+
+def network_public(rows: list[dict] | None) -> list[dict]:
+    """Shape one job's saved requests for the page. No model call. Times are local. Secrets are already removed."""
+    public: list[dict] = []
+    for row in rows or []:
+        status = row.get("status")
+        public.append(
+            {
+                "id": str(row.get("id") or ""),
+                "at": _local(row.get("at"), "%Y-%m-%d %H:%M:%S"),
+                "method": str(row.get("method") or ""),
+                "url": str(row.get("url") or ""),
+                "type": str(row.get("type") or ""),
+                "status": status if isinstance(status, int) else None,
+                "timing": str(row.get("timing") or ""),
+                "body": str(row.get("body") or ""),
+            }
+        )
+    return public
+
+
+def activity_payload(app: dict, runs: list[dict], saved_reason: str = "", field: dict | None = None, network: list[dict] | None = None, action: dict | None = None) -> dict:
+    """Saved steps plus this job's network rows, for the page to refresh. No model call."""
+    rows = application_timeline(app, runs, saved_reason)
+    lines = [{"at": _local(row["at"], "%Y-%m-%d %H:%M"), "text": row["text"], "count": row["count"]} for row in rows]
     live = app.get("status") in ("authorized", "executing") or any(run.get("status") in ("queued", "claimed", "running", "waiting", "paused") for run in runs)
-    return {"now": situation_line(app, runs), "live": live, "working": form_in_progress(app, runs), "lines": lines}
+    filling = form_filling_now(app, runs, action)
+    payload = {
+        "now": what_to_do_line(app, runs, saved_reason, action),
+        "state": FILLING_LINE if filling else IDLE_LINE,
+        "live": live,
+        "working": filling,
+        "network_open": network_streaming(app, runs, action),
+        "lines": lines,
+        "network": network_public(network),
+    }
+    if field:
+        payload["field"] = {"label": str(field.get("label") or ""), "reason": str(field.get("reason") or "")}
+    return payload
 
 
 __all__ = [
@@ -501,8 +714,12 @@ __all__ = [
     "_run_event_line",
     "annotations",
     "application_timeline",
+    "event_log",
+    "network_public",
     "apply_profile_toml",
     "authorized_now",
+    "saved_failure_reason",
+    "shown_failure_reason",
     "situation_line",
     "continue_waiting_runs",
     "datetime",

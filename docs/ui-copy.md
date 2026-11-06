@@ -63,6 +63,19 @@ appears anywhere else.
 | Fit score | fit rank | `fit_rank` |
 | Facts check (every claim comes from your approved facts) | grounding | `grounding` |
 | Proof of applying | submission evidence | `evidence` |
+| Copy (application page: Technical details, and Technical details of the application) | copies the exact text in that block; the button then says Copied, or Copy failed | — |
+| Log (Overview, closed until opened, only when recent steps exist) | saved step lines: time and message, newest first | — |
+| Network Tab (application page; one list per job; open while a fill is starting or running) | each request's method, address, kind, status and timing, plus a short response when the form asks the site for choices; Clear removes only that job's list. Empty: "Nothing was recorded for the last time. The next time, this tab opens and lists requests from the start." Recording starts when the page session opens, before the first page load. The open page refreshes about once a second while a fill is starting or running, and stops when nothing is live. | — |
+| The form is being filled in now. | shown with the latest saved step while a fill is actually in progress | — |
+| Nothing is being filled in right now. | shown when no form is open, including when an earlier approval only repeated a saved result | — |
+| Last time, [question] was filled in as [typed]. This page now says [current]. That new answer has not been typed yet. | the answer on the page and the value from the last fill differ; shown under What to do now and What happened | — |
+| The form was not opened. Showing the result already saved. | a later pass that did not open the form | — |
+| Fill in the form | after the answers change, approves them if needed and opens the form with those answers | — |
+| Things the job asks for that you do not have | one coloured list row per skill gap from the saved fit. Missing answers are not in this list. The resume note under it is its own short note | — |
+| Still needed | plain sentences for missing answers and blockers. Examples: "A resume still needs to be selected." "Email is still needed." A form label becomes "[label] is still needed." An unknown key becomes "Something else is still needed." Raw field keys are never shown. | — |
+| Approved for this job · used 0 of 1 · ends [local time] | the approval line. No raw id. | — |
+| Proof of applying | one status chip, the picture, the time, and the page address. A short fingerprint may sit in the muted line. | — |
+| Use this answer (application page, while a required field is waiting) | the same open form receives the typed answer and continues; a sensitive value is not written into the log or the network tab | — |
 | Try to solve captchas automatically (Settings → Applying; hint: "Uses the AI model; some job sites forbid this and may discard flagged applications.") | `AMORE_CAPTCHA_AUTOSOLVE` / control `captcha_autosolve` | — |
 | Retry with the app (application page, after a human check or failure) | re-plan: cancel waiting run, clear `form_plan.fields`, new run | — |
 | Questions on the Greenhouse form and the answers that will be sent | review package answers for `apply_route=greenhouse` | — |
