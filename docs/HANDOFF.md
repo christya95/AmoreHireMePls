@@ -5,10 +5,12 @@ session. No private values: field names and counts only. Keep under 120 lines; f
 
 ## State now
 
-- Deployed 13:40: NAS stack `amorehiremepls`, image `lepia/amorehiremepls:c3d1ec06f44d` (commit `c3d1ec0`, the whole
-  local batch plus the location fix: a click blocked by the open place list reads that list and chooses the matching
-  city row). Web and worker healthy, `/health` 200. Local dashboard pid 73119 runs the same code. Faire location failed 4
-  times before this deploy (old worker); the 18:32 attempt also typed "Yes" into Location from a dashboard field answer.
+- Deployed 13:56: NAS stack `amorehiremepls`, image `lepia/amorehiremepls:1b7083edf3b0` (commit `1b7083e`). Root cause
+  of every Faire Location failure: the place list host `api-geocode-earth-proxy.greenhouse.io` was not a Greenhouse
+  resource host, so the request gate aborted it and no city ever appeared; the DOM fallback then read the phone
+  country code rows ("Afghanistan+93 ..."). Both fixed (host added, `data-dial-code` rows ignored). Web and worker
+  healthy, `/health` 200. Local dashboard pid 73119 predates this commit; restart it before a local run. Owner retries
+  the Faire application; check its Location field answer first (the 18:32 attempt typed "Yes" from a field answer).
 - Saved locally, uncommitted, not deployed (each verified in `git diff`; full suite 413 passed, ruff clean per the last agent):
   - A failed attempt shows Failed in red (`chrome.py` headline); approval is no longer the headline after a failure.
   - A value the person types on the application wins for every field; profile facts fill only untouched fields; typed values
