@@ -272,6 +272,43 @@ def test_a_code_emailed_after_the_final_click_is_asked_for_typed_and_the_receipt
     assert any("emailed you a code" in note for note in notes)
 
 
+def _chromium_available() -> bool:
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as pw:
+            pw.chromium.launch(headless=True).close()
+        return True
+    except Exception:
+        return False
+
+
+@pytest.mark.browser
+@pytest.mark.skipif(not _chromium_available(), reason="Playwright Chromium not installed")
+def test_eight_one_character_boxes_are_the_code_field():
+    """A split code is a row of one character boxes with no code in the name. The old selector misses it; each box gets one character."""
+    from playwright.sync_api import sync_playwright
+
+    from amorehiremepls.apply.browser import CODE_INPUT_SELECTOR, CODE_MARK, _Scope
+
+    row = "".join('<input maxlength="1" style="width:24px;height:32px">' for _ in range(8))
+    html = f'<body><p>We sent a security code to your email. Enter the code to complete your application.</p><div><p>Security code</p><div id="code-row">{row}</div></div></body>'
+    adapter = BrowserAdapter(BrowserConfig(allowed_hosts=set()))
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            page.set_content(html)
+            assert page.locator(CODE_INPUT_SELECTOR).count() == 0
+            found = adapter._detect_code_prompt(_Scope(page))
+            assert found is not None and found.count() == 8
+            assert page.locator(f"[{CODE_MARK}]").count() == 8
+            adapter._type_code(found, "12345678")
+            assert [found.nth(i).input_value() for i in range(8)] == list("12345678")
+        finally:
+            browser.close()
+
+
 def test_watch_browser_ui_is_absent():
     from amorehiremepls.apply import browser as browser_mod
 

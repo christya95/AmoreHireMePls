@@ -114,6 +114,47 @@ _MENU_ROWS_JS = """() => {
   }
   return labels;
 }""".replace("__VISIBLE__", _VISIBLE_JS)
+CODE_MARK = "data-amore-code"
+# Finds the code box(es) and marks them: one box named for a code, or a row of one character boxes (a split code
+# field) under a label that says code. Returns how many boxes were marked; 0 when the page has none.
+_CODE_BOXES_JS = """() => {
+  const visible = __VISIBLE__;
+  const skip = new Set(['hidden', 'checkbox', 'radio', 'file', 'submit', 'button', 'reset', 'image']);
+  const inputs = [...document.querySelectorAll('input')].filter(el => visible(el) && !skip.has(el.type));
+  for (const el of document.querySelectorAll('[__MARK__]')) el.removeAttribute('__MARK__');
+  const labelOf = (el) => {
+    let text = '';
+    if (el.labels) for (const lab of el.labels) text += ' ' + (lab.innerText || '');
+    const by = el.getAttribute('aria-labelledby');
+    if (by) for (const id of by.split(/\\s+/)) text += ' ' + (document.getElementById(id)?.innerText || '');
+    const group = el.closest('fieldset, [role="group"]');
+    if (group) text += ' ' + (group.querySelector('legend, label')?.innerText || '');
+    return text;
+  };
+  const codey = (el) => {
+    const attrs = [el.name, el.id, el.getAttribute('aria-label'), el.placeholder, el.autocomplete].join(' ').toLowerCase();
+    return /code/.test(attrs) || /code/i.test(labelOf(el));
+  };
+  // a split field: four or more one character boxes that share a parent
+  for (let i = 0; i < inputs.length; i++) {
+    if (inputs[i].maxLength !== 1) continue;
+    const parent = inputs[i].parentElement;
+    const run = [];
+    for (let j = i; j < inputs.length && inputs[j].maxLength === 1 && inputs[j].parentElement === parent; j++) run.push(inputs[j]);
+    if (run.length >= 4) {
+      let near = '', up = parent;
+      for (let depth = 0; up && depth < 4 && !/code/i.test(near); depth++) { near = up.innerText || ''; up = up.parentElement; }
+      if (run.some(codey) || /code/i.test(near)) {
+        run.forEach((el, k) => el.setAttribute('__MARK__', String(k)));
+        return run.length;
+      }
+    }
+    i += run.length ? run.length - 1 : 0;
+  }
+  const single = inputs.find(codey);
+  if (single) { single.setAttribute('__MARK__', '0'); return 1; }
+  return 0;
+}""".replace("__VISIBLE__", _VISIBLE_JS).replace("__MARK__", CODE_MARK)
 _MENU_CLICK_JS = """(label) => {
   const visible = __VISIBLE__;
   const want = (label || '').replace(/\\s+/g, ' ').trim();
@@ -879,16 +920,44 @@ class BrowserAdapter:
             page.wait_for_timeout(250)
 
     def _detect_code_prompt(self, scope: _Scope):
-        """A visible code box on a page that says a code was sent. None otherwise."""
+        """The code box(es) on a page that says a code was sent: a locator over the marked boxes, or None."""
         try:
+            if not CODE_PROMPT_WORDS.search(scope.body_text()):
+                return None
+            evaler = getattr(scope.page, "evaluate", None)
+            marked = int(evaler(_CODE_BOXES_JS) or 0) if callable(evaler) else 0
+            if marked:
+                return scope.locator(f"[{CODE_MARK}]")
             boxes = scope.locator(CODE_INPUT_SELECTOR)
             for index in range(min(boxes.count(), 6)):
                 box = boxes.nth(index)
-                if box.is_visible() and CODE_PROMPT_WORDS.search(scope.body_text()):
+                if box.is_visible():
                     return box
         except Exception:
             return None
         return None
+
+    def _type_code(self, boxes, code: str) -> None:
+        """One box takes the whole code. A split field takes one character per box, typed in order so the page can
+        move focus itself, then any box left empty is filled directly."""
+        count = 1
+        try:
+            count = max(1, boxes.count())
+        except Exception:
+            pass
+        if count == 1:
+            boxes.first.fill(code, timeout=5000)
+            return
+        first = boxes.nth(0)
+        first.click(timeout=5000)
+        first.press_sequentially(code, delay=60)
+        for index in range(min(count, len(code))):
+            box = boxes.nth(index)
+            try:
+                if (box.input_value(timeout=400) or "") != code[index]:
+                    box.fill(code[index], timeout=2000)
+            except Exception:
+                continue
 
     def _enter_emailed_code(self, scope: _Scope, plan: Plan, box, evidence: dict, hold: Any) -> bool:
         """Hold this page for the code the person reads in their email, type it, press the button beside it.
@@ -912,9 +981,10 @@ class BrowserAdapter:
             evidence["email_code"] = "empty"
             return False
         self._say(f"{CODE_LABEL}: typing the code")
-        box.fill(code, timeout=5000)
+        self._type_code(box, code)
         evidence["email_code"] = "typed"
-        if self._press_code_button(scope, box):
+        scope.page.wait_for_timeout(400)  # a split field enables its button once the last character lands
+        if self._press_code_button(scope, box.first):
             return True
         # The site's own instruction ("after you enter the code, resubmit your application"): the first click did not
         # send, so the form is sent once more, exactly once, with the code in place.
@@ -927,7 +997,7 @@ class BrowserAdapter:
                 return True
             except Exception:
                 pass
-        box.press("Enter")
+        box.first.press("Enter")
         return True
 
     def _press_code_button(self, scope: _Scope, box) -> bool:

@@ -36,6 +36,7 @@ def test_passwords_are_argon2id_and_access_badges_skip_admins():
     assert verify_password(stored, "correct-horse-battery")
     assert not verify_password(stored, "wrong-horse-battery")
     now = utcnow()
+    now = now.replace(hour=12, minute=0, second=0, microsecond=0)  # +2h must stay on this calendar day
     assert access_summary({"role": "admin", "status": "active"}, now)["badge"] is None
     member = {"role": "member", "status": "active", "access_until": now + timedelta(days=10, hours=2)}
     summary = access_summary(member, now)
