@@ -5,7 +5,7 @@ No private values here: field names and counts only. Keep under 120 lines; finis
 
 ## State now
 
-- Deployed: NAS Portainer stack `amorehiremepls`, image `lepia/amorehiremepls:2f1a834556d0` (commit `2f1a834`). Web and
+- Deployed: NAS Portainer stack `amorehiremepls`, image `lepia/amorehiremepls:329d1c022adf` (commit `329d1c0`). Web and
   worker healthy, dashboard `http://192.168.2.49:8790` (`/health` 200, tracker on). Approving a package after its task
   has finished queues one send of that same package. The application page shows each saved step under "What is happening"
   and refreshes while a task is working. A posting that never states an employment type is treated as permanent. Only an explicit phrase, or the job
@@ -23,15 +23,15 @@ No private values here: field names and counts only. Keep under 120 lines; finis
   edit), `AMORE_TIMEZONE` and tracker settings, profession neutral code with `candidate/profile.toml` as the one customization
   surface (`amore profile import --from … [--dry-run]`, `export --to …`, `fingerprint`, Profile page Load button). The
   owner's live preferences are exported to the gitignored Mac copy of `profile.toml`; the NAS Profile card says "not found"
-  because the file is only on the Mac. Layout is the six packages in `docs/architecture.md`. Suite: 378 passed, ruff clean.
+  because the file is only on the Mac. Layout is the six packages in `docs/architecture.md`. Suite: 405 passed, ruff clean.
   Posting cleanup, delete/restart, and the task list split are on this image. A sent application, a receipt, the base
   resume, and tracker history are kept.
 - Fixture tested only: Greenhouse, Lever and Ashby form filling including the hidden input upload fix and the pre fill form
   check; the salary skill; Workday posting refresh; owner notifications, the human check hold and the one later try.
 - Not verified: no live employer receipt exists yet for any ATS; nothing has ever been submitted by the app.
 - While a form is filled, the bar says "The form is being filled in now." Otherwise: "Nothing is being filled in right now."
-  Skill gaps and missing answers are separate lists. Request recording starts before the first page load. Not deployed.
-  Location order was deployed as `2f1a834556d0`. The Faire attempt stopped; nothing was sent.
+  Skill gaps and missing answers are separate lists. Request recording starts before the first page load. Deployed as
+  `329d1c022adf`. The Mac dashboard was restarted (`/health` 200). The Faire attempt stopped; nothing was sent.
 - Data (live database through `ProfileStore`, values never in the repo): contact and address facts under the mapper keys,
   links, availability, notice period, work arrangements, compensation floor, five self identification facts (sensitive),
   62 answers, 11 skills, 11 education rows. Profile version 7 per the chat record (the previous handoff wrote 8; the Profile
