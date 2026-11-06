@@ -135,6 +135,38 @@
     document.querySelectorAll("details.more[open]").forEach(reserveMore);
   });
 
+  // Application page: refresh the step list while a task is working. No model call; the lines are the saved steps.
+  var activity = document.getElementById("updates");
+  if (activity && activity.getAttribute("data-live") === "1") {
+    var activityTimer = setInterval(function () {
+      fetch(activity.getAttribute("data-activity"), { credentials: "same-origin", headers: { Accept: "application/json" } })
+        .then(function (response) { return response.ok ? response.json() : null; })
+        .then(function (data) {
+          if (!data) return;
+          var now = document.getElementById("activity-now");
+          if (now) now.textContent = data.now || "";
+          var box = document.getElementById("activity-lines");
+          if (box) {
+            box.replaceChildren();
+            (data.lines || []).forEach(function (line) {
+              var row = document.createElement("div");
+              row.className = "list-item";
+              var when = document.createElement("span");
+              when.className = "t";
+              when.textContent = line.at || "";
+              var what = document.createElement("span");
+              what.textContent = line.text + (line.count > 1 ? " (" + line.count + ")" : "");
+              row.appendChild(when);
+              row.appendChild(what);
+              box.appendChild(row);
+            });
+          }
+          if (!data.live) clearInterval(activityTimer);
+        })
+        .catch(function () { /* the next pass tries again */ });
+    }, 4000);
+  }
+
   // Double-submit guard for state-changing forms.
   document.querySelectorAll("form[method='post']").forEach(function (form) {
     form.addEventListener("submit", function () {

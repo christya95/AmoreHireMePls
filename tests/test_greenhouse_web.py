@@ -171,6 +171,6 @@ def test_approval_continues_a_task_still_waiting_for_answers_and_the_page_shows_
     saved = rt.store.c("runs").find_one({"_id": run["_id"]})
     assert saved["requested"] == "resume" and saved["resume_payload"]["inputs"]["first_name"] == "Ada"
     page = client.get("/applications/app_wait").text
-    assert "Updates" in page and "You approved this package" in page and "Package ready for you to read" in page
+    assert "What is happening" in page and "You approved this package" in page and "Package ready for you to read" in page
     assert "The task will continue within a minute" in page
     assert "Nothing to do" not in page and "within a minute. Nothing" not in page

@@ -135,6 +135,48 @@ def test_review_page_and_single_scope_authorization(client, tmp_path):
     assert "I applied on the site" in client.get(f"/applications/{app_id}").text
 
 
+def test_approving_after_the_task_finished_queues_a_send_and_the_page_shows_the_steps(client, tmp_path):
+    from amorehiremepls.core.util import utcnow
+    from amorehiremepls.core.worker import Worker
+    from tests.fixtures.make_resume import make_base_resume
+    from tests.fixtures.profile_fixture import build_test_profile
+    from tests.test_profile import FAKE_APPLY, FAKE_FACTS, FAKE_SALARY
+
+    csrf = _login(client)
+    rt = client.app.state.rt
+    rt.profiles.save(build_test_profile(FAKE_FACTS, FAKE_SALARY, apply_text=FAKE_APPLY), actor="test")
+    base = make_base_resume(tmp_path / "base.docx")
+    rt.profiles.select_base_resume(base, "2026-10-01", "test", rt.settings.private_dir)
+    rt.reload_profile()
+    r = client.post(
+        "/jobs/import",
+        data={
+            "csrf": csrf,
+            "url": "https://careers.acme.example/jobs/R80",
+            "employer": "Acme",
+            "title": "Backend Developer",
+            "requisition_id": "R80",
+            "location": "Toronto, Ontario",
+            "posting_text": "Permanent backend developer, Java, Toronto. CAD 110,000 to 130,000.",
+        },
+    )
+    job_id = r.headers["location"].rsplit("/", 1)[1]
+    run_url = client.post(f"/jobs/{job_id}/run", data={"csrf": csrf}).headers["location"]
+    Worker(rt).tick()
+    run = rt.store.c("runs").find_one({"_id": run_url.rsplit("/", 1)[1]})
+    app_id = run["interrupt"]["application_id"]
+    rt.store.update_run(run["_id"], status="completed", interrupt=None, finished_at=utcnow())
+    a = rt.store.c("applications").find_one({"_id": app_id})
+    assert client.post(f"/applications/{app_id}/authorize", data={"csrf": csrf, "material_hash": a["material_hash"], "hours": 1}).status_code == 303
+    queued = rt.store.c("runs").find_one({"params.application_id": app_id, "params.phase": "execute", "status": "queued"})
+    assert queued is not None
+    page = client.get(f"/applications/{app_id}")
+    assert page.status_code == 200 and "What is happening" in page.text and "Applying starts within a minute" in page.text
+    activity = client.get(f"/applications/{app_id}/activity")
+    body = activity.json()
+    assert activity.status_code == 200 and body["live"] is True and "Applying starts within a minute" in body["now"]
+
+
 def test_regenerate_documents_supersedes_artifacts_and_invalidates_approval(client, tmp_path):
     from amorehiremepls.core.worker import Worker
     from tests.fixtures.make_resume import make_base_resume

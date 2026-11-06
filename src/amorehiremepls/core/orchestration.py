@@ -80,11 +80,18 @@ def build_application_graph(services: Services, store: Store | None, checkpointe
 
     def qualify(state: AppState) -> dict:
         guard(state)
+        # An approval that arrived after the previous task finished starts here. The package is already
+        # approved, so this pass applies it and does not read the form or rebuild the resume.
+        if state.get("application_id") and state.get("status") == "authorized":
+            step(state, "Applying the approved package")
+            return {"status": "authorized", "application_id": state["application_id"]}
         step(state, "Checking the job")
         job = services.qualify(state["job_id"])
         return {"status": job.get("status"), "notes": [f"qualified: {job.get('status')}"]}
 
     def route_after_qualify(state: AppState) -> str:
+        if state.get("application_id") and state.get("status") == "authorized":
+            return "execute"
         return "prepare" if state.get("status") in ("qualified", "needs_review") else END
 
     def prepare(state: AppState) -> dict:
@@ -107,8 +114,12 @@ def build_application_graph(services: Services, store: Store | None, checkpointe
         if app["status"] in ("duplicate", "blocked"):
             return {"status": app["status"]}
         if not services.has_authorization(app):
-            decision = interrupt({"type": "awaiting_authorization", "application_id": app["_id"], "material_hash": app["material_hash"], "package": _compact_package(app)})
+            ask = {"type": "awaiting_authorization", "application_id": app["_id"], "material_hash": app["material_hash"], "package": _compact_package(app)}
+            decision = interrupt(ask)
             if not decision or not decision.get("authorized"):
+                # A resume that is not an approval must leave the task parked. Ending here is what left an
+                # approved package with no task to send it.
+                interrupt(ask)
                 return {"status": "ready_for_review", "notes": ["review: authorization not granted"]}
         return {"status": "authorized"}
 
@@ -117,7 +128,7 @@ def build_application_graph(services: Services, store: Store | None, checkpointe
 
     def execute(state: AppState) -> dict:
         guard(state)
-        step(state, "Carrying out the application")
+        step(state, "Applying on the job site")
         outcome = services.execute(state["application_id"], state.get("worker", "worker"))
         if outcome["status"] == "handoff":
             manual = interrupt({"type": "handoff", "application_id": state["application_id"], "reason": outcome.get("reason"), "evidence": outcome.get("evidence", {})})
@@ -151,7 +162,7 @@ def build_application_graph(services: Services, store: Store | None, checkpointe
     g.add_node("execute", execute)
     g.add_node("record", record)
     g.set_entry_point("qualify")
-    g.add_conditional_edges("qualify", route_after_qualify, {"prepare": "prepare", END: END})
+    g.add_conditional_edges("qualify", route_after_qualify, {"prepare": "prepare", "execute": "execute", END: END})
     g.add_edge("prepare", "review")
     g.add_conditional_edges("review", route_after_review, {"execute": "execute", END: END})
     g.add_conditional_edges("execute", route_after_execute, {"record": "record", END: END})
@@ -193,6 +204,8 @@ class Runner:
     def resume(self, run_id: str, payload: Any = None) -> dict:
         run = self._run(run_id)
         if run["status"] in ("completed", "cancelled"):
+            return run
+        if run["status"] == "waiting" and not payload:
             return run
         if self.store:
             self.store.update_run(run_id, requested=None)
@@ -243,3 +256,30 @@ class Runner:
 
 def _public_state(values: dict) -> dict:
     return {k: v for k, v in (values or {}).items() if k != "__interrupt__"}
+
+
+LIVE_RUN = ("queued", "claimed", "running", "waiting", "paused")
+
+
+def queue_approved_send(store: Store, app: dict, allowed: bool) -> bool:
+    """Queue one apply task for a package that is already approved and has no task working on it.
+
+    Does not read the form again and does not rebuild the resume. A second call after the same approval
+    does nothing, so a failed attempt is not sent again until the owner approves once more."""
+    if not allowed or app.get("status") != "authorized" or not app.get("_id") or not app.get("job_id"):
+        return False
+    if store.c("runs").find_one({"params.job_id": app["job_id"], "status": {"$in": list(LIVE_RUN)}}):
+        return False
+    approved_at = max((h.get("at") for h in (app.get("history") or []) if h.get("status") == "authorized" and h.get("at")), default=None)
+    queued_at = app.get("send_queued_at")
+    if queued_at and (approved_at is None or queued_at >= approved_at):
+        return False
+    now = utcnow()
+    fresh = [{"send_queued_at": None}, {"send_queued_at": {"$exists": False}}]
+    if approved_at is not None:
+        fresh.append({"send_queued_at": {"$lt": approved_at}})
+    taken = store.c("applications").update_one({"_id": app["_id"], "status": "authorized", "$or": fresh}, {"$set": {"send_queued_at": now, "updated_at": now}})
+    if taken.modified_count != 1:
+        return False
+    store.create_run("application", {"job_id": app["job_id"], "application_id": app["_id"], "phase": "execute"})
+    return True

@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import pytest
 
 from amorehiremepls.core.orchestration import Runner, build_application_graph, make_checkpointer
@@ -102,6 +104,48 @@ def test_pause_and_resume_do_not_redo_completed_nodes_and_cancel_stops(store):
     cancelled = runner3._invoke(store.c("runs").find_one({"_id": run3["_id"]}), Command(resume={"inputs": {"a": "b"}}))
     assert cancelled["status"] == "cancelled" and svc3.exec_calls == 0
     assert runner3.resume(run3["_id"])["status"] == "cancelled"  # cancelled runs stay cancelled
+
+
+def test_a_resume_that_is_not_an_approval_leaves_the_task_waiting(store):
+    svc = FakeServices(store, needs_input=False, authorized=False)
+    runner = _runner(store, svc)
+    run = runner.start_application_run("job-wait")
+    assert run["status"] == "waiting" and run["interrupt"]["type"] == "awaiting_authorization"
+    same = runner.resume(run["_id"], {})
+    assert same["status"] == "waiting" and same["interrupt"]["type"] == "awaiting_authorization" and svc.exec_calls == 0
+    untouched = runner.resume(run["_id"], None)
+    assert untouched["status"] == "waiting" and svc.exec_calls == 0
+    svc.authorized = True
+    done = runner.resume(run["_id"], {"authorized": True})
+    assert done["status"] == "completed" and svc.exec_calls == 1
+
+
+def test_an_already_approved_package_is_applied_without_preparing_again(store):
+    from amorehiremepls.core.orchestration import queue_approved_send
+
+    svc = FakeServices(store, needs_input=False, authorized=True)
+    svc.apps["app_ready"] = {"_id": "app_ready", "status": "authorized", "material_hash": "m1", "review_package": {"outstanding": [], "answers": []}}
+
+    def prepare(job_id, fields):
+        raise AssertionError("the approved package must not be rebuilt")
+
+    svc.prepare = prepare
+    app = {
+        "_id": "app_ready",
+        "job_id": "job-ready",
+        "status": "authorized",
+        "material_hash": "m1",
+        "history": [{"at": datetime(2026, 11, 5, tzinfo=UTC), "status": "authorized"}],
+        "review_package": {},
+        "provenance": {"origin": "local"},
+    }
+    store.c("applications").insert_one(app)
+    assert queue_approved_send(store, app, True) is True
+    assert queue_approved_send(store, store.c("applications").find_one({"_id": "app_ready"}), True) is False
+    run = store.c("runs").find_one({"params.application_id": "app_ready"})
+    assert run["params"]["phase"] == "execute" and run["status"] == "queued"
+    done = _runner(store, svc)._invoke(run, {"run_id": run["_id"], "job_id": "job-ready", "application_id": "app_ready", "status": "authorized", "worker": "worker", "notes": []})
+    assert done["status"] == "completed" and svc.exec_calls == 1
 
 
 def test_handoff_interrupt_then_manual_record(store):

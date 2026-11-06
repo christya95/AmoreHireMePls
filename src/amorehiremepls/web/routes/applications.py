@@ -10,6 +10,7 @@ from amorehiremepls.web.chrome import (
     RedirectResponse,
     Request,
     ScopeBinding,
+    activity_payload,
     application_timeline,
     authorized_now,
     continue_waiting_runs,
@@ -77,9 +78,20 @@ def register(app, rt, require_session, require_csrf, render) -> None:
             hold=active_hold(rt.store, app_id),
             updates=application_timeline(a, runs),
             now_line=authorized_now(a, runs),
+            activity_live=activity_payload(a, runs)["live"],
             can_clear=_can_clear(a),
         )
         return render(request, "application.html", session, **ctx)
+
+    @app.get("/applications/{app_id}/activity")
+    def application_activity(request: Request, app_id: str, session: dict = Depends(require_session)):
+        from fastapi.responses import JSONResponse
+
+        a = rt.store.c("applications").find_one({"_id": app_id})
+        if not a:
+            raise HTTPException(404)
+        runs = list(rt.store.c("runs").find({"params.job_id": a["job_id"]}).sort("created_at", -1))
+        return JSONResponse(activity_payload(a, runs))
 
     @app.post("/applications/{app_id}/inputs")
     async def application_inputs(request: Request, app_id: str, session: dict = Depends(require_session)):
@@ -107,8 +119,12 @@ def register(app, rt, require_session, require_csrf, render) -> None:
             {"_id": app_id},
             {"$set": {"status": "authorized", "updated_at": now}, "$push": {"history": {"at": now, "status": "authorized", "next_action": "the task applies this package"}}},
         )
-        a["status"] = "authorized"
-        continue_waiting_runs(rt, a)
+        a = rt.store.c("applications").find_one({"_id": app_id})
+        if not continue_waiting_runs(rt, a):
+            from amorehiremepls.core.orchestration import queue_approved_send
+            from amorehiremepls.core.runtime import RealServices
+
+            queue_approved_send(rt.store, a, RealServices(rt).has_authorization(a))
         return RedirectResponse(f"/applications/{app_id}", status_code=303)
 
     @app.post("/applications/{app_id}/manual")

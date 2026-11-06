@@ -322,17 +322,22 @@ def saved_form_inputs(app: dict) -> dict[str, str]:
     return out
 
 
-def continue_waiting_runs(rt: Runtime, app: dict) -> None:
+def continue_waiting_runs(rt: Runtime, app: dict) -> bool:
     """Saving answers or approving from the page can happen while the task is still parked on an earlier step.
-    Ask that task to continue. This only sets a flag; the task does the work on its next pass."""
+    Ask that task to continue. This only sets a flag; the task does the work on its next pass. Returns whether a
+    waiting task was asked to continue."""
     if app.get("status") == "needs_input":
-        return
+        return False
+    asked = False
     inputs = saved_form_inputs(app)
     for run in rt.store.c("runs").find({"params.job_id": app["job_id"], "status": "waiting", "interrupt.type": "needs_input"}):
         rt.store.update_run(run["_id"], requested="resume", resume_payload={"inputs": inputs})
+        asked = True
     if app.get("status") == "authorized":
         for run in rt.store.c("runs").find({"params.job_id": app["job_id"], "status": "waiting", "interrupt.type": "awaiting_authorization"}):
             rt.store.update_run(run["_id"], requested="resume", resume_payload={"authorized": True})
+            asked = True
+    return asked
 
 
 def application_timeline(app: dict, runs: list[dict]) -> list[dict]:
@@ -385,17 +390,26 @@ def authorized_now(app: dict, runs: list[dict]) -> str | None:
     if app.get("status") != "authorized":
         return None
     live = [run for run in runs if run.get("status") in ("queued", "claimed", "running", "waiting", "paused")]
-    if any(run["status"] in ("queued", "claimed", "running") for run in live):
-        return "The app is applying now. Refresh this page to see what happened."
+    if any(run["status"] in ("claimed", "running") for run in live):
+        return "The app is applying now. This page updates on its own."
+    if any(run["status"] == "queued" for run in live):
+        return "Approved. Applying starts within a minute. This page updates on its own."
     if any(run.get("requested") == "resume" for run in live):
-        return "Approved. The task will continue within a minute. Refresh to see the result."
+        return "Approved. The task will continue within a minute. This page updates on its own."
     waiting = next((run for run in live if run["status"] == "waiting"), None)
     kind = (waiting.get("interrupt") or {}).get("type") if waiting else None
     if kind == "needs_input":
         return "Approved, but the task is still waiting on an earlier step, so nothing is being sent yet."
     if kind == "awaiting_authorization":
-        return "Approved. The task will apply within a minute."
+        return "Approved. The task will apply within a minute. This page updates on its own."
     return "Approved, and nothing is being sent right now. No task is working on this application."
+
+
+def activity_payload(app: dict, runs: list[dict]) -> dict:
+    """The lines already saved for this application, for the page to refresh. No model call."""
+    lines = [{"at": _local(row["at"], "%Y-%m-%d %H:%M"), "text": row["text"], "count": row["count"]} for row in application_timeline(app, runs)]
+    live = app.get("status") in ("authorized", "executing") or any(run.get("status") in ("queued", "claimed", "running", "waiting", "paused") for run in runs)
+    return {"now": authorized_now(app, runs) or "", "live": live, "lines": lines}
 
 
 __all__ = [

@@ -41,7 +41,7 @@
     </div>
     <form method="post" action="/applications/{{ a._id }}/continue"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}"><button>Continue</button></form>
   </div>
-  {% elif now_line %}<div class="next-action mt"><div class="body"><small class="muted">What to do now</small><strong>{{ now_line }}</strong></div></div>
+  {% elif now_line %}<div class="next-action mt" id="activity-banner"><div class="body"><small class="muted">What to do now</small><strong id="activity-now">{{ now_line }}</strong></div></div>
   {% elif step %}<div class="next-action mt"><div class="body"><small class="muted">What to do now</small><strong>{{ step[0] }}</strong></div>{% if step[1] %}<a class="btn" href="{{ step[1] }}"><svg class="icon"><use href="#i-arrow"/></svg>{{ a.status|verb }}</a>{% endif %}</div>{% endif %}
 </div>
 
@@ -92,11 +92,11 @@
       <div class="card-h"><h3>Proof of applying</h3>{{ hint('evidence') }}<span class="sub">What the app saw: the filled form right before the final click and the page shown afterwards. Click a picture to open it full size.</span></div>
       {% include "_shots.html" %}
     </div>{% endif %}
-    <div class="card" id="updates">
-      <div class="card-h"><h3>Updates</h3><span class="sub">What has happened for this application, from the saved record. Refresh the page to see new lines.</span></div>
+    <div class="card" id="updates" data-activity="/applications/{{ a._id }}/activity"{% if activity_live %} data-live="1"{% endif %}>
+      <div class="card-h"><h3>What is happening</h3><span class="sub">Each step the app takes on this application. New steps show up here on their own while it is working.</span></div>
       {% if updates %}
-      <div class="timeline">{% for u in updates %}<div class="list-item"><span class="t">{{ u.at|local }}</span><span>{{ u.text }}{% if u.count > 1 %} ({{ u.count }}){% endif %}</span></div>{% endfor %}</div>
-      {% else %}<p class="note">No updates yet.</p>{% endif %}
+      <div class="timeline" id="activity-lines">{% for u in updates %}<div class="list-item"><span class="t">{{ u.at|local }}</span><span>{{ u.text }}{% if u.count > 1 %} ({{ u.count }}){% endif %}</span></div>{% endfor %}</div>
+      {% else %}<div class="timeline" id="activity-lines"></div><p class="note">Nothing has happened yet.</p>{% endif %}
     </div>
     <div class="card" id="record">
       <div class="card-h"><h3>What happened</h3>{% if a.status == 'needs_verification' %}{{ hint('needs_verification') }}{% elif a.status == 'handoff' %}{{ hint('handoff') }}{% endif %}</div>

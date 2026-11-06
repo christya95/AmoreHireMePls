@@ -102,6 +102,7 @@ class Worker:
         return done
 
     def _tick_owned(self, done: dict[str, Any]) -> None:
+        self._queue_approved_sends()
         for run in self.rt.store.c("runs").find({"status": "queued", "kind": "application"}).sort("created_at", 1).limit(self.rt.settings.worker_concurrency):
             if self.rt.store.emergency_stop_active():
                 break
@@ -216,7 +217,24 @@ class Worker:
         state = {"run_id": run["_id"], "job_id": job_id, "worker": self.name, "notes": []}
         if run["params"].get("form_fields") is not None:
             state["form_fields"] = run["params"]["form_fields"]
+        if run["params"].get("phase") == "execute" and run["params"].get("application_id"):
+            state["application_id"] = run["params"]["application_id"]
+            state["status"] = "authorized"
         self.runner._invoke(run, state)
+
+    def _queue_approved_sends(self) -> None:
+        """An approved package whose task already finished gets one apply task. It does not rebuild the package."""
+        from amorehiremepls.core.orchestration import queue_approved_send
+        from amorehiremepls.core.runtime import RealServices
+
+        services = RealServices(self.rt)
+        for app in self.rt.store.c("applications").find({"status": "authorized"}).limit(5):
+            try:
+                allowed = services.has_authorization(app)
+            except Exception:
+                log.exception("could not check approval for %s", app.get("_id"))
+                continue
+            queue_approved_send(self.rt.store, app, allowed)
 
     # -- schedule ------------------------------------------------------------------------
     def due_slots(self, now: datetime | None = None) -> list[str]:
