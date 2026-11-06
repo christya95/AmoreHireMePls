@@ -81,7 +81,6 @@ _ROW_JS = (
     "els => els.map(el => {"
     " const style = window.getComputedStyle(el);"
     " if (el.hidden || style.display === 'none' || style.visibility === 'hidden') return '';"
-    " if (el.hasAttribute('data-dial-code')) return '';"  # a phone field's country code list is not a place list
     " return (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();"
     " })"
 )
@@ -102,8 +101,6 @@ _MENU_ROWS_JS = """() => {
   const labels = [];
   for (const el of document.querySelectorAll('.select__option, [role="option"], .pac-item')) {
     if (!visible(el)) continue;
-    // a phone field's country code list is not a place list
-    if (el.hasAttribute('data-dial-code') || el.closest('[class*="country-list"], .iti')) continue;
     const text = (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();
     if (text && !labels.includes(text)) labels.push(text);
   }
@@ -112,7 +109,6 @@ _MENU_ROWS_JS = """() => {
 _MENU_CLICK_JS = """(label) => {
   const want = (label || '').replace(/\\s+/g, ' ').trim();
   for (const el of document.querySelectorAll('.select__option, [role="option"], .pac-item')) {
-    if (el.hasAttribute('data-dial-code')) continue;
     const text = (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();
     if (text !== want) continue;
     el.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
@@ -218,9 +214,13 @@ def _place_parts(text: str) -> list[str]:
     return [part.strip() for part in text.split(",") if part.strip()]
 
 
+_DIAL_CODE = re.compile(r"\s*\(?\+\d[\d\s-]*\)?$")  # a country row in a phone picker ends with its calling code: "Canada +1"
+
+
 def _city_part(text: str) -> str:
     parts = _place_parts(text)
-    return parts[0] if parts else text.strip()
+    first = parts[0] if parts else text.strip()
+    return _DIAL_CODE.sub("", first).strip()
 
 
 def _longer_city_name(suggestion_city: str, typed_city: str) -> bool:
@@ -1276,6 +1276,8 @@ class BrowserAdapter:
             return False
         if not current or chosen.casefold() in current.casefold():
             return False
+        if len(_place_parts(chosen)) == 1 and _city_part(chosen.casefold()) == current.casefold():
+            return False  # a one part row such as "Canada +1" may show as "Canada" once chosen
         return current.casefold() == " ".join(query.casefold().split())
 
     def _dom_rows(self, scope: _Scope) -> list[tuple[int, str]]:

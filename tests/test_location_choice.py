@@ -405,13 +405,36 @@ def test_a_menu_inside_the_fields_frame_picks_the_exact_city_row():
     assert what_to_do_line(app, runs) == chosen
 
 
-def test_an_optional_box_whose_list_never_matches_is_left_alone():
-    """The synthetic Country box can land on another widget (a phone code picker). Optional means skip, not fail."""
+def test_a_country_row_with_its_calling_code_is_the_country():
+    """A phone style country picker lists "Country +1"; that row is the typed country, and once chosen the box may show only the name."""
+    assert suggestion_rank("Country", "Country +1", "Country") == 2 and exact_city_row("Country", "Country +1")
+    assert not exact_city_row("Lakeside", "Lakeside Beach, Harbor, Country")
 
     class _PhoneFrame(_Frame):
         def locator(self, selector):
             if "option" in selector and self.field.current == "Country":
                 self.menu.rows = ["Country +1"]
+                return self.menu
+            return super().locator(selector)
+
+    field = _Field(None)
+    frame = _PhoneFrame(field)
+    field.frame = frame
+    adapter, notes = _adapter()
+    step = Step("autocomplete", "#country", "Country", label="Country", optional=True)
+    plan = Plan(start_url="https://boards.example/apply", steps=[step], receipt_text="thank you")
+    adapter._run_steps(_Scope(field), plan, {"steps_done": 0, "final_clicked": False}, adapter._shot_target(), None, None)
+    assert frame.menu.clicked == ["Country +1"]
+    assert "Country: typed Country. A list appeared. Chose Country +1." in notes
+
+
+def test_an_optional_box_whose_list_never_matches_is_left_alone():
+    """An optional suggestion box that offers nothing matching is skipped, not failed."""
+
+    class _PhoneFrame(_Frame):
+        def locator(self, selector):
+            if "option" in selector and self.field.current == "Country":
+                self.menu.rows = ["Other Land +44"]
                 return self.menu
             return super().locator(selector)
 
