@@ -71,6 +71,14 @@ CHALLENGE_SELECTORS: list[tuple[str, str]] = [
     ("human_check", "[data-captcha-challenge]"),
 ]
 SOLVABLE_CHALLENGES = ("text_captcha", "image_grid")
+# After the final click some sites email the applicant a code and finish only once it is typed. The box is found by
+# its one time code hint or a code word in its name, and the page must say a code was sent, so a postal code box is not it.
+CODE_INPUT_SELECTOR = 'input[autocomplete="one-time-code"], input[name*="code" i], input[id*="code" i], input[aria-label*="code" i], input[placeholder*="code" i]'
+CODE_PROMPT_WORDS = re.compile(
+    r"(security|verification|confirmation|one[ -]time|\d[ -]digit) code|code (we |was |has been )?(sent|emailed)|sent (you )?(a|the) code|enter the code", re.I
+)
+CODE_BUTTON_WORDS = re.compile(r"verify|confirm|submit|continue|done|finish", re.I)
+CODE_LABEL = "Code from your email"
 VALIDATION_SELECTOR = "[role=alert], .error, .field-error, .helper-text--error, .input-wrapper--error [aria-invalid=true], [aria-invalid=true]"
 FILE_WORDS = re.compile(r"resume|résumé|\bcv\b|curriculum", re.I)
 ATTACH_WORDS = re.compile(r"attach|upload|choose file|browse|select file|add file", re.I)
@@ -849,6 +857,16 @@ class BrowserAdapter:
                     continue
                 site = plan.site or "the job site"
                 raise HandoffRequired(f"{site} asked for a human check", {**evidence, "url": page.url, "challenge": challenge["kind"]})
+            code_box = self._detect_code_prompt(scope)
+            if code_box is not None and hold is not None and not evidence.get("code_hold_done"):
+                evidence["code_hold_done"] = True
+                evidence["email_code"] = "asked"
+                self._snapshot(page, evidence, "challenge", shots)
+                if self._enter_emailed_code(scope, plan, code_box, evidence, hold):
+                    deadline = time.monotonic() + timeout_ms / 1000
+                    continue
+                self._snapshot(page, evidence, "ambiguous", shots)
+                raise AmbiguousOutcome("the site asked for a code from your email and none was typed before the hold ended", evidence)
             errs = self._validation_errors(scope)
             if errs:
                 self._snapshot(page, evidence, "validation", shots)
@@ -858,6 +876,61 @@ class BrowserAdapter:
                 self._snapshot(page, evidence, "ambiguous", shots)
                 raise AmbiguousOutcome("receipt not observed before timeout after final action", evidence)
             page.wait_for_timeout(250)
+
+    def _detect_code_prompt(self, scope: _Scope):
+        """A visible code box on a page that says a code was sent. None otherwise."""
+        try:
+            boxes = scope.locator(CODE_INPUT_SELECTOR)
+            for index in range(min(boxes.count(), 6)):
+                box = boxes.nth(index)
+                if box.is_visible() and CODE_PROMPT_WORDS.search(scope.body_text()):
+                    return box
+        except Exception:
+            return None
+        return None
+
+    def _enter_emailed_code(self, scope: _Scope, plan: Plan, box, evidence: dict, hold: Any) -> bool:
+        """Hold this page for the code the person reads in their email, type it, press the button beside it.
+        True when a code was typed; the receipt loop then carries on. Nothing is clicked again on timeout."""
+        reason = "The job site emailed you a code to finish sending. Type it here."
+        self._say(reason)
+        field = {"purpose": "field", "field_label": CODE_LABEL, "field_reason": reason, "sensitive": False}
+        outcome = self._hold_page(scope, plan, hold, evidence.get("cdp_port"), field=field)
+        if outcome == "receipt":
+            hold.finish("continued")
+            evidence["email_code"] = "receipt_seen"
+            return True
+        if outcome != "continue":
+            hold.finish("timeout")
+            evidence["email_code"] = "timeout"
+            return False
+        hold.finish("continued")
+        reader = getattr(hold, "supplied_answer", None)
+        code = re.sub(r"\s+", "", str(reader() or "")) if reader else ""
+        if not code:
+            evidence["email_code"] = "empty"
+            return False
+        self._say(f"{CODE_LABEL}: typing the code")
+        box.fill(code, timeout=5000)
+        evidence["email_code"] = "typed"
+        if not self._press_code_button(scope, box):
+            box.press("Enter")
+        return True
+
+    def _press_code_button(self, scope: _Scope, box) -> bool:
+        """The button that goes with the code box, inside the same dialog only, named like verify or confirm. The main
+        form's submit button is never pressed a second time; outside a dialog the caller presses Enter in the box."""
+        try:
+            buttons = box.locator("xpath=ancestor::*[@role='dialog' or @aria-modal='true'][1]").locator("button, input[type=submit]")
+            for index in range(min(buttons.count(), 8)):
+                button = buttons.nth(index)
+                text = " ".join((button.inner_text() or button.get_attribute("value") or "").split())
+                if button.is_visible() and CODE_BUTTON_WORDS.search(text):
+                    button.click(timeout=5000)
+                    return True
+        except Exception:
+            return False
+        return False
 
     def _receipt_ready(self, scope: _Scope, plan: Plan) -> bool:
         patterns = [re.compile(p, re.I) for p in (plan.receipt_patterns or [re.escape(plan.receipt_text)]) if p]

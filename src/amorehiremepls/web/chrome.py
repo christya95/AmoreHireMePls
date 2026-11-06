@@ -842,12 +842,11 @@ def needed_now(
             "field": None,
         }
     if hold and hold.get("purpose") == "field" and hold.get("field_label"):
-        return {
-            "kind": "field",
-            "title": str(hold["field_label"]),
-            "text": "The same page is still open. Type the answer here and it is entered on that form. The form is not started over.",
-            "field": None,
-        }
+        label = str(hold["field_label"])
+        text = "The same page is still open. Type the answer here and it is entered on that form. The form is not started over."
+        if re.search(r"\bcode\b", label, re.I) and re.search(r"email", str(hold.get("field_reason") or ""), re.I):
+            text = "The job site emailed you a code after the final click. Open that email, type the code here, and the same page finishes sending. Nothing is clicked twice."
+        return {"kind": "field", "title": label, "text": text, "field": None}
     if working:
         return none
     outstanding = [str(item or "").strip() for item in pkg.get("outstanding") or []]

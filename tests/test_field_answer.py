@@ -193,6 +193,71 @@ def test_an_optional_field_is_not_asked():
     assert evidence["steps_done"] == 1
 
 
+def test_a_code_emailed_after_the_final_click_is_asked_for_typed_and_the_receipt_then_counts():
+    """Some sites finish only once a code from the applicant's email is typed. The page is held for it; nothing is clicked twice."""
+    from amorehiremepls.apply.browser import CODE_LABEL
+
+    class _CodeBox:
+        def __init__(self) -> None:
+            self.filled: list[str] = []
+            self.pressed: list[str] = []
+
+        def count(self):
+            return 1
+
+        @property
+        def first(self):
+            return self
+
+        def nth(self, index):
+            return self
+
+        def is_visible(self):
+            return True
+
+        def fill(self, text, timeout=None):
+            self.filled.append(text)
+
+        def press(self, key):
+            self.pressed.append(key)
+
+        def locator(self, selector):
+            return _Empty()
+
+    class _CodePage(_Scope):
+        def __init__(self, box) -> None:
+            super().__init__(_Field())
+            self.box = box
+            self.ticks = 0
+
+        def locator(self, selector):
+            if "one-time-code" in selector:
+                return self.box
+            return _Empty()
+
+        def body_text(self):
+            self.ticks += 1
+            return "Thank you for applying" if self.box.filled else "We sent a security code to your email. Enter the code to complete your application."
+
+        def wait_for_timeout(self, ms):
+            return None
+
+    box = _CodeBox()
+    page = _CodePage(box)
+    hold = _Hold("474 690 02", page.field)
+    adapter = BrowserAdapter(BrowserConfig(allowed_hosts=set()))
+    notes: list[str] = []
+    adapter._say = notes.append  # type: ignore[method-assign]
+    adapter._snapshot = lambda *args, **kwargs: None  # type: ignore[method-assign]
+    plan = Plan(start_url="https://boards.example/apply", steps=[Step("click", "button", final=True, timeout_ms=2000)], receipt_text="thank you for applying")
+    evidence: dict = {"steps_done": 1, "final_clicked": True}
+    adapter._await_receipt(page, plan, evidence, adapter._shot_target(), None, hold)
+    assert box.filled == ["47469002"] and box.pressed == ["Enter"]  # spaces dropped, Enter because there is no dialog button
+    assert hold.beats and hold.beats[-1]["field_label"] == CODE_LABEL and "email" in hold.beats[-1]["field_reason"]
+    assert hold.finished == "continued" and evidence["email_code"] == "typed"
+    assert any("emailed you a code" in note for note in notes)
+
+
 def test_watch_browser_ui_is_absent():
     from amorehiremepls.apply import browser as browser_mod
 
