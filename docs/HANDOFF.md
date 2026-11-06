@@ -8,11 +8,9 @@ session. No private values: field names and counts only. Keep under 120 lines; f
 - Deployed 14:56: NAS stack `amorehiremepls`, image `lepia/amorehiremepls:719082c5e83f` (commit `719082c`). Local dashboard
   python pid 21704 (op pid 21691) on the same commit. The 14:45 Faire attempt bound Location ("Chose Milton, Ontario,
   Canada") then failed on the synthetic Country box, which resolved to the phone code picker ("Canada +1"); an optional
-  suggestion box with no matching row is now cleared and skipped. Owner retries. `8fad9ea` was the page polish.
-- Deployed 13:56: `1b7083e`. Root cause of every Faire Location failure: the place list host
-  `api-geocode-earth-proxy.greenhouse.io` was not a Greenhouse resource host, so the gate aborted it and no city ever
-  appeared; the DOM fallback then read the phone country code rows. Both fixed (host added, `data-dial-code` rows
-  ignored). Owner retries the Faire application; check its Location field answer first (one attempt typed "Yes" from it).
+  suggestion box with no matching row is now cleared and skipped. Owner retries.
+- Deployed 13:56: `1b7083e`: the place list host `api-geocode-earth-proxy.greenhouse.io` is now a Greenhouse resource host
+  (the gate had aborted it, so no city ever appeared); phone country code rows are ignored.
 - Committed in `c3d1ec0` and deployed (full suite passed, ruff clean); the working tree is clean:
   - A value the person types on the application wins for every field; profile facts fill only untouched fields; typed values
     survive a rebuild (`applications.py: keep_typed_answers`).
