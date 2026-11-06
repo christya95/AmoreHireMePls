@@ -13,7 +13,7 @@ import threading
 from datetime import datetime, timedelta
 from typing import Any
 
-from amorehiremepls.core.accounts import active_user_ids, user_scope
+from amorehiremepls.core.accounts import active_admin_id, active_user_ids, user_scope
 from amorehiremepls.core.runtime import Runtime
 from amorehiremepls.core.util import local_now, local_zone, utcnow
 from amorehiremepls.jobs.discovery import SOURCES, SourceError
@@ -89,6 +89,7 @@ class Worker:
         # Tracker sync is not an access check. Expired and turned-off members still flush queued ledger items.
         results = self.rt.sync.process_pending(owner=self.name)
         done["sync"] = len(results)
+        self._give_unowned_runs_an_owner()
         ids = active_user_ids(self.rt.store)
         if ids is None:
             self.rt.reload_profile()
@@ -191,7 +192,26 @@ class Worker:
 
         svc.execute(app_id, self.name, run_adapter=run)
 
+    def _give_unowned_runs_an_owner(self) -> None:
+        """A queued application with no user_id is invisible to the per-person claim and stays queued forever.
+
+        The pre-account session writes that way. Attach the run, and any job or application it points at that
+        also has no owner, to the active admin. A run that already belongs to someone is left alone."""
+        admin_id = active_admin_id(self.rt.store)
+        if not admin_id:
+            return
+        missing = {"$or": [{"user_id": {"$exists": False}}, {"user_id": None}, {"user_id": ""}]}
+        runs = self.rt.store.db["runs"]
+        for run in runs.find({"status": "queued", "kind": "application", **missing}).sort("created_at", 1):
+            runs.update_one({"_id": run["_id"], "status": "queued"}, {"$set": {"user_id": admin_id, "updated_at": utcnow()}})
+            job_id = (run.get("params") or {}).get("job_id")
+            if not job_id:
+                continue
+            self.rt.store.db["jobs"].update_one({"_id": job_id, **missing}, {"$set": {"user_id": admin_id}})
+            self.rt.store.db["applications"].update_many({"job_id": job_id, **missing}, {"$set": {"user_id": admin_id}})
+
     def _start(self, run: dict) -> None:
+        self.rt.store.run_event(run["_id"], "Picked up")
         job_id = run["params"]["job_id"]
         state = {"run_id": run["_id"], "job_id": job_id, "worker": self.name, "notes": []}
         if run["params"].get("form_fields") is not None:

@@ -15,7 +15,19 @@ from amorehiremepls.web.chrome import (
     Request,
     json,
 )
-from amorehiremepls.web.task_list import SEND_KINDS, can_cancel, can_hide, next_application, next_name, offer_cancel, partition, queue_summary, side_effect_started
+from amorehiremepls.web.task_list import (
+    SEND_KINDS,
+    can_cancel,
+    can_hide,
+    next_application,
+    next_name,
+    offer_cancel,
+    owner_state_for,
+    partition,
+    queue_summary,
+    queued_reason,
+    side_effect_started,
+)
 
 
 def register(app, rt, require_session, require_csrf, render) -> None:
@@ -135,10 +147,22 @@ def register(app, rt, require_session, require_csrf, render) -> None:
     @app.get("/runs/{run_id}", response_class=HTMLResponse)
     def run_detail(request: Request, run_id: str, session: dict = Depends(require_session)):
         run = rt.store.c("runs").find_one({"_id": run_id})
+        if not run and session.get("role") != "member":
+            run = rt.store.db["runs"].find_one({"_id": run_id})
         if not run:
             raise HTTPException(404)
         if session.get("role") == "member":
             from amorehiremepls.web.chrome import without_costs
 
             run = {**run, "summary": without_costs(run.get("summary")), "events": without_costs(run.get("events") or []), "usage": {}}
-        return render(request, "run.html", session, run=run, can_cancel_detail=offer_cancel(run, side_effect_started(rt.store, run)))
+        accounts = rt.store.db["users"].count_documents({}) > 0
+        owner = rt.store.db["users"].find_one({"_id": run.get("user_id")}, {"status": 1, "role": 1, "access_until": 1}) if run.get("user_id") else None
+        heartbeat = rt.store.get_control("worker_heartbeat") or {}
+        reason = queued_reason(
+            run,
+            now=utcnow(),
+            worker_at=heartbeat.get("at"),
+            owner_state=owner_state_for(run, owner, accounts),
+            emergency=rt.store.emergency_stop_active(),
+        )
+        return render(request, "run.html", session, run=run, can_cancel_detail=offer_cancel(run, side_effect_started(rt.store, run)), queue_reason=reason)

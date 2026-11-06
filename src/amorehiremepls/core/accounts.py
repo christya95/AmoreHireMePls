@@ -99,6 +99,25 @@ def active_user_ids(store: Store, now: datetime | None = None) -> list[str] | No
     return [u["_id"] for u in store.db["users"].find({"status": "active"}) if account_is_active(u, now)]
 
 
+def active_admin_id(store: Store, now: datetime | None = None) -> str | None:
+    """The active admin, when there is one. A legacy session and an ownerless task attach to this person."""
+    now = now or utcnow()
+    for user in store.db["users"].find({"role": "admin", "status": "active"}):
+        if account_is_active(user, now):
+            return user["_id"]
+    return None
+
+
+def bound_user_id(store: Store, session_user: str | None) -> str | None:
+    """The person a session writes as. `user_…` is that account. The pre-account cookie value `owner` is the active admin."""
+    uid = str(session_user or "")
+    if uid.startswith("user_"):
+        return uid
+    if uid == "owner":
+        return active_admin_id(store)
+    return None
+
+
 def _require(store: Store, user_id: str) -> dict:
     user = store.db["users"].find_one({"_id": user_id, "status": {"$ne": "deleted"}})
     if not user:

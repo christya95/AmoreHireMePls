@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from amorehiremepls.core.accounts import access_summary, account_is_active, user_scope
+from amorehiremepls.core.accounts import access_summary, account_is_active, bound_user_id, user_scope
 from amorehiremepls.web.chrome import (
     ATTENTION_STATUSES,
     BRAND_DIR,
@@ -77,8 +77,7 @@ def create_app(rt: Runtime) -> FastAPI:
     @app.middleware("http")
     async def bind_user(request: Request, call_next):
         session = read_session(request)
-        uid = str((session or {}).get("user") or "")
-        uid = uid if uid.startswith("user_") else None
+        uid = bound_user_id(rt.store, (session or {}).get("user"))
         with user_scope(uid):
             if uid:
                 rt.reload_profile()

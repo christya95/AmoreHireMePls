@@ -74,8 +74,13 @@ def build_application_graph(services: Services, store: Store | None, checkpointe
         if req == "pause":
             raise Paused()
 
+    def step(state: AppState, message: str) -> None:
+        if store is not None and state.get("run_id"):
+            store.run_event(state["run_id"], message)
+
     def qualify(state: AppState) -> dict:
         guard(state)
+        step(state, "Checking the job")
         job = services.qualify(state["job_id"])
         return {"status": job.get("status"), "notes": [f"qualified: {job.get('status')}"]}
 
@@ -84,12 +89,14 @@ def build_application_graph(services: Services, store: Store | None, checkpointe
 
     def prepare(state: AppState) -> dict:
         guard(state)
+        step(state, "Preparing the application")
         fields = state.get("form_fields") or services.scan_fields(services.qualify_cached(state["job_id"]) if hasattr(services, "qualify_cached") else {"_id": state["job_id"]})
         app = services.prepare(state["job_id"], fields)
         return {"application_id": app["_id"], "status": app["status"], "form_fields": fields}
 
     def review(state: AppState) -> dict:
         guard(state)
+        step(state, "Checking what still needs you")
         app = services.get_application(state["application_id"])
         while app["status"] == "needs_input":
             answer = interrupt({"type": "needs_input", "application_id": app["_id"], "outstanding": app["review_package"]["outstanding"]})
@@ -110,6 +117,7 @@ def build_application_graph(services: Services, store: Store | None, checkpointe
 
     def execute(state: AppState) -> dict:
         guard(state)
+        step(state, "Carrying out the application")
         outcome = services.execute(state["application_id"], state.get("worker", "worker"))
         if outcome["status"] == "handoff":
             manual = interrupt({"type": "handoff", "application_id": state["application_id"], "reason": outcome.get("reason"), "evidence": outcome.get("evidence", {})})
@@ -132,6 +140,7 @@ def build_application_graph(services: Services, store: Store | None, checkpointe
 
     def record(state: AppState) -> dict:
         guard(state)
+        step(state, "Saving the result")
         info = services.after_submission(state["application_id"])
         return {"notes": [f"recorded: {info}"]}
 

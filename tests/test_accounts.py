@@ -145,6 +145,46 @@ def test_worker_skips_expired_and_off_people_but_still_runs_sync(client, store):
 
 
 @pytest.mark.mongo
+def test_worker_claims_a_queued_application_that_has_no_owner(client, store):
+    migrate_users(store, "correct-horse-battery", "Alex")
+    admin = store.db["users"].find_one({"role": "admin"})["_id"]
+    now = utcnow()
+    store.db["jobs"].insert_one({"_id": "job_x", "employer": "Acme", "title": "Role"})
+    store.db["runs"].insert_one(
+        {"_id": "run_loose", "kind": "application", "status": "queued", "thread_id": "thread_x", "params": {"job_id": "job_x"}, "created_at": now, "events": []}
+    )
+    worker = Worker(client.app.state.rt)
+    started: list[str] = []
+    worker._start = lambda run: started.append(run["_id"])
+    worker.tick()
+    assert started == ["run_loose"]
+    assert store.db["runs"].find_one({"_id": "run_loose"})["user_id"] == admin
+    assert store.db["jobs"].find_one({"_id": "job_x"})["user_id"] == admin
+
+
+@pytest.mark.mongo
+def test_unowned_run_page_says_the_worker_cannot_pick_it_up(client, store):
+    migrate_users(store, "correct-horse-battery", "Alex")
+    assert client.post("/login", data={"password": "correct-horse-battery"}).status_code == 303
+    now = utcnow()
+    store.db["runs"].insert_one(
+        {
+            "_id": "run_loose",
+            "kind": "application",
+            "status": "queued",
+            "thread_id": "thread_x",
+            "params": {},
+            "created_at": now,
+            "events": [],
+            "usage": {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cached_tokens": 0, "tool_steps": 0, "cost_usd": 0, "cost_known": True},
+        }
+    )
+    store.set_control("worker_heartbeat", {"at": now})
+    page = client.get("/runs/run_loose")
+    assert page.status_code == 200 and "This task has no owner" in page.text and "just checked in" in page.text
+
+
+@pytest.mark.mongo
 def test_people_page_extends_hides_cost_from_members_and_refuses_to_delete_the_last_admin(client, store, tmp_path):
     migrate_users(store, "correct-horse-battery", "Alex")
     assert client.post("/login", data={"password": "correct-horse-battery"}).status_code == 303

@@ -3,18 +3,30 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 
 from amorehiremepls.core.config import Settings
 from amorehiremepls.core.runtime import Runtime
-from amorehiremepls.web.task_list import next_application, partition, queue_summary
+from amorehiremepls.core.util import utcnow
+from amorehiremepls.web.task_list import next_application, partition, queue_summary, queued_reason
 from amorehiremepls.web.web import create_app
 from tests.conftest import TEST_MONGO_URI
 
 pytestmark = pytest.mark.mongo
+
+
+def test_queued_reason_names_a_missing_owner_a_hold_and_a_quiet_worker():
+    now = datetime(2026, 11, 5, 22, 40, tzinfo=UTC)
+    run = {"status": "queued", "kind": "application", "created_at": now - timedelta(minutes=3)}
+    missing = queued_reason(run, now=now, worker_at=now, owner_state="missing", emergency=False)
+    assert "no owner" in missing and "just checked in" in missing and "3 minutes" in missing
+    held = {**run, "reserved_until": now + timedelta(minutes=5)}
+    assert "holding" in queued_reason(held, now=now, worker_at=now - timedelta(minutes=4), owner_state="active", emergency=False)
+    assert "has not checked in" in queued_reason(run, now=now, worker_at=None, owner_state="active", emergency=False)
+    assert queued_reason({**run, "status": "running"}, now=now, worker_at=now, owner_state="active", emergency=False) is None
 
 
 def test_summary_names_the_oldest_application_and_counts_the_three_states():
@@ -77,6 +89,17 @@ def _seed(client):
         finished_at=datetime(2026, 1, 3, tzinfo=UTC),
     )
     return store, first, second, search, done
+
+
+def test_queued_run_page_says_it_has_not_started_and_when_the_worker_checked_in(client):
+    _login(client)
+    store = client.app.state.rt.store
+    store.c("jobs").insert_one({"_id": "job_acme", "employer": "Acme", "title": "Example role"})
+    run = store.create_run("application", {"job_id": "job_acme"})
+    store.set_control("worker_heartbeat", {"at": utcnow()})
+    page = client.get(f"/runs/{run['_id']}").text
+    assert "It has not started." in page and "The worker just checked in." in page
+    assert "no owner" not in page
 
 
 def test_page_splits_waiting_from_finished_and_offers_cancel_only_before_start(client):

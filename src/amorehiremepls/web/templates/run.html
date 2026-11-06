@@ -7,6 +7,7 @@
       <h1>Background task <span class="mono">{{ run._id }}</span></h1>
       <p>{{ run.kind|label }} <code class="raw" title="thread id">{{ run.thread_id }}</code></p>
       <div class="flex mt">{{ status(run.status) }}{% if run.requested %}<span class="pill">{{ run.requested }} requested</span>{% endif %}{% if run.params.job_id %}<a class="btn secondary sm" href="/jobs/{{ run.params.job_id }}">Open the job</a>{% endif %}</div>
+      {% if queue_reason %}<p class="note mt">{{ queue_reason }}</p>{% endif %}
     </div>
     <div class="actions">
       {% if run.status in ('queued', 'claimed', 'running', 'waiting', 'paused') %}
