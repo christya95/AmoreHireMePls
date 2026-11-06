@@ -1075,6 +1075,9 @@ class BrowserAdapter:
                 if not step.sensitive:
                     self._say(location_attempt_note(step.label, query, chosen=query))
                 return
+            if step.optional:
+                self._skip_optional(step)
+                return
             self._fail_autocomplete(step, queries, shown, last)
         for query in queries:
             if not step.sensitive:
@@ -1091,7 +1094,24 @@ class BrowserAdapter:
             if not step.sensitive:
                 self._say(location_attempt_note(step.label, query, chosen=chosen))
             return
+        if step.optional:
+            self._leave_as_was(loc)
+            self._skip_optional(step)
+            return
         self._fail_autocomplete(step, queries, shown, None)
+
+    def _skip_optional(self, step: Step) -> None:
+        """An optional suggestion box that offers no matching row is left alone; the form decides whether it minds."""
+        name = (step.label or "This field").strip()
+        self._say(f"{name}: no row matched, so it was left as it was. The field is optional.")
+
+    def _leave_as_was(self, loc) -> None:
+        """Close the list and drop what was typed so an unmatched query is not left in the box."""
+        for action in (lambda: loc.press("Escape", timeout=1000), lambda: loc.fill("", timeout=1000)):
+            try:
+                action()
+            except Exception:
+                pass
 
     def _remember_choices(self, shown: list[str], got: list[str]) -> None:
         for item in got:

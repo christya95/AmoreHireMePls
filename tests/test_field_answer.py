@@ -186,10 +186,11 @@ def test_an_optional_field_is_not_asked():
     hold = _Hold("West Harbor", field)
     adapter, _notes = _adapter()
     step = Step("autocomplete", "#location", "Lakeside", label="Location", optional=True)
-    with pytest.raises(ActionFailed):
-        adapter._run_steps(_Scope(field), _plan(step), {"steps_done": 0, "final_clicked": False}, adapter._shot_target(), None, hold)
+    evidence = {"steps_done": 0, "final_clicked": False}
+    adapter._run_steps(_Scope(field), _plan(step), evidence, adapter._shot_target(), None, hold)  # skipped, not failed, not asked
     assert hold.beats == []
     assert field.typed == ["Lakeside"]
+    assert evidence["steps_done"] == 1
 
 
 def test_watch_browser_ui_is_absent():

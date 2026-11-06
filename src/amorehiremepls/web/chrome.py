@@ -671,7 +671,7 @@ def _saved_typed_place(app: dict | None, action: dict | None) -> str:
 def _place_label(app: dict | None, text: str) -> str:
     for answer in ((app or {}).get("review_package") or {}).get("answers") or []:
         name = str(answer.get("label") or "").strip()
-        if answer.get("field_id") == "location" or _LOCATION_LABEL.search(name):
+        if answer.get("field_id") == "location" or _LOCATION_LABEL.match(name):  # a question that merely mentions a location is not the place box
             return name or "Location"
     if re.search(r"location", text, re.I):
         return "Location"

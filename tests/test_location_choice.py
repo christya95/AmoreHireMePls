@@ -405,6 +405,40 @@ def test_a_menu_inside_the_fields_frame_picks_the_exact_city_row():
     assert what_to_do_line(app, runs) == chosen
 
 
+def test_an_optional_box_whose_list_never_matches_is_left_alone():
+    """The synthetic Country box can land on another widget (a phone code picker). Optional means skip, not fail."""
+
+    class _PhoneFrame(_Frame):
+        def locator(self, selector):
+            if "option" in selector and self.field.current == "Country":
+                self.menu.rows = ["Country +1"]
+                return self.menu
+            return super().locator(selector)
+
+    class _Clearable(_Field):
+        def __init__(self, frame) -> None:
+            super().__init__(frame)
+            self.cleared = False
+
+        def press(self, key, timeout=None):
+            return None
+
+        def fill(self, text, timeout=None):
+            self.cleared = text == ""
+
+    field = _Clearable(None)
+    frame = _PhoneFrame(field)
+    field.frame = frame
+    adapter, notes = _adapter()
+    step = Step("autocomplete", "#country", "Country", label="Country", optional=True)
+    plan = Plan(start_url="https://boards.example/apply", steps=[step], receipt_text="thank you")
+    evidence: dict = {"steps_done": 0, "final_clicked": False}
+    adapter._run_steps(_Scope(field), plan, evidence, adapter._shot_target(), None, None)
+    assert field.typed == ["Country"] and field.cleared and frame.menu.clicked == []
+    assert "Country: no row matched, so it was left as it was. The field is optional." in notes
+    assert evidence["steps_done"] == 1
+
+
 def test_no_rows_still_asks_the_user():
     field = _Field(None)
     frame = _Frame(field)
