@@ -26,7 +26,7 @@
     {% endif %}
     {% if cand and cand.supplemental_files %}<p class="note">Extra documents read when checking fit and tailoring: {% for f in cand.supplemental_files %}<code>{{ f.name }}</code>{% if not loop.last %}, {% endif %}{% endfor %} ({{ cand.supplemental_text|length }} characters{% if cand.truncated %}, cut at the limit{% endif %}).</p>{% endif %}
     <form method="post" action="/profile/candidate-upload" enctype="multipart/form-data" class="form-row mt"><input type="hidden" name="csrf" value="{{ csrf }}">
-      <div class="field wide"><label>Add a resume or career notes</label><input type="file" name="file" accept=".docx,.md,.txt" required><span class="hint">Word, Markdown or plain text, up to 5 MB. It goes into the candidate folder; a file with the same name is replaced.</span></div>
+      <div class="field wide"><label>Add a resume or career notes</label><input type="file" name="file" accept=".docx,.md,.txt" required><span class="hint">Word, Markdown or plain text, up to 5 MB. A Word resume is chosen when you do not have one yet. A file with the same name is replaced.</span></div>
       <button class="secondary">Add file</button></form>
     <form method="post" action="/profile/base-resume" class="form-row mt"><input type="hidden" name="csrf" value="{{ csrf }}">
       <div class="field wide"><label>Where the file is on this computer</label><input name="path" placeholder="/path/to/approved_base_resume.docx" required></div>

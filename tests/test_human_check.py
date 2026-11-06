@@ -179,7 +179,7 @@ def test_application_page_shows_human_check_and_continue_is_csrf_bound(store, cl
     store.c("human_holds").update_one({"_id": hold.hold_id}, {"$set": {"material_hash": "other"}})
     changed = client.post("/applications/app_hold/continue", data={"csrf": csrf, "material_hash": "hash_hold"})
     assert changed.status_code == 303 and "err=continue_changed" in changed.headers["location"]
-    assert "The package changed" in client.get(changed.headers["location"]).text
+    assert "The answers or the resume changed" in client.get(changed.headers["location"]).text
     store.c("human_holds").update_one({"_id": hold.hold_id}, {"$set": {"heartbeat_at": utcnow() - timedelta(minutes=5)}})
     stale = client.get("/applications/app_hold").text
     assert "Human check needed" not in stale

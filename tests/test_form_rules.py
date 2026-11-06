@@ -226,7 +226,30 @@ def test_a_saved_years_answer_wins_for_its_own_subject_and_dates_decide_the_rest
     assert by_id["ex"].value == "5" and by_id["ex"].reason == SAVED_ANSWER_REASON and by_id["ex"].fact_ids == [p.fact("years_example").id]
     assert by_id["exb"].value == "3-5 years"
     assert by_id["exn"].value == "5"  # digit bounded: never "15"
-    assert by_id["gen"].reason.startswith("completed years computed") and by_id["gen"].fact_ids == [e.id for e in p.employment]
+    assert "completed years computed" in by_id["gen"].reason and by_id["gen"].fact_ids == [e.id for e in p.employment]
+
+
+def test_computed_years_land_in_the_range_option_when_the_question_offers_ranges():
+    """A question with ranges takes the range holding the computed number; a bare number is never left beside a list."""
+    from amorehiremepls.candidate.profile import compute_experience
+
+    p = _profile()
+    years = compute_experience(p.employment).full_time_years_completed
+    assert years >= 1
+    low, high = max(0, years - 1), years + 1
+    fields = [
+        FormField("r", "How many years of full-time experience do you have?", "select", [f"Less than {low} years", f"{low}-{high} years", f"{high + 1}+ years"]),
+        FormField("d", "How many years of full-time experience do you have?", "select", [f"Less than {low} years", f"{low}–{high} years", f"more than {high} years"]),
+        FormField("n", "How many years of full-time experience do you have?", "select", ["0", str(years), "20"]),
+        FormField("x", "How many years of full-time experience do you have?", "select", [f"{years + 5}-{years + 8} years"]),
+        FormField("t", "How many years of full-time experience do you have?"),
+    ]
+    by_id = {a.field_id: a for a in map_answers(fields, p, {}, None)}
+    assert by_id["r"].value == f"{low}-{high} years" and not by_id["r"].needs_input and by_id["r"].reason == f"{years} completed years computed from dates"
+    assert by_id["d"].value == f"{low}–{high} years"
+    assert by_id["n"].value == str(years)  # a list of plain numbers still takes the exact number
+    assert by_id["x"].value is None and by_id["x"].needs_input and "no range" in by_id["x"].reason
+    assert by_id["t"].value == str(years)  # a free text box gets the number
 
 
 def test_greenhouse_buckets_honour_a_saved_years_answer_for_the_matching_question():

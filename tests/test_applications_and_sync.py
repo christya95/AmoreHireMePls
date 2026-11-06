@@ -156,6 +156,111 @@ def test_replaying_a_failed_submit_keeps_the_saved_reason(store, tmp_path):
     assert JobStore(store).get(job["_id"])["status"] == "qualified"
 
 
+def test_a_replayed_failure_is_no_longer_left_approved(store, tmp_path):
+    profile = _profile(tmp_path)
+    builders = {"ats.example": lambda job, pkg, answers: Plan(start_url=pkg["apply_url"], steps=[], receipt_text="received")}
+    svc = _service(store, tmp_path, profile, builders)
+    job = _job(store, req="R-approved-fail")
+    app = svc.prepare(job["_id"], [f for f in FIELDS if f.id != "why"])
+    AuthorizationStore(store).grant("application_submit", ScopeBinding(target_id=job["_id"], material_hash=app["material_hash"]))
+    saved = "The location box did not show a place for Lakeside, Northland, then Lakeside"
+    calls = []
+
+    def fail(_plan):
+        calls.append(1)
+        raise ActionFailed(saved, {"value": "Lakeside, Northland"}, retryable=False)
+
+    first = svc.execute(app["_id"], "w1", fail)
+    assert first.status == "failed" and len(calls) == 1
+    svc.apps.update_one({"_id": app["_id"]}, {"$set": {"status": "authorized"}})
+    again = svc.execute(app["_id"], "w2", fail)
+    stored = svc.apps.find_one({"_id": app["_id"]})
+    assert again.status == "failed" and not again.adapter_ran and len(calls) == 1
+    assert stored["status"] == "failed" and stored["reason"] == saved
+    assert all("recorded outcome" not in str(entry.get("reason") or "") for entry in stored["history"])
+
+
+def test_typed_answers_survive_a_rebuild_and_a_new_attempt_uses_them(store, tmp_path):
+    """Profile city and province are only the default. A value typed on the application wins for every field."""
+    from amorehiremepls.candidate.candidate_profile import apply_profile_toml, load_profile_toml
+    from amorehiremepls.candidate.profile import Fact, Profile, Provenance
+
+    def place(profile, city, province):
+        found = set()
+        prov = Provenance(source="test", confirmed_on="2026-11-06")
+        for fact in profile.facts:
+            if fact.key in ("city", "province"):
+                fact.value = city if fact.key == "city" else province
+                found.add(fact.key)
+        for key, value in (("city", city), ("province", province)):
+            if key not in found:
+                profile.facts.append(Fact(category="address", key=key, value=value, provenance=prov))
+        return profile
+
+    example = Path(__file__).resolve().parents[1] / "candidate" / "profile.example.toml"
+    sales = Profile()
+    apply_profile_toml(sales, load_profile_toml(example), confirmed_on="2026-11-06")
+    generic = [
+        FormField("city", "City", required=True),
+        FormField("region", "Province", required=True),
+        FormField("note", "Note for the team", required=True),
+    ]
+    for name, profile in (("tech", place(_profile(tmp_path, with_base=False), "Lakeside", "Northland")), ("sales", place(sales, "Lakeside", "Northland"))):
+        svc = _service(store, tmp_path, profile)
+        job = _job(store, req=f"R-{name}", url=f"https://ats.example/jobs/{name}")
+        app = svc.prepare(job["_id"], generic)
+        got = {a["field_id"]: a["value"] for a in app["review_package"]["answers"]}
+        assert got["city"] == "Lakeside" and got["region"] == "Northland", name
+        svc.supply_inputs(app["_id"], {"city": "Harbor", "note": "Ready to start"})
+        rebuilt = svc.prepare(job["_id"], generic)
+        got = {a["field_id"]: a for a in rebuilt["review_package"]["answers"]}
+        assert got["city"]["value"] == "Harbor" and got["city"]["fact_ids"] == ["user:input"], name
+        assert got["note"]["value"] == "Ready to start", name
+        assert got["region"]["value"] == "Northland", name
+        assert rebuilt["material_hash"] != app["material_hash"]
+
+    profile = place(_profile(tmp_path, with_base=False), "Lakeside", "Northland")
+    fields = [
+        FormField("first_name", "First Name", required=True, meta={"ats": "greenhouse", "name": "first_name", "section": "questions"}),
+        FormField("email", "Email", required=True, meta={"ats": "greenhouse", "name": "email", "section": "questions"}),
+        FormField("phone", "Phone", required=True, meta={"ats": "greenhouse", "name": "phone", "section": "questions"}),
+        FormField("location", "Location (City)", required=True, meta={"ats": "greenhouse", "name": "location", "section": "location"}),
+        FormField("note", "Note for the team", required=True, meta={"ats": "greenhouse", "name": "note", "section": "questions"}),
+    ]
+    svc = _service(store, tmp_path, profile)
+    job = _job(store, req="R-gh", url="https://job-boards.greenhouse.io/acme/jobs/424242")
+    app = svc.prepare(job["_id"], fields)
+    first_answers = {a["field_id"]: a["value"] for a in app["review_package"]["answers"]}
+    assert first_answers["location"] == "Lakeside, Northland"
+    assert first_answers["first_name"] == "Alex" and first_answers["email"] == "alex@example.com"
+    svc.apps.update_one({"_id": app["_id"]}, {"$set": {"status": "failed"}})
+    AuthorizationStore(store).grant("application_submit", ScopeBinding(target_id=job["_id"], material_hash=app["material_hash"]))
+    calls = []
+
+    def run(plan):
+        loc = next(step.value for step in plan.steps if step.type == "autocomplete")
+        calls.append(loc)
+        raise ActionFailed("no list appeared", {"location_typed": loc, "value": loc}, retryable=False)
+
+    first = svc.execute(app["_id"], "w1", run)
+    assert first.adapter_ran and calls == ["Lakeside, Northland"]
+    svc.supply_inputs(app["_id"], {"location": "Harbor", "first_name": "River", "note": "Ready to start", "phone": ""})
+    rebuilt = svc.prepare(job["_id"], fields)
+    got = {a["field_id"]: a for a in rebuilt["review_package"]["answers"]}
+    assert got["location"]["value"] == "Harbor" and got["location"]["fact_ids"] == ["user:input"]
+    assert got["first_name"]["value"] == "River" and got["note"]["value"] == "Ready to start"
+    assert got["phone"]["value"] is None and got["email"]["value"] == "alex@example.com"
+    assert "Lakeside, Northland" not in str(got["location"]["value"])
+    svc.apps.update_one({"_id": rebuilt["_id"]}, {"$set": {"status": "failed"}})
+    AuthorizationStore(store).grant("application_submit", ScopeBinding(target_id=job["_id"], material_hash=rebuilt["material_hash"]))
+    second = svc.execute(rebuilt["_id"], "w2", run)
+    assert second.adapter_ran and calls == ["Lakeside, Northland", "Harbor"]
+    assert second.evidence.get("location_typed") == "Harbor"
+    kept = svc.actions.get(first.action_id)
+    assert kept["status"] == "failed" and kept["evidence"]["location_typed"] == "Lakeside, Northland"
+    assert ":prior:" in kept["idempotency_key"]
+
+
 def test_a_changed_answer_starts_a_new_attempt_and_keeps_the_old_failure(store, tmp_path):
     profile = _profile(tmp_path)
     builders = {"ats.example": lambda job, pkg, answers: Plan(start_url=pkg["apply_url"], steps=[], receipt_text="received")}

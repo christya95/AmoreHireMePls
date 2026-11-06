@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
-from amorehiremepls.apply.network_log import NetworkLog
 from amorehiremepls.web.chrome import (
     Depends,
     Form,
@@ -17,10 +14,11 @@ from amorehiremepls.web.chrome import (
     answers_differ,
     application_timeline,
     continue_waiting_runs,
+    field_answer_flash_is_stale,
     form_filling_now,
-    network_public,
-    network_streaming,
     shown_failure_reason,
+    shown_status,
+    shown_status_reason,
     timedelta,
     utcnow,
     what_to_do_line,
@@ -34,19 +32,83 @@ def _can_clear(app: dict | None) -> bool:
     return bool(app) and submission_lock_reason(app) is None
 
 
-def _clear_application(rt, app_id: str, what: str):
+def _clear_block(app: dict | None) -> str:
+    """One sentence when Start over must stay hidden because a receipt or a sent application already exists."""
+    if not app:
+        return ""
+    evidence = app.get("evidence") or {}
+    if evidence.get("receipt_text") or evidence.get("confirmation") or evidence.get("receipt_path") or evidence.get("basis") == "receipt_observed":
+        return "A confirmation from the employer is already saved, so this attempt cannot be cleared."
+    if app.get("status") == "submitted":
+        return "This application was already sent, so it cannot be cleared."
+    return ""
+
+
+def _clear_application(rt, app_id: str):
+    """Back up and clear an application that was never sent, then return to its job. A receipt is refused."""
     from amorehiremepls.apply.applications import ApplicationRefused
 
     try:
-        if what == "delete":
-            outcome = rt.applications().delete_unsent(app_id, rt.settings.private_dir / "application_backups")
-            flash = "app_withdrawn" if outcome == "withdrawn" else "app_removed"
-            app = rt.store.c("applications").find_one({"_id": app_id})
-            return RedirectResponse(f"/jobs/{app['job_id']}?ok={flash}", status_code=303)
-        rt.applications().restart_unsent(app_id)
+        outcome = rt.applications().delete_unsent(app_id, rt.settings.private_dir / "application_backups")
     except ApplicationRefused as exc:
         return RedirectResponse(f"/applications/{app_id}?err={exc.code}", status_code=303)
-    return RedirectResponse(f"/applications/{app_id}?ok=job_restarted", status_code=303)
+    flash = "app_withdrawn" if outcome == "withdrawn" else "app_removed"
+    app = rt.store.c("applications").find_one({"_id": app_id})
+    return RedirectResponse(f"/jobs/{app['job_id']}?ok={flash}", status_code=303)
+
+
+def application_view(rt, a: dict, job: dict, session: dict, runs: list[dict] | None = None) -> dict:
+    """Everything the status block needs for one application: the headline status, the one or two sentences from the
+    latest saved event, and the one thing the page asks of the person. The job page reuses it so the two pages agree."""
+    from amorehiremepls.apply.ats import adapter_for
+    from amorehiremepls.core.human_check import active_hold
+    from amorehiremepls.core.runtime import RealServices
+    from amorehiremepls.web.chrome import answer_gap_line, needed_now, reason_adds, without_costs
+
+    app_id = a["_id"]
+    action = rt.actions.by_key(f"submit:{a['job_id']}")
+    site_adapter = adapter_for((a.get("review_package") or {}).get("apply_url") or job.get("apply_url") or job.get("posting_url"))
+    can_retry = site_adapter is not None and a["status"] in ("handoff", "failed")
+    if runs is None:
+        runs = list(rt.store.c("runs").find({"params.job_id": a["job_id"]}).sort("created_at", -1))
+    if session.get("role") == "member":
+        a = without_costs(a)
+        action = without_costs(action) if action else action
+        runs = without_costs(runs)
+    saved_reason = shown_failure_reason(a, action)
+    if a.get("status") == "failed" and saved_reason != (a.get("reason") or ""):
+        a = {**a, "reason": saved_reason}
+    show_status = shown_status(a, action, runs)
+    hold = active_hold(rt.store, app_id)
+    field_hold = {"label": hold.get("field_label") or "", "reason": hold.get("field_reason") or ""} if hold and hold.get("purpose") == "field" else None
+    filling = form_filling_now(a, runs, action) and not field_hold
+    live = any(run.get("status") in ("queued", "claimed", "running", "waiting", "paused") for run in runs)
+    happening = what_to_do_line(a, runs, saved_reason, action, field_hold)
+    can_fill = bool(a.get("status") == "authorized" and answers_differ(a, action) and not filling and not live and RealServices(rt).has_authorization(a))
+    can_clear = _can_clear(a)
+    show_reason = shown_status_reason(a, action, show_status)
+    need = needed_now(a, show_status, hold, can_fill=can_fill, can_retry=can_retry, can_clear=can_clear, working=filling)
+    return dict(
+        a=a,
+        job=job,
+        action=action,
+        runs=runs,
+        can_retry=can_retry,
+        site_label=site_adapter.site_label if site_adapter else None,
+        hold=hold,
+        saved_reason=saved_reason,
+        happening=happening,
+        gap=answer_gap_line(a, action),
+        activity_live=activity_payload(a, runs, saved_reason, action=action)["live"],
+        filling=filling,
+        show_status=show_status,
+        show_reason=show_reason if reason_adds(happening, show_reason, a, action) else "",
+        answers_changed=answers_differ(a, action),
+        can_fill=can_fill,
+        can_clear=can_clear,
+        clear_block="" if can_clear else _clear_block(a),
+        need=need,
+    )
 
 
 def register(app, rt, require_session, require_csrf, render) -> None:
@@ -58,53 +120,16 @@ def register(app, rt, require_session, require_csrf, render) -> None:
             raise HTTPException(404)
         job = rt.jobs.get(a["job_id"])
         scopes = [s for s in rt.auth.active("application_submit") if s.binding.target_id == a["job_id"] or s.mode == "batch"]
-        action = rt.actions.by_key(f"submit:{a['job_id']}")
         doc_sha = ((a.get("review_package") or {}).get("document") or {}).get("sha256")
         doc_art = rt.store.c("artifacts").find_one({"sha256": doc_sha, "owner_id": a["job_id"]}, {"content": 0}) if doc_sha else None
-        from amorehiremepls.apply.ats import adapter_for
-
-        site_adapter = adapter_for((a.get("review_package") or {}).get("apply_url") or job.get("apply_url") or job.get("posting_url"))
-        can_retry = site_adapter is not None and a["status"] in ("handoff", "failed")
-        from amorehiremepls.core.human_check import active_hold
-
-        runs = list(rt.store.c("runs").find({"params.job_id": a["job_id"]}).sort("created_at", -1))
-        if session.get("role") == "member":
-            from amorehiremepls.web.chrome import without_costs
-
-            a = without_costs(a)
-            action = without_costs(action) if action else action
-            runs = without_costs(runs)
-        saved_reason = shown_failure_reason(a, action)
-        if a.get("status") == "failed" and saved_reason != (a.get("reason") or ""):
-            a = {**a, "reason": saved_reason}
-        network_rows = network_public(NetworkLog(rt.store).for_job(a["job_id"]))
-        from amorehiremepls.core.runtime import RealServices
-        from amorehiremepls.web.chrome import answer_gap_line
-
-        filling = form_filling_now(a, runs, action)
-        live = any(run.get("status") in ("queued", "claimed", "running", "waiting", "paused") for run in runs)
-        ctx = dict(
-            a=a,
-            job=job,
-            scopes=scopes,
-            action=action,
-            doc_art=doc_art,
-            shots=evidence_shots(rt, a),
-            can_retry=can_retry,
-            site_label=site_adapter.site_label if site_adapter else None,
-            hold=active_hold(rt.store, app_id),
-            updates=application_timeline(a, runs, saved_reason),
-            network_rows=network_rows,
-            network_seed=json.dumps(network_rows).replace("<", "\\u003c"),
-            now_line=what_to_do_line(a, runs, saved_reason, action),
-            gap=answer_gap_line(a, action),
-            activity_live=activity_payload(a, runs, saved_reason, action=action)["live"],
-            network_open=network_streaming(a, runs, action),
-            filling=filling,
-            answers_changed=answers_differ(a, action),
-            can_fill=bool(a.get("status") == "authorized" and answers_differ(a, action) and not filling and not live and RealServices(rt).has_authorization(a)),
-            can_clear=_can_clear(a),
-        )
+        ctx = application_view(rt, a, job, session)
+        a = ctx["a"]
+        ctx.update(scopes=scopes, doc_art=doc_art, shots=evidence_shots(rt, a), updates=application_timeline(a, ctx["runs"], ctx["saved_reason"]))
+        happening = ctx["happening"]
+        if request.query_params.get("ok") == "field_ok" and field_answer_flash_is_stale(happening):
+            ctx["flash"] = None
+            ctx["flash_tone"] = None
+        ctx["intro"] = None  # the status block at the top is this page's introduction
         return render(request, "application.html", session, **ctx)
 
     @app.get("/applications/{app_id}/activity")
@@ -122,8 +147,7 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         field = None
         if hold and hold.get("purpose") == "field":
             field = {"label": hold.get("field_label") or "", "reason": hold.get("field_reason") or ""}
-        network = NetworkLog(rt.store).for_job(a["job_id"])
-        return JSONResponse(activity_payload(a, runs, shown_failure_reason(a, action), field, network, action))
+        return JSONResponse(activity_payload(a, runs, shown_failure_reason(a, action), field, action=action))
 
     @app.post("/applications/{app_id}/inputs")
     async def application_inputs(request: Request, app_id: str, session: dict = Depends(require_session)):
@@ -278,31 +302,11 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         rt.applications().reconcile(app_id, resolved, {"confirmation": confirmation, "application_date": application_date or None})
         return RedirectResponse(f"/applications/{app_id}", status_code=303)
 
-    @app.post("/applications/{app_id}/network/clear")
-    def application_network_clear(request: Request, app_id: str, session: dict = Depends(require_session), csrf: str = Form(...)):
-        """Remove this job's network rows. The application, the resume, and the screenshots stay."""
+    @app.post("/applications/{app_id}/start-over")
+    def application_start_over(request: Request, app_id: str, session: dict = Depends(require_session), csrf: str = Form(...)):
+        """Clear an unsent attempt and return to the job. The button is the confirmation. Nothing is sent."""
         require_csrf(request, session, csrf)
-        a = rt.store.c("applications").find_one({"_id": app_id})
-        if not a:
-            raise HTTPException(404)
-        NetworkLog(rt.store).clear(a["job_id"])
-        return RedirectResponse(f"/applications/{app_id}", status_code=303)
-
-    @app.post("/applications/{app_id}/delete")
-    def application_delete(request: Request, app_id: str, session: dict = Depends(require_session), csrf: str = Form(...), confirm: str = Form("")):
-        """Back up and remove an application that was never sent. The job stays. A receipt is refused."""
-        require_csrf(request, session, csrf)
-        if confirm.strip().lower() != "delete":
-            return RedirectResponse(f"/applications/{app_id}?err=confirm_needed", status_code=303)
-        return _clear_application(rt, app_id, "delete")
-
-    @app.post("/applications/{app_id}/restart")
-    def application_restart(request: Request, app_id: str, session: dict = Depends(require_session), csrf: str = Form(...), confirm: str = Form("")):
-        """Clear the unsent package and approval, then prepare a new package. Does not submit."""
-        require_csrf(request, session, csrf)
-        if confirm.strip().lower() != "restart":
-            return RedirectResponse(f"/applications/{app_id}?err=confirm_needed", status_code=303)
-        return _clear_application(rt, app_id, "restart")
+        return _clear_application(rt, app_id)
 
     @app.post("/applications/{app_id}/remove-resumes")
     def application_remove_resumes(request: Request, app_id: str, session: dict = Depends(require_session), csrf: str = Form(...), confirm: str = Form("")):

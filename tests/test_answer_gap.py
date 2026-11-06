@@ -193,7 +193,7 @@ def test_two_jobs_show_their_own_typed_value_and_an_idle_form_does_not_look_busy
     page_b = client.get("/applications/app_b").text
     page_run = client.get("/applications/app_run").text
     assert GAP_A in page_a and GAP_A in page_a.split("What happened")[-1]
-    assert "What would be sent" in page_a and "<summary>Network Tab</summary>" in page_a
+    assert "What would be sent" in page_a and "Network Tab" not in page_a
     assert page_a.count('class="gap-item') == 2
     assert "Knows the first tool" in page_a and "Knows the second tool" in page_a
     assert "second sentence stays out" not in page_a
@@ -204,23 +204,25 @@ def test_two_jobs_show_their_own_typed_value_and_an_idle_form_does_not_look_busy
     assert "Something else is still needed." in page_a
     assert "answer needed:" not in page_a and "mystery_field" not in page_a and "legal_first_name" not in page_a and "base_resume" not in page_a
     assert "Everything that happened to this application" not in page_a
-    assert "Nothing was recorded for the last time." in page_a
+    assert "Nothing was recorded for the last time." not in page_a and 'id="network-tab"' not in page_a
     assert "The form was not opened. Showing the result already saved." in page_a
     assert "recorded outcome" not in page_a and "Task started" not in page_a and "Picked up" not in page_a and "hidden from the task list" not in page_a
-    assert 'id="field-answer"' not in page_a and 'id="network-tab" open' not in page_a
-    assert IDLE_LINE in page_a and FILLING_LINE not in page_a
+    assert 'id="field-answer"' not in page_a
+    assert GAP_A in page_a.split("What would be sent", 1)[0] and FILLING_LINE not in page_a
     assert "Task finished" not in page_a
     assert "Westport" not in page_a and "Capital" not in page_a
     assert "Next visit" not in page_a and "Chromium" not in page_a
     assert GAP_B in page_b and "Lakeside" not in page_b and "Harbor" not in page_b
     assert "Approved for this job" in page_b and "scope_" not in page_b and "used 0 of 1" in page_b
-    assert IDLE_LINE in page_b and ">Fill in the form</button>" in page_b
+    headline_b = page_b.split("What would be sent", 1)[0]
+    assert 'pill warn">Approved' in headline_b and 'pill bad">Failed' not in headline_b
+    assert GAP_B in page_b.split("What would be sent", 1)[0] and ">Fill in the form</button>" in page_b
     assert FILLING_LINE in page_run and IDLE_LINE not in page_run and "Lakeside" not in page_run and "Westport" not in page_run
-    assert 'id="network-tab" open' in page_run and 'id="network-tab" open' not in page_a
+    assert "Network Tab" not in page_run and 'id="network-tab"' not in page_run
 
     job_a = client.get("/jobs/job_a").text
     job_run = client.get("/jobs/job_run").text
-    assert IDLE_LINE in job_a and GAP_A in job_a and FILLING_LINE not in job_a and "applying now" not in job_a.lower()
+    assert GAP_A in job_a and FILLING_LINE not in job_a and "applying now" not in job_a.lower()
     assert FILLING_LINE in job_run and "Westport" not in job_run and "Lakeside" not in job_run
 
     csrf = re.search(r'name="csrf" value="([^"]+)"', page_b).group(1)
@@ -228,6 +230,62 @@ def test_two_jobs_show_their_own_typed_value_and_an_idle_form_does_not_look_busy
     assert saved.status_code == 303
     queued = rt.store.c("runs").find_one({"params.application_id": "app_b", "params.phase": "execute", "status": "queued"})
     assert queued is not None and queued["params"]["material_hash"] == "m-b"
-    assert 'id="network-tab" open' in client.get("/applications/app_b").text
+    assert "Network Tab" not in client.get("/applications/app_b").text
     assert client.post("/applications/app_b/fill", data={"csrf": csrf}).status_code == 303
     assert rt.store.c("runs").count_documents({"params.application_id": "app_b", "params.phase": "execute"}) == 1
+
+
+@pytest.mark.mongo
+def test_a_failed_attempt_shows_failed_in_red_and_does_not_say_the_replay_label(client):
+    rt = client.app.state.rt
+    assert client.post("/login", data={"password": "correct-horse-battery"}).status_code == 303
+    _job(rt.store, "job_fail", "Open role")
+    now = datetime(2026, 11, 6, 16, tzinfo=UTC)
+    rt.store.c("applications").insert_one(
+        {
+            "_id": "app_fail",
+            "job_id": "job_fail",
+            "status": "authorized",
+            "reason": "recorded outcome (replay)",
+            "provenance": {"origin": "local"},
+            "material_hash": "m-fail",
+            "review_package": {
+                "apply_url": "https://boards.example/jobs/1",
+                "posting_url": "https://boards.example/jobs/1",
+                "answers": [{"field_id": "location", "label": "Location", "value": "Harbor", "fact_ids": ["user:input"]}],
+                "gaps": [],
+                "outstanding": [],
+            },
+            "history": [
+                {"at": now, "status": "failed", "reason": "no list appeared"},
+                {"at": now, "status": "failed", "reason": "recorded outcome (replay)"},
+            ],
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+    rt.store.c("actions").insert_one(
+        {
+            "_id": "act_fail",
+            "kind": "application_submit",
+            "target_id": "job_fail",
+            "idempotency_key": "submit:job_fail",
+            "status": "failed",
+            "material_hash": "m-fail",
+            "outcome_reason": "no list appeared",
+            "evidence": {"location_typed": "Harbor"},
+        }
+    )
+    page = client.get("/applications/app_fail").text
+    headline = page.split("What would be sent", 1)[0]
+    waiting = "Location was typed as Harbor. No list of places appeared, so the form is waiting."
+    assert 'pill bad">Failed' in headline and 'title="internal state">failed' in headline
+    assert 'pill warn">Approved' not in headline and ">authorized<" not in headline
+    assert "recorded outcome" not in page
+    assert "The form was not opened. Showing the result already saved." in page
+    assert waiting in headline and "will be typed" not in page
+    assert "no list appeared" in page
+    stale = client.get("/applications/app_fail?ok=field_ok").text
+    assert "will be typed" not in stale and waiting in stale.split("What would be sent", 1)[0]
+    assert waiting in client.get("/jobs/job_fail").text
+    assert client.get("/applications/app_fail/activity").json()["state"] == waiting

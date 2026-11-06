@@ -371,6 +371,62 @@ Each application page has its own Network Tab of browser requests, saved as Chro
 
 The application page says "The form is being filled in now." while a form is actually being filled, and "Nothing is being filled in right now." otherwise. When the answer on the page differs from what was typed last time, both are named and the new answer is described as not typed yet. Changing the answers and approving, or pressing Fill in the form, starts a real fill; the same answers are not opened again. Skill gaps are a short coloured list. Missing answers sit in Still needed as plain sentences, never as raw field keys. The approval line has no raw id, bookkeeping lines are hidden, and the history dump is gone. A pass that did not open the form says "The form was not opened. Showing the result already saved." Request recording starts when the page session opens, before the first page load. The Network Tab opens while a fill is starting or running and refreshes about once a second until nothing is live. An earlier fill that finished before recording existed stays empty. Full suite 405 passed, ruff clean. Deployed as `lepia/amorehiremepls:329d1c022adf`. Init exited 0, web and worker healthy. `/health` 200. The Mac dashboard was restarted. The Overview greeting was not re-checked. Faire was not run. BMO was not marked closed.
 
+## Failed headline and typed answers (2026-11-06)
+
+A failed attempt stayed Approved, in yellow, because the application was still authorized after the attempt failed. The headline is now Failed, in red. The approval stays on file. What to do now says the form was not opened and the saved result is being shown when that pass did not open the form. The saved failure reason stays. A value typed on the application wins for every field when the package is prepared again. A profile fact, including city and province, fills a field only when nothing was typed for it. Rebuilding was putting the profile city and province back on top of a typed location, and a later pass then reused the old failed attempt. Not deployed. No live application was run.
+
+## Blank form answers (2026-11-06)
+
+The Greenhouse form showed First name, Last name, Email, and Phone as needed because the saved profile had no owner. A signed-in page loads only that person's profile, so it saw an empty one and recorded every fact as unknown. The profile is attached to the admin account again, and a save outside a sign-in keeps that owner. Those four answers, plus preferred name, province, city, and country, are filled on the open application from the saved profile. Resume/CV still has no tailored file. Cover letter stays blank unless one is added. Not deployed.
+
+## A dropped resume is chosen (2026-11-06)
+
+Dropping a Word resume into the candidate folder, or opening the dashboard when that file is already there and no base resume is chosen, chooses it. The yellow "not chosen yet" question goes away. Notes do not count as a resume. A resume that is already chosen is not replaced when the folder file changes. Not deployed.
+
+## Page motion was finishing before first paint (2026-11-06)
+
+Entrances used a short ease-out. That curve spends its movement in the first moments, which are over before the browser paints, so a loaded page looked still. Hover lift and the card border shift were in the stylesheet and were not what failed. Entrances are now ease-in, 8px, and restarted on the first frame that can paint. Cards also shift background colour on hover. The first six rows still stagger. The filling dots still run only while a form is actually being filled, and reduced motion still snaps movement and does not loop the dots. Not deployed.
+
+## Shorter answers card (2026-11-06)
+
+The answers card is headed "Answers that will be sent", and the intro is "A blank field marked needed still has to be answered. Change anything below before you approve. Saving asks for approval again."
+
+## What is happening, in one place (2026-11-06)
+
+The application page was showing a green note that an answer would be typed, a long tip about approval, and a log of place attempts, all at once. The top line is now one or two sentences from the latest saved event. While a form is actually being filled it says "The form is being filled in now." When that event says a place was typed and no list appeared, it names the field and the typed value and says the form is waiting. When nothing is running and the form was not opened, it says so. The green note is removed once the saved events already say the answer was typed. The page title is "This application". No model call. No live application was run.
+
+## What is happening list height (2026-11-06)
+
+The step list under What is happening scrolls inside the card at a max height of 16rem, with the heading outside the scroller and the newest step at the top. Not deployed. No live application was run.
+
+## Network tab removed from the application page (2026-11-06)
+
+The Network Tab is gone from the application page, including its Clear button, empty sentence, and request list. What is happening still updates while a task is working, and the Copy buttons on the technical details blocks stay. Request rows are still recorded and are not shown on the page. Not deployed. No live application was run.
+
+## Location list picks the city row (2026-11-06)
+
+A location box types the saved place, then the city alone, then each later place, and waits for the menu in the field's own frame and on a menu drawn outside that field. The row whose first part is the typed city is chosen. A longer name that only starts with that city is left. When several of those city rows are shown, the one that agrees with the saved region is used. If no row appears, the form still asks. The saved step names the field, the typed text, that a list appeared, and the chosen row. Not deployed. No live application was run.
+
+## Years land in the form's own range (2026-11-06)
+
+A years question that offers ranges now takes the range holding the computed number (three years picks "2-4 years"); a bare number is never left beside a list, and a list with no fitting range asks. The shared rule is `apply/ats/rules.py: pick_years_bucket`. Rebuild the resume now keeps each question's site tag, so Greenhouse questions are mapped by the Greenhouse adapter again instead of the generic mapper. Not deployed.
+
+## One ask at the top of the application page (2026-11-06)
+
+The application page and the job page now open with one status block: the status chip, one or two sentences from the latest saved event, and, only when the app needs the person, the one ask with its one control (text box for a waiting field, Choose row or Save this answer for a missing answer, Approve this exact application when ready, Select a resume when none, Continue for a human check, Retry with the app, I applied on the site, Save the result). Otherwise it says "Nothing is needed from you right now." The sentences come from `chrome.needed_now` and are shared by both pages through `routes.applications.application_view`. Everything below is a closed `<details>` fold (`fold` macro) that opens only when it matters now; Proof of applying is a list that scrolls inside its card like What is happening. Jargon left the visible text (fingerprint and ids live in the technical details), repeated markup became macros (`status_block`, `fold`, `tech`, `confirm_action`), and `app.css` gained a 4/8px spacing scale (`--s-1`..`--s-8`), motion tokens (`--motion-quick`, `--enter`, `--rise`, `--ease-io`, `--ease-spring`), staggered entrances, slide-in for new step rows only, 200ms hover and press states, and a one-time chip pulse when the status actually changed through the poll (never on first paint, off under reduced motion). The stop reason now starts with a capital letter. Fixture-tested only (`tests/test_web.py`, `test_copy.py`, `test_greenhouse_web.py`, `test_location_choice.py`, `test_field_answer.py`, `test_human_check.py`, `test_design.py`, `test_motion.py`; full suite green). Not deployed. No live application was run.
+
+## Session close (2026-11-06)
+
+Deployed image is still `329d1c022adf` (commit `329d1c0`); web and worker healthy, `/health` 200. The Mac dashboard (pid 28854) runs that same commit and has not been restarted, so the Python changes below are not running locally yet. Saved locally and uncommitted, not deployed: Failed headline in red, typed answers win on rebuild, "form was not opened" replay line, dropped resume adopted as base, location picker chooses the exact city row, years ranges picked from the computed number with `meta.ats` kept on rebuild, and the one status block redesign of the application and job pages (Network Tab and history dump removed). Full suite 413 passed, ruff clean. The live profile doc was stamped to the admin user; the Faire application `app_6a78e38192928c99` needs a rebuild with the new code before approval; only one real browser visit ever happened, no employer receipt exists, nothing has been submitted. Not done: combined "Start over" control, higher score resume rebuild, deploy of the local batch, saved later places; see `docs/HANDOFF.md` for the next step.
+
+## Location row binds when the list covers the field (2026-11-06)
+
+Typing a city and region left the field on the city. The place list then opened over the field, the next click waited on that list until it timed out, and the row such as the saved city plus its region and country was never chosen. A blocked click now reads the open list and chooses the row whose city matches and whose region agrees. Nothing was submitted. Not deployed.
+
+## Start over replaces restart and delete (2026-11-06)
+
+One Start over button on the application page, and the same button in More actions on the job page, clears an unsent attempt: the approval, the resume files made for it, and the application record (backed up, then tombstoned, or withdrawn when a tracker row exists). The job stays and the page returns there so it can be prepared again. A sent application or a saved employer confirmation is refused, and a receipt hides the button and shows one sentence. Nothing is sent. Not deployed. No live application was run.
+
 ## Exact next step
 
 Queue item 5 waits for a confirmed employer receipt. Do not draft recruiter Connect notes until one exists. Do not retry the Faire application or mark the BMO job closed; those are owner decisions (handoff questions 4 and 5). The employment-type rule is deployed; the owner uses Check fit again on the skipped job. An already approved package with no task is picked up by the worker; do not start that send by hand. The plain-language fill page is deployed as `329d1c022adf`. The live profile still has no later places; save those before relying on them. Do not confirm a destructive action on the live Workday job unless the owner asks. Open owner questions are 1, 2, 3, 4, 5, 7, 8, and 9. Question 6 is answered: tracker sync keeps running for an expired member.

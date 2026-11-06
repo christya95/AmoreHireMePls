@@ -135,132 +135,100 @@
     document.querySelectorAll("details.more[open]").forEach(reserveMore);
   });
 
-  // Application page: refresh saved steps about every four seconds, and this job's network rows about once a second, while the task is live.
-  function networkPiece(row) {
-    var status = row.status === 0 || row.status ? String(row.status) : "";
-    return [row.id || "", row.method || "", status, row.timing || "", row.type || "", row.url || "", row.body || ""].join("\t");
+  // Application page: refresh the status block while a task is live, and the saved steps about every four seconds.
+  var IDLE_LINE = "Nothing is being filled in right now.";
+  var reloadTimer = null;
+  function reloadSoon(delay) {
+    // The block's control depends on the saved state, so a changed status reloads the page once the pulse has shown.
+    if (reloadTimer) return;
+    reloadTimer = setTimeout(function () { window.location.reload(); }, delay);
   }
-  function networkSig(rows) {
-    return (rows || []).map(networkPiece).join("\n");
+  function pulse(el) {
+    // One ring, once. Never on first paint: this runs only when the poll saw a different value.
+    if (!el) return;
+    el.classList.remove("pulse");
+    void el.offsetWidth;
+    el.classList.add("pulse");
+    el.addEventListener("animationend", function () { el.classList.remove("pulse"); }, { once: true });
   }
-  function renderNetworkRow(row) {
-    var el = document.createElement("div");
-    el.className = "list-item";
-    el.setAttribute("data-id", row.id || "");
-    el.setAttribute("data-piece", networkPiece(row));
-    var when = document.createElement("span");
-    when.className = "t";
-    when.textContent = row.at || "";
-    var what = document.createElement("span");
-    what.className = "msg";
-    var line = document.createElement("span");
-    line.className = "line";
-    var status = row.status === 0 || row.status ? String(row.status) : "—";
-    line.textContent = [row.method || "", status, row.type || ""].filter(Boolean).join(" ") + (row.timing ? " · " + row.timing : "");
-    var url = document.createElement("span");
-    url.className = "url";
-    url.textContent = row.url || "";
-    what.appendChild(line);
-    what.appendChild(url);
-    if (row.body) {
-      var body = document.createElement("span");
-      body.className = "body";
-      body.textContent = row.body;
-      what.appendChild(body);
-    }
-    el.appendChild(when);
-    el.appendChild(what);
-    return el;
-  }
-  function paintNetwork(rows) {
-    var box = document.getElementById("network-lines");
-    var empty = document.getElementById("network-empty");
-    if (!box) return;
-    var sig = networkSig(rows);
-    if (box.getAttribute("data-sig") === sig) return;
-    var y = window.scrollY;
-    var have = {};
-    Array.prototype.forEach.call(box.children, function (el) {
-      var id = el.getAttribute("data-id");
-      if (id) have[id] = el;
-    });
-    var frag = document.createDocumentFragment();
-    (rows || []).forEach(function (row) {
-      var id = row.id || "";
-      var piece = networkPiece(row);
-      var el = have[id];
-      if (el && el.getAttribute("data-piece") === piece) frag.appendChild(el);
-      else frag.appendChild(renderNetworkRow(row));
-    });
-    box.replaceChildren(frag);
-    box.setAttribute("data-sig", sig);
-    if (empty) empty.hidden = !!(rows && rows.length);
-    window.scrollTo(0, y);
+  function paintChip(banner, data) {
+    if (!data.status) return false;
+    var chip = banner.querySelector(".status");
+    if (!chip) return false;
+    var raw = chip.querySelector(".raw");
+    var pill = chip.querySelector(".pill");
+    if (!raw || !pill || raw.textContent === data.status) return false;
+    raw.textContent = data.status;
+    pill.textContent = data.status_label || data.status;
+    pill.className = "pill " + (data.tone || "neutral");
+    banner.setAttribute("data-tone", data.tone || "neutral");
+    pulse(pill);
+    return true;
   }
   function paintFlags(data) {
     var banner = document.getElementById("activity-banner");
-    if (banner) banner.classList.toggle("working", !!data.working);
+    if (!banner) return;
+    banner.classList.toggle("working", !!data.working);
     var state = document.getElementById("activity-state");
-    if (state && data.state) state.textContent = data.state;
+    if (state && data.state) {
+      var hideIdle = data.state === IDLE_LINE && banner.getAttribute("data-idle-hidden") === "1";
+      state.hidden = hideIdle;
+      if (!hideIdle && state.textContent !== data.state) state.textContent = data.state;
+    }
     var dots = document.getElementById("activity-dots");
     if (dots) dots.hidden = !data.working;
-    var now = document.getElementById("activity-now");
-    if (now && data.now !== undefined) {
-      now.hidden = !data.now;
-      if (data.now && now.textContent !== data.now) now.textContent = data.now;
-    }
+    var flash = document.querySelector(".main > .flash");
+    var settled = data.state && /was typed as|No list of places appeared|so the form is waiting/.test(data.state);
+    if (flash && settled && /will be typed/.test(flash.textContent || "")) flash.remove();
     var fieldBox = document.getElementById("field-answer");
     if (data.field && data.field.label) {
-      if (!fieldBox) {
-        window.location.reload();
-        return;
-      }
+      if (!fieldBox) { reloadSoon(0); return; }
       var fieldLabel = document.getElementById("field-answer-label");
-      var fieldReason = document.getElementById("field-answer-reason");
-      if (fieldLabel) fieldLabel.textContent = data.field.label;
-      if (fieldReason) fieldReason.textContent = data.field.reason || "";
-      if (banner) banner.hidden = true;
+      if (fieldLabel && fieldLabel.textContent !== data.field.label) fieldLabel.textContent = data.field.label;
+      var fieldInput = fieldBox.querySelector("label");
+      if (fieldInput && fieldInput.firstChild && fieldInput.firstChild.nodeType === 3) fieldInput.firstChild.textContent = data.field.label + " ";
     } else if (fieldBox) {
-      fieldBox.remove();
+      reloadSoon(0);
+      return;
     }
+    if (paintChip(banner, data)) reloadSoon(900);
+  }
+  function stepRow(line, fresh) {
+    var row = document.createElement("div");
+    row.className = "list-item " + (fresh ? "enter" : "settled");
+    row.setAttribute("data-key", (line.at || "") + "|" + line.text);
+    var when = document.createElement("span");
+    when.className = "t";
+    when.textContent = line.at || "";
+    var what = document.createElement("span");
+    what.textContent = line.text + (line.count > 1 ? " (" + line.count + ")" : "");
+    row.appendChild(when);
+    row.appendChild(what);
+    return row;
   }
   function paintSteps(data) {
+    // Rows the page already shows keep still; only a row new to the page slides in from the top.
     var box = document.getElementById("activity-lines");
     if (!box) return;
-    box.replaceChildren();
-    (data.lines || []).forEach(function (line) {
-      var row = document.createElement("div");
-      row.className = "list-item";
-      var when = document.createElement("span");
-      when.className = "t";
-      when.textContent = line.at || "";
-      var what = document.createElement("span");
-      what.textContent = line.text + (line.count > 1 ? " (" + line.count + ")" : "");
-      row.appendChild(when);
-      row.appendChild(what);
-      box.appendChild(row);
-    });
-  }
-  var networkBox = document.getElementById("network-lines");
-  var networkSeed = document.getElementById("network-seed");
-  if (networkBox && networkSeed) {
-    try { networkBox.setAttribute("data-sig", networkSig(JSON.parse(networkSeed.textContent || "[]"))); } catch (err) { /* the next pass paints */ }
+    var known = {};
+    box.querySelectorAll(".list-item[data-key]").forEach(function (row) { known[row.getAttribute("data-key")] = true; });
+    var lines = data.lines || [];
+    var changed = lines.length !== Object.keys(known).length || lines.some(function (line) { return !known[(line.at || "") + "|" + line.text]; });
+    if (!changed) return;
+    var next = document.createDocumentFragment();
+    lines.forEach(function (line) { next.appendChild(stepRow(line, !known[(line.at || "") + "|" + line.text])); });
+    box.replaceChildren(next);
+    var empty = box.parentNode && box.parentNode.querySelector(".note");
+    if (empty && lines.length && /Nothing has happened yet/.test(empty.textContent || "")) empty.remove();
   }
   var activity = document.getElementById("updates");
-  var networkCard = document.getElementById("network");
-  var liveNode = activity && activity.getAttribute("data-live") === "1" ? activity : (networkCard && networkCard.getAttribute("data-live") === "1" ? networkCard : null);
-  if (liveNode) {
+  if (activity && activity.getAttribute("data-live") === "1") {
     var ticks = 0;
     var activityTimer = setInterval(function () {
-      fetch(liveNode.getAttribute("data-activity"), { credentials: "same-origin", headers: { Accept: "application/json" } })
+      fetch(activity.getAttribute("data-activity"), { credentials: "same-origin", headers: { Accept: "application/json" } })
         .then(function (response) { return response.ok ? response.json() : null; })
         .then(function (data) {
           if (!data) return;
-          if (data.network_open) {
-            var tab = document.getElementById("network-tab");
-            if (tab) tab.open = true;
-          }
-          paintNetwork(data.network || []);
           ticks += 1;
           paintFlags(data);
           if (ticks % 4 === 0) paintSteps(data);
@@ -316,4 +284,19 @@
       if (btn) setTimeout(function () { btn.disabled = true; }, 0);
     });
   });
+
+  // Restart entrance motion on the first frame that can paint. The stylesheet
+  // animation otherwise starts while the document is still parsing, and an
+  // ease-out has already settled by the time the first frame is drawn.
+  // Reduced motion is left alone. The fill dots are not in this list.
+  var entrance = ".sidebar, .topbar, .page-head, .empty, .login-card, .flash, .main .card, .stack > .card, .stack > .next-action, .kpis > .kpi, .table-wrap tbody tr, .timeline > .list-item, .fit-ring .value, .fit-bar .seg";
+  function replayEntrance() {
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    var nodes = document.querySelectorAll(entrance);
+    nodes.forEach(function (el) { el.style.animation = "none"; });
+    if (document.body) void document.body.offsetWidth;
+    nodes.forEach(function (el) { el.style.animation = ""; });
+  }
+  requestAnimationFrame(function () { requestAnimationFrame(replayEntrance); });
+  window.addEventListener("pageshow", function (ev) { if (ev.persisted) replayEntrance(); });
 })();

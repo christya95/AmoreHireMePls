@@ -1,41 +1,46 @@
 # Handoff
 
-Written 2026-11-05 12:40 Toronto at commit `45be592`, updated after queue item 3 (per-user accounts). Read this first in every new session.
-No private values here: field names and counts only. Keep under 120 lines; finished items move to `docs/PROGRESS.md`.
+Written 2026-11-06 12:30 Toronto at commit `a7692be` with an uncommitted local batch (34 files). Read this first in every new
+session. No private values: field names and counts only. Keep under 120 lines; finished items move to `docs/PROGRESS.md`.
 
 ## State now
 
-- Deployed: NAS Portainer stack `amorehiremepls`, image `lepia/amorehiremepls:329d1c022adf` (commit `329d1c0`). Web and
-  worker healthy, dashboard `http://192.168.2.49:8790` (`/health` 200, tracker on). Approving a package after its task
-  has finished queues one send of that same package. The application page shows each saved step under "What is happening"
-  and refreshes while a task is working. A posting that never states an employment type is treated as permanent. Only an explicit phrase, or the job
-  board's own field, skips it. The owner re-checks fit; this deploy did not. A queued application with no owner is
-  attached to the active admin and then claimed. A task that has not started
-  is titled with the job name, shows Cancel and one waiting sentence, and hides pause, resume, and the empty result
-  cards. The footer says the app is idle, or names the task it is on. Clear leaves "Nothing is waiting" and a link to
-  Jobs. Clear was not pressed on the live queue. `amore migrate-users` has been run once (admin created, 222 records stamped).
-- Live and used for real: profile store, base resume registration, tracker preview/import (nothing pushed), discovery by URL,
-  model check through `op run`, deterministic tailoring with a 2 page PDF, review package and approval gates, honest
-  application status plus the Updates list on the Overview (built from stored events, no model call), fit check with resume
-  evidence shown as plain lines (no raw ids), `candidate/` drop folder (Profile page upload, NAS bind mount `/candidate`,
-  `AMORE_CANDIDATE_SUPPLEMENTAL_MAX_CHARS=40000` on the stack and in the local `.env`; code default 12000), self
-  identification option matching against the form's own option text, `salary_case` proposal ("Why this figure", approve or
-  edit), `AMORE_TIMEZONE` and tracker settings, profession neutral code with `candidate/profile.toml` as the one customization
-  surface (`amore profile import --from … [--dry-run]`, `export --to …`, `fingerprint`, Profile page Load button). The
-  owner's live preferences are exported to the gitignored Mac copy of `profile.toml`; the NAS Profile card says "not found"
-  because the file is only on the Mac. Layout is the six packages in `docs/architecture.md`. Suite: 405 passed, ruff clean.
-  Posting cleanup, delete/restart, and the task list split are on this image. A sent application, a receipt, the base
-  resume, and tracker history are kept.
-- Fixture tested only: Greenhouse, Lever and Ashby form filling including the hidden input upload fix and the pre fill form
-  check; the salary skill; Workday posting refresh; owner notifications, the human check hold and the one later try.
-- Not verified: no live employer receipt exists yet for any ATS; nothing has ever been submitted by the app.
-- While a form is filled, the bar says "The form is being filled in now." Otherwise: "Nothing is being filled in right now."
-  Skill gaps and missing answers are separate lists. Request recording starts before the first page load. Deployed as
-  `329d1c022adf`. The Mac dashboard was restarted (`/health` 200). The Faire attempt stopped; nothing was sent.
-- Data (live database through `ProfileStore`, values never in the repo): contact and address facts under the mapper keys,
-  links, availability, notice period, work arrangements, compensation floor, five self identification facts (sensitive),
-  62 answers, 11 skills, 11 education rows. Profile version 7 per the chat record (the previous handoff wrote 8; the Profile
-  page shows the current number).
+- Deployed: NAS Portainer stack `amorehiremepls`, image `lepia/amorehiremepls:329d1c022adf` (commit `329d1c0`). NAS web and
+  worker healthy, `/health` 200, tracker on. Local dashboard restarted 12:46 onto this uncommitted tree (pid 73119,
+  `127.0.0.1:8790`, `/health` 200). The white application page was the 10:46 process: the new template asks for `need`,
+  and that process never passed it, so Jinja returned an empty error page.
+- Saved locally, uncommitted, not deployed (each verified in `git diff`; full suite 413 passed, ruff clean per the last agent):
+  - A failed attempt shows Failed in red (`chrome.py` headline); approval is no longer the headline after a failure.
+  - A value the person types on the application wins for every field; profile facts fill only untouched fields; typed values
+    survive a rebuild (`applications.py: keep_typed_answers`).
+  - A replay that did not open the form says "The form was not opened. Showing the result already saved."
+  - A dropped Word resume is chosen as base when none is chosen (`runtime.reload_profile` adopts from the candidate folder;
+    the Profile upload redirects with `ok=candidate_resume_chosen`).
+  - Location picker waits for the place list (field frame or portaled menu), picks the exact city row whose region and country
+    agree, prefers an exact row over a longer name, asks only when no rows; step saved as "Location: typed X. A list appeared.
+    Chose X, Region, Country." (`browser.py: exact_city_row`, `_region_bonus`).
+  - A years question with range options picks the range holding the computed years (3 picks 2-4 years;
+    `ats/rules.py: pick_years_bucket`). Rebuild keeps each question's `meta.ats` so the site adapter maps it.
+  - Application and job pages redesigned: one status block at top (`status_block` macro; single ask and single control only
+    when needed, otherwise "Nothing is needed from you right now."). Folds closed by default except Still needed, Proof after
+    an attempt, What would be sent when answers are needed, What is happening while live; both lists scroll at 16rem. Network
+    Tab removed from the page (recording still runs server side); history dump removed. Answers card heading "Answers that
+    will be sent" with a three sentence intro; page title "This application". Tokens `--s-1`..`--s-8`, motion tokens,
+    `rise`/`row-in`/`chip-pulse` keyframes, reduced motion snaps, password discs visible on login, page entrance ease-in.
+- Live and used for real: profile store, base resume registration, tracker preview/import (nothing pushed), discovery by URL, model check
+  through `op run`, deterministic tailoring with a 2 page PDF, review package and approval gates, application status and Updates list from
+  stored events, fit check, `candidate/` drop folder (NAS bind mount `/candidate`, `AMORE_CANDIDATE_SUPPLEMENTAL_MAX_CHARS=40000`), self
+  identification matching, `salary_case`, `AMORE_TIMEZONE` and tracker settings, `profile.toml` as the customization surface. `amore migrate-users` ran once (222 stamped).
+- Fixture tested only: Greenhouse, Lever and Ashby form filling (upload, pre fill check, location picker, years buckets); the
+  salary skill; Workday posting refresh; owner notifications, the human check hold and the one later try.
+- Not verified: no live employer receipt exists for any ATS; nothing has ever been submitted by the app. Only one real browser
+  visit ever happened (2026-11-06 11:46Z); every later pass was a replay.
+- Data (live database through `ProfileStore`, values never in the repo): the profile doc had no `user_id` and was invisible
+  after sign in; it was stamped to the admin user so answers fill again. Profile city and province are still the defaults;
+  `location_fallbacks` is empty. Contact and address facts, links, availability, notice period, work arrangements,
+  compensation floor, five self identification facts (sensitive), 62 answers, 11 skills, 11 education rows. The Faire
+  application `app_6a78e38192928c99` (job `job_d0f65161045baf54`) was prepared before the fixes: its years answer still shows
+  the bare number and its location the typed city; a rebuild with the new code is needed.
 
 ## Decisions made this session
 
@@ -48,12 +53,11 @@ No private values here: field names and counts only. Keep under 120 lines; finis
   the decline option (owner).
 - Per user accounts: the admin role never expires, members get 365 days with top ups (agent design, owner approved the concept).
 - "Remove" a user means Turn off (reversible) or Delete permanently with a backup and a tombstone (agent).
-- Tracker sync keeps running for an expired member (owner, 2026-11-05). Turning access off or letting it end does not pause the GitHub ledger.
-- AI usage, token counts, pricing and spend are admin only: members never see the AI usage page, cost chips or per run
-  spend; the admin People page shows per person usage and cost; the owner views his own through the admin surface for
-  consistency (agent design, owner approved).
-- Profile version 7 saved through `ProfileStore` with provenance `user:chat` and `user:chatgpt-handoff`; values never in the
-  repo (agent, from the owner's chat answers).
+- Tracker sync keeps running for an expired member (owner, 2026-11-05).
+- AI usage, token counts, pricing and spend are admin only; the admin People page shows per person usage and cost (agent).
+- Profile version 7 saved through `ProfileStore` with provenance `user:chat` and `user:chatgpt-handoff` (agent).
+- A typed value on the application beats a profile fact on every rebuild (owner, 2026-11-06).
+- The watch browser panel and the Network Tab left the application page on purpose; do not re-add. Grok Bot is out of scope (owner).
 
 ## Open questions for the owner
 
@@ -62,58 +66,55 @@ No private values here: field names and counts only. Keep under 120 lines; finis
 3. Internship employer names and titles differ between the resume DOCX and the LinkedIn handoff notes; which is right? If the
    DOCX is wrong, fix it and re-register it; otherwise edit the fact on the Profile page.
 4. BMO job `job_37efeb56f094fb95`: the Workday posting is gone (403). Mark it closed or keep it?
-5. Faire application `app_1c0408f4d9f27059`: retry from the dashboard (Retry with the app, then approve) now that the upload
-   fix is deployed? Never retried by an agent.
-6. Answered 2026-11-05: tracker sync keeps running for an expired member.
+5. Faire application `app_6a78e38192928c99` (the earlier handoff named `app_1c0408f4d9f27059`): rebuild the answers with the
+   new code, then approve? Never retried by an agent.
+6. Deploy the local uncommitted batch? Not asked for yet.
 7. Copy `candidate/profile.toml` to the NAS `/candidate` so the Profile card finds it? It holds preferences, not secrets.
-8. The handoff notes file in `candidate/` is truncated at the 40,000 character cap; trim or split it so the important part
-   sorts first.
+8. The handoff notes file in `candidate/` is truncated at the 40,000 character cap; trim or split it so the important part sorts first.
 9. Should the saved `pronouns` and `citizenship_status` answers be typed on forms? If yes, add a `question_pattern`
    (`pronouns?` and `citizenship`) to each on the Profile page; without one they stay blank by design.
+10. Save Mississauga and Toronto as later places (`location_fallbacks`)? Requested earlier, not saved.
 
 ## Queue
 
-1. Done on `main` (see `docs/PROGRESS.md`, "Form rules for the saved answer keys"): `FIELD_RULES` for every saved answer
-   key, `years_*` saved answers, `veteran_status` and `indigenous_identity` in `SELF_ID_RULES`, `own_personal_answer`
-   shared by the mapper and the three adapters. Still waits for the owner: `pronouns` and `citizenship_status` stay blank
-   until each saved answer carries a `question_pattern` (Profile page or `profile.toml` `match`); see question 9.
-   Deployed as `68c7a2576966`.
-2. Done on `main` (see `docs/PROGRESS.md`, "Directory packages", and `docs/architecture.md`): move `9e9413d`, route split
-   `1ea2bc5`. No list of 22 high-value comments exists in the repo, so none were added. Deployed as `4fce6fdef10d`.
-3. Done on `main` (see `docs/PROGRESS.md`, "Per-user accounts"). Deployed as `5959e62bfd09`. `amore migrate-users` has been
-   run once.
-4. Done. Items 1 to 3 are deployed and the tags are recorded here and in `docs/PROGRESS.md`.
-5. After the first confirmed employer receipt: recruiter Connect note drafts per the owner's rule (in house recruiters at
-   that employer, skip RBC and FAANG, under 300 characters, no dashes, no layoff mention, mention the role applied to, draft
-   only, send only when the owner asks). Size: S per batch. Plan: `outreach.py`. Waits for: a confirmed receipt.
+1. Done locally, not deployed: one Start over button on the application page and the job page. It clears the unsent
+   attempt, approval, and tailored files, then returns to the job. No typed word. A receipt hides it and says so.
+2. Not done: a higher score resume rebuild through the tailored resume skill (never started). Size: M. Needs the owner's go.
+3. Not done: deploy of the local batch (owner has not asked; question 6). Sequence: tests + lint, commit, push `main`,
+   `scripts/deploy_nas.sh` via `op run`, then restart the Mac dashboard.
+4. Not done: the two saved later places (question 10). Profile page or `profile.toml`, not code.
+5. After the first confirmed employer receipt: recruiter Connect note drafts per the owner's rule (in house recruiters at that
+   employer, skip RBC and FAANG, under 300 characters, no dashes, no layoff mention, name the role applied to, draft only,
+   send only when the owner asks). Plan: `outreach.py`. Waits for: a confirmed receipt.
+
+Next step for a new session: ask the owner whether to deploy the local batch (queue 3, now including Start over), then rebuild
+the Faire answers so years and location use the new code, then let the owner approve. Do not retry Faire or mark BMO closed.
 
 ## Operating rules
 
 1. Test: `env -u PLAYWRIGHT_BROWSERS_PATH -u UV_CACHE_DIR -u TMPDIR -u __CURSOR_SANDBOX_ENV_RESTORE uv run pytest -q -p no:cacheprovider`
-   (outside the sandbox, `required_permissions: ["all"]`). Dev Mongo `127.0.0.1:27027` (`docker compose --profile dev-mongo
-   up -d dev-mongo`); Chromium via `uv run playwright install chromium`; mongo and browser tests skip without them.
+   (outside the sandbox, `required_permissions: ["all"]`). Dev Mongo `127.0.0.1:27027` (`docker compose --profile dev-mongo up -d dev-mongo`);
+   Chromium via `uv run playwright install chromium`; mongo and browser tests skip without them.
 2. Lint: `uv run ruff check src tests && uv run ruff format --check src tests` (line length 180).
-3. Deploy: `git fetch origin && git worktree remove --force /tmp/amore_deploy_wt 2>/dev/null || true && git worktree add
-   --detach /tmp/amore_deploy_wt origin/main && cd /tmp/amore_deploy_wt && PORTAINER_URL=http://192.168.2.49:9000 op run
-   --env-file <repo>/.env.references -- ./scripts/deploy_nas.sh` (outside the sandbox, allow 7 minutes), then check `/health`
-   is 200 and the Overview greeting shows the display name; never as part of a handoff.
-4. If auto review blocks a command, retry the identical command once with the smart mode approval request and the exact
-   block reason; do not change the command. Commit after each step with a plain sentence; push `main` only after tests and
-   lint pass.
-5. Secrets come from 1Password through `op run --env-file .env.references`; the CLI may block for minutes waiting on the
-   desktop app; if `op run` fails, run `op signin` outside the sandbox first. Long lived processes (web, worker) start
-   detached and outside the sandbox; only one worker against the NAS database. `/chat-handoff` (personal agent store) when
-   the conversation is compacted or passes about 25 turns.
+3. Deploy: `git fetch origin && git worktree remove --force /tmp/amore_deploy_wt 2>/dev/null || true && git worktree add --detach /tmp/amore_deploy_wt origin/main
+   && cd /tmp/amore_deploy_wt && PORTAINER_URL=http://192.168.2.49:9000 op run --env-file <repo>/.env.references -- ./scripts/deploy_nas.sh`
+   (outside the sandbox, allow 7 minutes), then check `/health` is 200 and the Overview greeting shows the display name; never as part of a handoff.
+4. If auto review blocks a command, retry it once unchanged with the smart mode approval request and the exact block reason.
+   Commit after each step with a plain sentence; push `main` only after tests and lint pass.
+5. Secrets come from 1Password through `op run --env-file .env.references` (`op signin` outside the sandbox if it fails).
+   Web and worker start detached and outside the sandbox; only one worker against the NAS database. `/chat-handoff`
+   (personal agent store) when the conversation is compacted or passes about 25 turns.
 6. Never: retry a live application, send a message or grant an approval (those are the owner's clicks in the dashboard);
    print or log secrets or profile values (compare profiles by fingerprint, report counts); force push; commit `candidate/`
    (except README, `.gitignore`, `profile.example.toml`), `runtime/`, `.env` or `.env.references`.
 
 ## Where to look
 
-- `docs/PROGRESS.md`: dated history of every increment, deploy tags, exact next step at the end.
-- `docs/architecture.md`: package map and the docstring rule.
-- `src/amorehiremepls/apply/applications.py` and `apply/ats/rules.py`: form field rules (`FIELD_RULES`, `SELF_ID_RULES`, `YEARS_RULE`).
-- `src/amorehiremepls/candidate/candidate_profile.py` and `candidate/profile.example.toml`: the customization surface.
-- `src/amorehiremepls/apply/ats/`: Greenhouse, Lever, Ashby adapters; `apply/browser.py` runs their plans.
+- `docs/PROGRESS.md` (history, deploy tags, next step), `docs/architecture.md` (package map), `docs/ui-copy.md` (copy rules).
+- `apply/applications.py` and `apply/ats/rules.py`: `FIELD_RULES`, `SELF_ID_RULES`, `YEARS_RULE`, `pick_years_bucket`,
+  `keep_typed_answers`. `apply/ats/`: Greenhouse, Lever, Ashby adapters; `apply/browser.py` runs their plans.
+- `web/chrome.py` (`needed_now`, headline status), `web/routes/applications.py: application_view`,
+  `web/templates/_macros.html` (`status_block`, `fold`, `tech`, `confirm_action`).
+- `candidate/candidate_profile.py` and `candidate/profile.example.toml`: the customization surface.
 - `scripts/deploy_nas.sh`, `deploy/nas/compose.yaml`, `docs/nas-deployment.md`: deploy variables and sequence.
 - `tests/test_regressions.py`, `tests/test_customization.py`: private token and neutrality guards; `docs/capability-map.md`.

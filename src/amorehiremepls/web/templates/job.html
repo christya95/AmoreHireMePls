@@ -1,48 +1,55 @@
 {% extends "base.html" %}{% block content %}
-{% from "_macros.html" import status, hint, company with context %}
+{% from "_macros.html" import status, hint, company, status_block, one_confirm with context %}
+{% set idle_line = 'Nothing is being filled in right now.' %}
 <div class="stack">
-<div class="card">
+{% if view %}
+{% set app_href = '/applications/' ~ view.a._id %}
+{% set open_verbs = {'human_check': 'Open the application', 'field': 'Answer on the application page', 'answer': 'Answer the question', 'answers': 'Answer the questions',
+                     'approve': 'Read and approve', 'fill': 'Open the application', 'retry': 'Open the application', 'manual': 'Record it on the application page', 'verify': 'Record the result'} %}
+{% set now_line = '' if (view.happening == idle_line and view.need.kind) else view.happening %}
+{% call status_block(view.show_status, now=now_line, ask=view.need.title, note=view.show_reason, working=view.filling, more=view.need.text, idle_hidden=(view.need.kind != '')) %}
+  {% if view.need.kind == 'resume' %}<a class="btn" href="/profile"><svg class="icon"><use href="#i-profile"/></svg>Select a resume</a>
+  {% elif view.need.kind %}<a class="btn" href="{{ app_href }}"><svg class="icon"><use href="#i-arrow"/></svg>{{ open_verbs.get(view.need.kind, 'Open the application') }}</a>
+  {% elif next_step.href and next_step.verb and not next_step.href.startswith('/applications') and not next_step.href.startswith('/runs') %}<a class="btn secondary" href="{{ next_step.href }}"><svg class="icon"><use href="#i-arrow"/></svg>{{ next_step.verb }}</a>{% endif %}
+{% endcall %}
+{% else %}
+{% call status_block(job.status, ask=next_step.label, more=next_step.note) %}
+  {% if next_step.form %}<form method="post" action="{{ next_step.form }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button><svg class="icon"><use href="#i-arrow"/></svg>{{ next_step.verb }}</button></form>
+  {% elif next_step.href and next_step.verb %}<a class="btn" href="{{ next_step.href }}"><svg class="icon"><use href="#i-arrow"/></svg>{{ next_step.verb }}</a>{% endif %}
+{% endcall %}
+{% endif %}
+<header class="card">
   <div class="welcome">
     {{ company(job.employer, job, "lg") }}
     <div>
       <h1>{{ job.title }}</h1>
       <p>{{ job.employer }}{% if job.location %} · {{ job.location }}{% endif %} · job ID {{ job.requisition_id or '—' }}{% if job.linkedin_job_id %} · LinkedIn {{ job.linkedin_job_id }}{% endif %}</p>
-      <div class="flex mt">{{ status(job.status) }}{% if fit %}<span class="pill {{ fit.tone }}">fit score {{ fit.score }}</span>{{ hint('fit_rank') }}{% endif %}<a href="{{ job.posting_url }}" rel="noopener" target="_blank"><small>open the job ad ↗</small></a><small>found via {{ job.sources|map('label')|join(', ') }}</small></div>
+      <div class="flex mt">{% if view %}{{ status(job.status) }}{% endif %}{% if fit %}<span class="pill {{ fit.tone }}">fit score {{ fit.score }}</span>{{ hint('fit_rank') }}{% endif %}<a href="{{ job.posting_url }}" rel="noopener" target="_blank"><small>open the job ad ↗</small></a><small>found via {{ job.sources|map('label')|join(', ') }}</small></div>
       {% if job.status == 'closed' %}<p class="note mt">{{ job.closed_reason or 'This posting is no longer up' }}</p>{% endif %}
       {% if job.possible_duplicates %}<p class="mt"><span class="pill warn">may be the same job as: {{ job.possible_duplicates|join(', ') }}</span></p>{% endif %}
     </div>
+    <nav class="actions" aria-label="This job">
+      <details class="pop more">
+        <summary class="btn secondary sm">More actions</summary>
+        <div class="pop-body stack gap-s">
+          <form method="post" action="/jobs/{{ job._id }}/qualify"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary sm w100">Check fit again</button></form>
+          <form method="post" action="/jobs/{{ job._id }}/check-posting"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary sm w100">Check if this posting is still up</button></form>
+          {% if not active_run %}<form method="post" action="/jobs/{{ job._id }}/run"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary sm w100">Prepare the application again</button></form>{% endif %}
+          <form method="post" action="/jobs/{{ job._id }}/regenerate" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="secondary sm w100">Rebuild the resume</button>
+            <small>{{ glossary.regenerate[1] }}{% if scopes %} <strong>An approval for this job is active and will be withdrawn.</strong>{% endif %}</small></form>
+          {% if can_clear %}
+          {{ one_confirm('/jobs/' ~ job._id ~ '/start-over', glossary.start_over[1], 'Start over', danger=True) }}
+          {% elif clear_block %}<p class="note">{{ clear_block }}</p>{% endif %}
+        </div>
+      </details>
+    </nav>
   </div>
   <hr class="soft">
   <ol class="stepper" aria-label="Steps for this job">
     {% for s in steps %}<li class="{{ 'done' if s.done }}{{ ' current' if s.current }}" title="{{ s.name }}: {{ s.tip }}"><span class="dot">{% if s.done %}<svg class="icon"><use href="#i-check"/></svg>{% else %}{{ loop.index }}{% endif %}</span><span class="name">{{ s.name }}</span></li>{% endfor %}
   </ol>
-  <div class="next-action">
-    <div class="body"><small class="muted">Next</small><strong>{{ next_step.label }}</strong>{% if next_step.note %}<small>{{ next_step.note }}</small>{% endif %}</div>
-    {% if next_step.form %}<form method="post" action="{{ next_step.form }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button><svg class="icon"><use href="#i-arrow"/></svg>{{ next_step.verb }}</button></form>
-    {% elif next_step.href %}<a class="btn" href="{{ next_step.href }}"><svg class="icon"><use href="#i-arrow"/></svg>{{ next_step.verb }}</a>{% endif %}
-    <details class="pop more">
-      <summary class="btn secondary sm">More actions</summary>
-      <div class="pop-body stack gap-s">
-        <form method="post" action="/jobs/{{ job._id }}/qualify"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary sm w100">Check fit again</button></form>
-        <form method="post" action="/jobs/{{ job._id }}/check-posting"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary sm w100">Check if this posting is still up</button></form>
-        {% if not active_run %}<form method="post" action="/jobs/{{ job._id }}/run"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary sm w100">Prepare the application again</button></form>{% endif %}
-        <form method="post" action="/jobs/{{ job._id }}/regenerate" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
-          <button class="secondary sm w100">Rebuild the resume</button>
-          <small>{{ glossary.regenerate[1] }}{% if scopes %} <strong>An approval for this job is active and will be withdrawn.</strong>{% endif %}</small></form>
-        {% if can_clear %}
-        <form method="post" action="/jobs/{{ job._id }}/restart" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
-          <p>Clears this unsent application and its approval. The job stays. You then read a new package and approve it again. Rebuilding the resume makes new files, so the old approval no longer applies. Nothing is sent.</p>
-          <label>Type restart to confirm <input name="confirm" autocomplete="off"></label>
-          <button class="secondary sm w100">Restart this job</button></form>
-        <form method="post" action="/jobs/{{ job._id }}/delete-application" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
-          <p>Removes this application. The job stays. This is only possible because nothing was sent. Your GitHub tracker history is not erased.</p>
-          <label>Type delete to confirm <input name="confirm" autocomplete="off"></label>
-          <button class="danger sm w100">Delete this application</button></form>
-        {% endif %}
-      </div>
-    </details>
-  </div>
-</div>
+</header>
 
 <div class="grid-main top job-lower">
   <div class="card rules-card order-2"><div class="card-h"><h3>Does it fit your rules?</h3>{% if job.qualification %}{{ status(job.qualification.decision) }}{% endif %}<span class="sub">Checked against your preferences: role, location, employment type, lowest salary, employers to skip.</span></div>
@@ -88,7 +95,7 @@
   <div class="table-wrap"><table><thead><tr><th>File</th><th>Open or download</th><th>Facts check</th><th>Written by</th><th class="right">Created</th></tr></thead>
   <tbody>{% for d in artifacts %}<tr class="{{ 'superseded' if d.superseded }}"><td class="wrap"><strong>{{ d.filename }}</strong>{% if d.superseded %}<span class="sub">replaced by a newer version</span>{% endif %}</td><td class="wrap">{% include "_doc_actions.html" %}</td><td>{% if d.grounding.ok %}<span class="pill ok">every line is from your facts</span>{% else %}<span class="pill bad">{{ d.grounding.violations|join('; ') }}</span>{% endif %}</td><td>{{ d.method|label }}</td><td class="right nowrap">{{ d.created_at|local }}</td></tr>
   {% else %}<tr><td colspan="5"><div class="empty"><svg class="icon"><use href="#i-documents"/></svg>No tailored resume yet. "Tailor resume" above writes one and then waits for you to read it.</div></td></tr>{% endfor %}</tbody></table></div>
-  {% if screenshots %}<div class="pad evidence-row"><div class="card-h"><h3>Proof of applying</h3>{{ hint('evidence') }}<span class="sub">Screenshots the app took while applying. Open the application package for the full record.</span></div>{% with shots = screenshots %}{% include "_shots.html" %}{% endwith %}</div>{% endif %}</div>
+  {% if screenshots %}<section class="pad evidence-row" aria-label="Proof of applying"><div class="card-h"><h3>Proof of applying</h3>{{ hint('evidence') }}<span class="sub">Pictures the app took while applying. The application page has the full record.</span></div><div class="scroll-box">{% with shots = screenshots %}{% include "_shots.html" %}{% endwith %}</div></section>{% endif %}</div>
 
 <div class="grid-2">
   <div class="card flush"><div class="card-h"><h3>Applications</h3><span class="sub">The application prepared here, plus anything loaded from your tracker for this employer.</span></div>

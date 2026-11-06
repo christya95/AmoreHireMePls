@@ -273,26 +273,32 @@ def test_profile_upload_puts_files_in_the_folder_and_refuses_the_wrong_ones(stor
     assert "The file is in your candidate folder." in text and "career_2023_to_2026.md" in text and "Terraform modules" in rt.discovery().supplemental_text
     audit = rt.store.c("audit").find_one({"event": "candidate_file_uploaded"})
     assert audit["data"]["name"] == "career_2023_to_2026.md" and "Terraform" not in str(audit)  # the audit row never carries the content
-    assert rt.reload_profile().base_resume is None  # uploading a file never adopts anything
+    assert rt.reload_profile().base_resume is None  # notes are not a base resume
+    resume = tmp_path / "Example_Resume.docx"
+    make_base_resume(resume)
+    r = client.post(
+        "/profile/candidate-upload",
+        data={"csrf": csrf},
+        files={"file": (resume.name, resume.read_bytes(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    )
+    assert r.status_code == 303 and r.headers["location"] == "/profile?ok=candidate_resume_chosen"
+    chosen_page = client.get("/profile?ok=candidate_resume_chosen").text
+    assert "This resume is now the one every tailored version starts from." in chosen_page
+    assert "Your approved base resume (DOCX) is not chosen yet." not in chosen_page
+    assert rt.reload_profile().base_resume is not None
 
 
 @pytest.mark.mongo
-def test_profile_page_offers_the_folder_resume_and_adopts_it_only_on_request(store, tmp_path):
-    import re
-
+def test_profile_page_chooses_the_folder_resume_and_keeps_it_when_the_file_changes(store, tmp_path):
     folder = _folder(tmp_path)
     rt, client = _dashboard(store, tmp_path, folder)
     page = client.get("/profile")
     assert page.status_code == 200
-    assert "Alex_Example_Resume.docx" in page.text and "It is not chosen yet." in page.text and "Use the resume from the candidate folder" in page.text
+    assert "Alex_Example_Resume.docx" in page.text and "This is your approved base resume." in page.text
+    assert "Your approved base resume (DOCX) is not chosen yet." not in page.text
     assert "career_2023_2026.md" in page.text and "mentoring_notes.docx" in page.text
-    assert rt.reload_profile().base_resume is None  # showing it never adopts it
-    csrf = re.search(r'name="csrf" value="([^"]+)"', page.text).group(1)
-    path = re.search(r'name="path" value="([^"]+)"', page.text).group(1)
-    assert client.post("/profile/base-resume", data={"csrf": csrf, "path": path, "note": "from the candidate folder"}).status_code == 303
     chosen = rt.reload_profile().base_resume
     assert chosen and chosen.sha256 == sha256_file(folder / "Alex_Example_Resume.docx") and chosen.path.startswith(str(tmp_path / "p"))
-    assert "This is your approved base resume." in client.get("/profile").text
     make_base_resume(folder / "Alex_Example_Resume.docx")  # replaced in the folder: the approved copy stays until asked
     (folder / "Alex_Example_Resume.docx").write_bytes((folder / "Alex_Example_Resume.docx").read_bytes() + b"\0")
     text = client.get("/profile").text

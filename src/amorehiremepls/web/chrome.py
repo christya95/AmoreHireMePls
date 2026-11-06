@@ -135,7 +135,7 @@ PAGE_TITLES = {
     "jobs.html": "Jobs",
     "job.html": "Job",
     "applications.html": "Applications",
-    "application.html": "Application package",
+    "application.html": "This application",
     "runs.html": "Applications · Background tasks",
     "run.html": "Background task",
     "documents.html": "Resumes",
@@ -181,16 +181,16 @@ FLASHES = {
     "provider_ok": ("The AI connection works.", "ok"),
     "provider_failed": ("The AI connection failed. See the System card for the reason.", "bad"),
     "regenerated": ("The resume was rebuilt. The files changed, so any earlier approval for this job was withdrawn.", "ok"),
-    "regenerated_doc_only": ("A fresh resume was made. The existing package was left as it is because of its state.", "ok"),
+    "regenerated_doc_only": ("A fresh resume was made. This application was left as it is because of its state.", "ok"),
     "no_base": ("Choose your approved base resume under Your profile first.", "bad"),
     "busy": ("A background task is working on this job right now. Wait for it to pause or finish.", "bad"),
     "already_submitted": ("This application was already sent. The files are kept exactly as they were sent.", "bad"),
-    "app_removed": ("This application was removed. The job is still here. Nothing was sent, and the GitHub tracker history was left as it is.", "ok"),
+    "app_removed": ("This attempt was cleared. The job is still here, so you can prepare it again. Nothing was sent, and the tracker history was left as it is.", "ok"),
     "app_withdrawn": (
         "This application was removed from the dashboard. The job is still here. If a GitHub tracker row exists, it is marked withdrawn and the rest of the history stays.",
         "ok",
     ),
-    "job_restarted": ("The unsent application was cleared. Read the new package and approve it again. New resume files replace the old approval. Nothing was sent.", "ok"),
+    "job_restarted": ("The unsent application was cleared. Read the new one and approve it again. New resume files replace the old approval. Nothing was sent.", "ok"),
     "posting_closed": (
         "This posting is no longer up. The job is under Closed. Tailored resumes that were never sent were removed. Your base resume and anything already sent were kept.",
         "ok",
@@ -215,20 +215,21 @@ FLASHES = {
     "missing": ("There is no application to change.", "bad"),
     "captcha_on": ("The app will now try to solve simple captchas itself during an approved application. You can turn this off here any time.", "ok"),
     "captcha_off": ("Captchas are left to you again. A human check pauses the application for you to finish.", "ok"),
-    "retry_started": ("The app will read the form again and prepare a fresh package. It waits for your approval before applying.", "ok"),
+    "retry_started": ("The app will read the form again and prepare fresh answers. It waits for your approval before applying.", "ok"),
     "retry_unsupported": ("The app has no form filler for this job site yet, so there is nothing to retry. Finish on the site yourself.", "bad"),
     "retry_busy": ("A background task is working on this job right now. Wait for it to pause or finish.", "bad"),
     "continue_ok": ("Continue received. The same page will be checked again. The form is not sent a second time.", "ok"),
     "continue_missing": ("That check is no longer being held.", "bad"),
-    "continue_changed": ("The package changed, so Continue was refused.", "bad"),
+    "continue_changed": ("The answers or the resume changed, so Continue was refused.", "bad"),
     "field_ok": ("Answer received. It will be typed into the same open form. The form is not started over.", "ok"),
     "field_missing": ("That field is no longer waiting.", "bad"),
     "field_empty": ("Type an answer first. Nothing was entered on the form.", "bad"),
-    "field_changed": ("The package changed, so that answer was refused.", "bad"),
+    "field_changed": ("The answers or the resume changed, so that answer was refused.", "bad"),
     "notify_sent": ("Test notification sent.", "ok"),
     "notify_failed": ("The test notification could not be sent. Check the mail server settings and try again.", "bad"),
     "notify_off": ("Nothing is set up to send a notification yet.", "bad"),
     "candidate_saved": ("The file is in your candidate folder. It is read the next time the app checks a fit or tailors a resume.", "ok"),
+    "candidate_resume_chosen": ("This resume is now the one every tailored version starts from.", "ok"),
     "candidate_bad_type": ("Only Word (.docx), Markdown (.md) or plain text (.txt) files are accepted.", "bad"),
     "candidate_too_big": ("That file is too large. The limit is 5 MB.", "bad"),
     "candidate_bad_name": ("That file name was not accepted. Give the file a short plain name and try again.", "bad"),
@@ -308,9 +309,9 @@ _WAIT_LINE = {
 }
 
 _HISTORY_LINE = {
-    "ready_for_review": "Package ready for you to read",
+    "ready_for_review": "Ready for you to read",
     "needs_input": "Some answers are still needed",
-    "authorized": "You approved this package",
+    "authorized": "You approved this application",
     "handoff": "Stopped before anything was sent",
     "submitted": "Recorded as applied",
     "failed": "Applying failed",
@@ -376,6 +377,48 @@ def shown_failure_reason(app: dict | None, action: dict | None = None) -> str:
     return current or saved
 
 
+def shown_status(app: dict | None, action: dict | None = None, runs: list[dict] | None = None) -> str:
+    """Headline status. A failed attempt is Failed. An approval can stay on file without being that headline.
+
+    A fill that is actually in progress keeps its in-progress state. A submitted application stays submitted.
+    An approval whose answers have not failed stays approved."""
+    app = app or {}
+    status = str(app.get("status") or "")
+    if status in ("submitted", "needs_verification", "handoff", "challenge_retry"):
+        return status
+    if form_filling_now(app, runs or [], action):
+        return status or "executing"
+    if status == "failed" or _same_package_failed(app, action):
+        return "failed"
+    return status
+
+
+def _same_package_failed(app: dict, action: dict | None) -> bool:
+    """True when the saved attempt failed for the answers currently on the application."""
+    if not action or action.get("status") != "failed":
+        return False
+    if str(app.get("status") or "") not in ("authorized", "executing"):
+        return False
+    action_hash = str(action.get("material_hash") or "")
+    current = str(app.get("material_hash") or "")
+    if action_hash and current and action_hash != current:
+        return False
+    return True
+
+
+def shown_status_reason(app: dict | None, action: dict | None, status_shown: str) -> str:
+    """The sentence beside the headline. A failed attempt uses the saved reason, never the replay label."""
+    raw = str((app or {}).get("reason") or "").strip()
+    if status_shown != "failed":
+        return "" if raw == REPLAY_LABEL else raw
+    basis = dict(app or {})
+    basis["status"] = "failed"
+    text = shown_failure_reason(basis, action)
+    if not text or text == REPLAY_LABEL:
+        return ""
+    return plain_failure(text)
+
+
 def event_log(runs: list[dict], limit: int = 40, saved: str = "", saved_at: Any = None) -> list[dict]:
     """Newest saved step lines: time plus the saved message. The replay label is skipped. Secrets the existing filter covers are not shown."""
     rows: list[dict] = []
@@ -400,8 +443,10 @@ def application_timeline(app: dict, runs: list[dict], saved_reason: str = "") ->
     for entry in app.get("history") or []:
         if entry.get("text"):
             text = str(entry["text"])
-            replay = False
-            step = True
+            replay = REPLAY_LABEL in text
+            step = not replay
+            if replay:
+                text = "The form was not opened. Showing the result already saved."
         else:
             status = entry.get("status") or ""
             text = _HISTORY_LINE.get(status, status.replace("_", " "))
@@ -415,13 +460,16 @@ def application_timeline(app: dict, runs: list[dict], saved_reason: str = "") ->
                 reason = saved
             if reason and reason != REPLAY_LABEL:
                 text = f"{text}. {reason}"
-        if entry.get("at"):
-            rows.append({"at": entry["at"], "text": text, "replay": replay, "step": step})
+        if entry.get("at") and text:
+            rows.append({"at": entry["at"], "text": _for_people(text), "replay": replay, "step": step})
     for run in runs:
         for event in run.get("events") or []:
             text = _run_event_line(run, event)
+            replay = REPLAY_LABEL in text
+            if replay:
+                text = "The form was not opened. Showing the result already saved."
             if event.get("at") and text:
-                rows.append({"at": event["at"], "text": text, "replay": False, "step": text not in _BOOKKEEPING})
+                rows.append({"at": event["at"], "text": _for_people(text), "replay": replay, "step": not replay and text not in _BOOKKEEPING})
     rows.sort(key=lambda row: row["at"], reverse=True)
     kept: list[dict] = []
     for row in rows:
@@ -492,20 +540,30 @@ _BOOKKEEPING = {
 }
 
 
+_NOT_OPENED = "The form was not opened. Showing the result already saved."
+_PLACE_MISS = re.compile(r"(?P<label>[^:\n]{1,80}?):\s*no (?:list|places) appeared for (?P<value>.+)$", re.I)
+_PLACE_NONE = re.compile(r"(?P<label>[^:\n]{1,80}?):\s*a list appeared for (?P<value>.+?) but none matched", re.I)
+_BOX_TYPED = re.compile(r"location box typed (?P<value>.+?)\.\s*(?P<tail>No list appeared|A list appeared but none matched)", re.I)
+_TYPING = re.compile(r"(?P<label>[^:\n]{1,80}?):\s*typing\s+(?P<value>\S.*?)\s*$", re.I)
+_HIDDEN_WORDS = re.compile(r"\b(chromium|browser|visit|replay|packages?|worker|handoff|artifacts?|adapter|payload|scopes?)\b", re.I)
+
+
+def _for_people(text: str) -> str:
+    """Saved notes stay as they were written. One old sentence used a word the page no longer shows."""
+    return str(text or "").replace("A new visit starts from the beginning", "Starting again begins at the top of the form")
+
+
 def situation_line(app: dict, runs: list[dict], saved_reason: str = "") -> str:
-    """What to do now is the latest thing already saved. A replay label is not that line."""
+    """What to do now is the latest thing already saved. A pass that did not open the form says so."""
     rows = application_timeline(app, runs, saved_reason)
-    # A replayed failure must not cover the latest step. The saved reason stays in the list.
-    if any(row.get("replay") or row.get("replayed_failure") for row in rows):
-        for row in rows:
-            if row.get("step"):
-                return row["text"]
     for row in rows:
-        if row.get("replay") or row["text"] in _BOOKKEEPING:
+        if row.get("replay") or row["text"] == _NOT_OPENED or REPLAY_LABEL in row["text"]:
+            return _NOT_OPENED
+        if row["text"] in _BOOKKEEPING:
             continue
         return row["text"]
     for row in rows:
-        if not row.get("replay"):
+        if not row.get("replay") and REPLAY_LABEL not in row["text"]:
             return row["text"]
     return ""
 
@@ -595,16 +653,248 @@ def answers_differ(app: dict | None, action: dict | None) -> bool:
     return action.get("material_hash") != app.get("material_hash")
 
 
-def what_to_do_line(app: dict, runs: list[dict], saved_reason: str = "", action: dict | None = None) -> str:
-    """The line under the filling state. A difference between the page and the last typed value comes first."""
-    if form_filling_now(app, runs, action):
-        return situation_line(app, runs, saved_reason)
-    gap = answer_gap_line(app, action)
-    if gap:
-        return gap
-    if opening_soon(app, runs, action):
+def _clean_place(value: str) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    return text[:-1].strip() if text.endswith(".") else text
+
+
+def _saved_typed_place(app: dict | None, action: dict | None) -> str:
+    for source in (action, app):
+        evidence = (source or {}).get("evidence")
+        if isinstance(evidence, dict):
+            typed = _typed_place(evidence)
+            if typed:
+                return typed
+    return ""
+
+
+def _place_label(app: dict | None, text: str) -> str:
+    for answer in ((app or {}).get("review_package") or {}).get("answers") or []:
+        name = str(answer.get("label") or "").strip()
+        if answer.get("field_id") == "location" or _LOCATION_LABEL.search(name):
+            return name or "Location"
+    if re.search(r"location", text, re.I):
+        return "Location"
+    return ""
+
+
+def _stall_sentence(text: str, app: dict | None = None, action: dict | None = None) -> str:
+    """One or two sentences from a saved place note. The field and the typed value come from that note."""
+    raw = " ".join(str(text or "").split())
+    if not raw or raw == _NOT_OPENED:
+        return ""
+    # A chosen row is a finished step. The same words otherwise mean the form is still waiting.
+    if re.search(r"\bchose\b", raw, re.I):
+        return ""
+    label, value, kind = "", "", ""
+    missed = _PLACE_MISS.search(raw)
+    unmatched = _PLACE_NONE.search(raw)
+    box = _BOX_TYPED.search(raw)
+    if missed:
+        label, value, kind = missed.group("label").strip(), _clean_place(missed.group("value")), "none"
+    elif unmatched:
+        label, value, kind = unmatched.group("label").strip(), _clean_place(unmatched.group("value")), "mismatch"
+    elif box:
+        value = _clean_place(box.group("value"))
+        kind = "mismatch" if "none matched" in box.group("tail").lower() else "none"
+    elif re.search(r"no (?:list|places) appeared", raw, re.I):
+        kind = "none"
+    elif re.search(r"none matched|a list appeared", raw, re.I):
+        kind = "mismatch"
+    if not kind:
+        return ""
+    if not value:
+        value = _saved_typed_place(app, action)
+    if not label:
+        label = _place_label(app, raw)
+    if kind == "mismatch":
+        if label and value:
+            return f"{label} was typed as {value}. A list of places appeared, but none matched, so the form is waiting."
+        return "A list of places appeared, but none matched, so the form is waiting."
+    if label and value:
+        return f"{label} was typed as {value}. No list of places appeared, so the form is waiting."
+    if value:
+        return f"A place was typed as {value}. No list of places appeared, so the form is waiting."
+    return "No list of places appeared, so the form is waiting."
+
+
+def _typed_sentence(text: str) -> str:
+    found = _TYPING.search(" ".join(str(text or "").split()))
+    if not found:
+        return ""
+    label = found.group("label").strip()
+    value = _clean_place(found.group("value"))
+    if not label or not value or _HIDDEN_WORDS.search(label) or _HIDDEN_WORDS.search(value):
+        return ""
+    return f"{label} was typed as {value}."
+
+
+def _showable(text: str) -> str:
+    cleaned = " ".join(_for_people(text).split())
+    if not cleaned or cleaned in _BOOKKEEPING or cleaned == _NOT_OPENED:
+        return ""
+    if _HIDDEN_WORDS.search(cleaned):
+        return ""
+    return cleaned
+
+
+def _field_reason(field: dict | None) -> str:
+    if not isinstance(field, dict):
+        return ""
+    return str(field.get("reason") or field.get("field_reason") or "").strip()
+
+
+def field_answer_flash_is_stale(line: str) -> bool:
+    """The green note says an answer will be typed. It is stale once a saved event says it already was."""
+    text = line or ""
+    return "was typed as" in text or "No list of places appeared" in text or "so the form is waiting" in text
+
+
+def tips_hidden_for(line: str) -> bool:
+    """A live status replaces the long page tip, so the top of the page is the status."""
+    return line in (FILLING_LINE, OPENING_LINE, _NOT_OPENED) or "form is waiting" in (line or "")
+
+
+def what_to_do_line(app: dict, runs: list[dict], saved_reason: str = "", action: dict | None = None, field: dict | None = None) -> str:
+    """One or two plain sentences for what is happening now, from the latest saved event. No model call."""
+    reason = _field_reason(field)
+    held = bool(reason) or (isinstance(field, dict) and (field.get("label") or field.get("field_label")))
+    if reason:
+        stalled = _stall_sentence(reason, app, action)
+        if stalled:
+            return stalled
+    if form_filling_now(app, runs, action) and not held:
+        return FILLING_LINE
+    latest = situation_line(app, runs, saved_reason)
+    if not held:
+        gap = answer_gap_line(app, action)
+        if gap:
+            return gap
+    stalled = _stall_sentence(latest, app, action)
+    if stalled:
+        return stalled
+    if opening_soon(app, runs, action) and not held:
         return OPENING_LINE
-    return situation_line(app, runs, saved_reason)
+    if latest == _NOT_OPENED:
+        return _NOT_OPENED
+    typed = _typed_sentence(latest)
+    if typed:
+        return typed
+    if held and reason:
+        shown_reason = _showable(reason)
+        if shown_reason:
+            return shown_reason
+    shown = _showable(latest)
+    if shown:
+        return shown
+    return IDLE_LINE
+
+
+NOTHING_NEEDED = "Nothing is needed from you right now."
+_RESUME_MISSING = {"base_resume", "approved base resume not selected"}
+
+
+def reason_adds(happening: str, reason: str, app: dict | None = None, action: dict | None = None) -> bool:
+    """True when the saved reason says something the status line does not already say."""
+    text = " ".join(str(reason or "").split())
+    line = " ".join(str(happening or "").split())
+    if not text or text == line or text == REPLAY_LABEL:
+        return False
+    if _stall_sentence(text, app, action) == line:
+        return False
+    return not _HIDDEN_WORDS.search(text)
+
+
+def needed_now(
+    app: dict,
+    show_status: str,
+    hold: dict | None = None,
+    can_fill: bool = False,
+    can_retry: bool = False,
+    can_clear: bool = False,
+    working: bool = False,
+) -> dict:
+    """The one thing this application asks of the person, with the control it needs.
+
+    `kind` names the control the page renders; an empty kind means nothing is needed. `title` is the ask in one
+    sentence, `text` an optional second sentence. `field` is the single missing answer when exactly one is missing."""
+    pkg = app.get("review_package") or {}
+    status = str(app.get("status") or "")
+    none = {"kind": "", "title": NOTHING_NEEDED, "text": "", "field": None}
+    if hold and hold.get("purpose") != "field":
+        where = f" on this computer at 127.0.0.1:{hold['cdp_port']}" if hold.get("cdp_port") else ""
+        return {
+            "kind": "human_check",
+            "title": "Human check needed",
+            "text": f"The page is being held{where}. If you can open it, finish the check, then press Continue. Continue uses the same approval and does not send the form again. "
+            "If you cannot open the page, wait. When the time is up you will be asked to finish on the site yourself.",
+            "field": None,
+        }
+    if hold and hold.get("purpose") == "field" and hold.get("field_label"):
+        return {
+            "kind": "field",
+            "title": str(hold["field_label"]),
+            "text": "The same page is still open. Type the answer here and it is entered on that form. The form is not started over.",
+            "field": None,
+        }
+    if working:
+        return none
+    outstanding = [str(item or "").strip() for item in pkg.get("outstanding") or []]
+    if status in ("needs_input", "ready_for_review", "queued", "preparing") and any(item in _RESUME_MISSING for item in outstanding):
+        return {
+            "kind": "resume",
+            "title": "A resume still needs to be selected.",
+            "text": "Choose your approved base resume under Your profile. The application is then prepared from it.",
+            "field": None,
+        }
+    if status == "needs_input":
+        missing = [a for a in pkg.get("answers") or [] if a.get("needs_input") and not a.get("sensitive") and a.get("fact_ids") != ["artifact"]]
+        if len(missing) == 1:
+            label = str(missing[0].get("label") or "").strip() or "One answer"
+            return {"kind": "answer", "title": f"{label} is still needed.", "text": "Type it here and save. The application is then ready for your approval.", "field": missing[0]}
+        return {
+            "kind": "answers",
+            "title": "Some answers are still needed.",
+            "text": "Fill in the answers marked needed, then save. The application is then ready for your approval.",
+            "field": None,
+        }
+    if status == "ready_for_review":
+        return {
+            "kind": "approve",
+            "title": "Read the resume and the answers, then approve this exact application.",
+            "text": "Your approval covers this job, these answers and these exact files only. If anything changes, you will be asked again.",
+            "field": None,
+        }
+    if can_fill:
+        text = "The job site is opened with these answers. Nothing else changes."
+        return {"kind": "fill", "title": "Fill in the form with the answers on this page.", "text": text, "field": None}
+    if can_retry and status in ("failed", "handoff"):
+        if app.get("handoff_kind") == "human_check":
+            text = "The app can try again. It reads the form afresh and asks for your approval first. If the check comes back, you finish it yourself."
+            return {"kind": "retry", "title": "The site asked for a human check last time.", "text": text, "field": None}
+        text = "It reads the form again and prepares fresh answers for your approval. Nothing is sent until you approve."
+        return {"kind": "retry", "title": "The app can try again.", "text": text, "field": None}
+    if status == "handoff":
+        return {
+            "kind": "manual",
+            "title": "Apply on the job site yourself, then record the confirmation here.",
+            "text": "Use the resume below. The app cannot fill in this job site for you.",
+            "field": None,
+        }
+    if status == "needs_verification":
+        return {
+            "kind": "verify",
+            "title": "Check the job site, then record whether it went through.",
+            "text": "The app could not find a confirmation. It will not try again on its own.",
+            "field": None,
+        }
+    if status == "submitted":
+        return {**none, "text": "Applied and recorded. Next: short notes to recruiters at this employer."}
+    if status == "challenge_retry":
+        return {**none, "text": "A check appeared. The app tries once more later, then tells you if it still needs you."}
+    if show_status == "failed" and can_clear:
+        return {**none, "text": "Nothing was sent. To try again, use Start over."}
+    return none
 
 
 def network_public(rows: list[dict] | None) -> list[dict]:
@@ -632,10 +922,16 @@ def activity_payload(app: dict, runs: list[dict], saved_reason: str = "", field:
     rows = application_timeline(app, runs, saved_reason)
     lines = [{"at": _local(row["at"], "%Y-%m-%d %H:%M"), "text": row["text"], "count": row["count"]} for row in rows]
     live = app.get("status") in ("authorized", "executing") or any(run.get("status") in ("queued", "claimed", "running", "waiting", "paused") for run in runs)
-    filling = form_filling_now(app, runs, action)
+    held = bool(field and (field.get("label") or field.get("reason")))
+    filling = form_filling_now(app, runs, action) and not held
+    line = what_to_do_line(app, runs, saved_reason, action, field)
+    status = shown_status(app, action, runs)
     payload = {
-        "now": what_to_do_line(app, runs, saved_reason, action),
-        "state": FILLING_LINE if filling else IDLE_LINE,
+        "now": "",
+        "state": line,
+        "status": status,
+        "status_label": status_label(status),
+        "tone": status_tone(status),
         "live": live,
         "working": filling,
         "network_open": network_streaming(app, runs, action),
@@ -643,7 +939,8 @@ def activity_payload(app: dict, runs: list[dict], saved_reason: str = "", field:
         "network": network_public(network),
     }
     if field:
-        payload["field"] = {"label": str(field.get("label") or ""), "reason": str(field.get("reason") or "")}
+        raw_reason = str(field.get("reason") or "")
+        payload["field"] = {"label": str(field.get("label") or ""), "reason": _stall_sentence(raw_reason, app, action) or raw_reason}
     return payload
 
 
@@ -715,11 +1012,16 @@ __all__ = [
     "annotations",
     "application_timeline",
     "event_log",
+    "needed_now",
     "network_public",
+    "reason_adds",
+    "NOTHING_NEEDED",
     "apply_profile_toml",
     "authorized_now",
     "saved_failure_reason",
     "shown_failure_reason",
+    "shown_status",
+    "shown_status_reason",
     "situation_line",
     "continue_waiting_runs",
     "datetime",

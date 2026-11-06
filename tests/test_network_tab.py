@@ -49,13 +49,13 @@ class _Ctx:
         self.handlers[event] = handler
 
 
-def test_the_open_page_refreshes_network_rows_about_once_a_second():
+def test_the_application_page_does_not_poll_a_network_tab():
     text = (ROOT / "src/amorehiremepls/web/static/app.js").read_text()
-    assert "}, 1000);" in text
-    assert "data.network" in text
-    assert "data.network_open" in text
+    html = (ROOT / "src/amorehiremepls/web/templates/application.html").read_text()
+    assert "Network Tab" not in html and "network-lines" not in html and "network-tab" not in html
+    assert "network-lines" not in text and "data.network" not in text and "network_open" not in text
+    assert "activity-lines" in text and "data-copy" in text
     assert "if (!data.live) clearInterval(activityTimer);" in text
-    assert "4000" not in text
 
 
 def test_capture_starts_before_the_first_page_load():
@@ -251,7 +251,7 @@ def _app(store, job_id, app_id):
 
 
 @pytest.mark.mongo
-def test_the_page_shows_one_jobs_network_tab_and_clear(client):
+def test_the_page_does_not_show_a_network_tab(client):
     rt = client.app.state.rt
     assert client.post("/login", data={"password": "correct-horse-battery"}).status_code == 303
     _app(rt.store, "job_one", "app_one")
@@ -260,26 +260,18 @@ def test_the_page_shows_one_jobs_network_tab_and_clear(client):
     recorder.begin("job_one", _Req("https://boards.example/jobs/one/suggest"))
     recorder.begin("job_two", _Req("https://boards.example/jobs/two/suggest"))
     page = client.get("/applications/app_one").text
-    assert "<summary>Network Tab</summary>" in page and ">Clear</button>" in page
-    assert 'name="csrf"' in page and 'id="network-tab" open' not in page
-    assert "jobs/one/suggest" in page and "jobs/two/suggest" not in page
-    assert 'id="network-empty" hidden' in page
+    assert "Network Tab" not in page and 'id="network-tab"' not in page and 'id="network"' not in page
+    assert "Nothing was recorded for the last time." not in page
+    assert ">Clear</button>" not in page
+    assert "jobs/one/suggest" not in page and "jobs/two/suggest" not in page
+    assert 'data-copy="application-details"' in page and ">Copy</button>" in page
     activity = client.get("/applications/app_one/activity").json()
-    assert any(row["url"].endswith("/jobs/one/suggest") for row in activity["network"])
-    assert all("jobs/two" not in row["url"] for row in activity["network"])
+    blob = json.dumps(activity)
+    assert "jobs/one/suggest" not in blob and "jobs/two/suggest" not in blob
+    assert "lines" in activity
     overview = client.get("/").text
-    assert "jobs/one/suggest" not in overview and "jobs/two/suggest" not in overview
-    csrf = page.split('name="csrf" value="', 1)[1].split('"', 1)[0]
+    assert "jobs/one/suggest" not in overview and "jobs/two/suggest" not in overview and "Network Tab" not in overview
+    assert recorder.for_job("job_one") and recorder.for_job("job_two")
     kept = rt.store.c("applications").find_one({"_id": "app_one"})
-    refused = client.post("/applications/app_one/network/clear", data={"csrf": "bogus"})
-    assert refused.status_code == 403
-    assert recorder.for_job("job_one")
-    cleared = client.post("/applications/app_one/network/clear", data={"csrf": csrf})
-    assert cleared.status_code == 303
-    again = client.get("/applications/app_one").text
-    assert "Nothing was recorded for the last time." in again and "jobs/one/suggest" not in again
-    assert "jobs/two/suggest" in client.get("/applications/app_two").text
-    after = rt.store.c("applications").find_one({"_id": "app_one"})
-    assert after["status"] == kept["status"] and after["evidence"] == kept["evidence"]
+    assert kept["status"] == "failed" and kept["evidence"]["screenshots"]
     assert rt.store.c("artifacts").find_one({"_id": "art_job_one"})["kind"] == "screenshot"
-    assert recorder.for_job("job_two")

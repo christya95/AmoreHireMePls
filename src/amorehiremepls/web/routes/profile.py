@@ -35,7 +35,7 @@ def register(app, rt, require_session, require_csrf, safe_next, render) -> None:
         p = rt.reload_profile()
         from amorehiremepls.candidate.profile import compute_experience
 
-        # The drop folder (candidate/): offer its resume for adoption; never swap the approved base on its own.
+        # A resume already in the drop folder is chosen by reload_profile when none is set. A later different file is not swapped.
         cand = rt.candidate_docs()
         cand_state = None
         if cand.base_resume is not None:
@@ -176,7 +176,7 @@ def register(app, rt, require_session, require_csrf, safe_next, render) -> None:
 
     @app.post("/profile/candidate-upload")
     async def candidate_upload(request: Request, session: dict = Depends(require_session), csrf: str = Form(...), file: UploadFile = File(...)):
-        """Put one resume or notes file into the candidate drop folder. Adopting it as the base resume stays a separate click."""
+        """Put one resume or notes file into the candidate drop folder. A Word resume is chosen when none is yet."""
         require_csrf(request, session, csrf)
         from amorehiremepls.candidate.candidate_docs import UPLOAD_MAX_BYTES, CandidateUploadError, save_upload
 
@@ -188,7 +188,13 @@ def register(app, rt, require_session, require_csrf, safe_next, render) -> None:
         except OSError:
             return RedirectResponse("/profile?err=candidate_not_writable", status_code=303)
         rt.store.audit("candidate_file_uploaded", None, name=saved.name, bytes=len(data), sha256=sha256_file(saved))
-        return RedirectResponse("/profile?ok=candidate_saved", status_code=303)
+        ok = "candidate_saved"
+        if saved.suffix.lower() == ".docx":
+            missing = rt.profile.base_resume is None
+            rt.reload_profile()
+            if missing and rt.profile.base_resume is not None:
+                ok = "candidate_resume_chosen"
+        return RedirectResponse(f"/profile?ok={ok}", status_code=303)
 
     @app.post("/profile/exclusions/resolve")
     def resolve_exclusion(

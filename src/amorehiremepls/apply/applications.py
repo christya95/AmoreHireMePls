@@ -17,7 +17,7 @@ from typing import Any
 
 from bson import json_util
 
-from amorehiremepls.apply.ats.rules import SENSITIVE_BLANK_REASON, YEARS_RULE
+from amorehiremepls.apply.ats.rules import SENSITIVE_BLANK_REASON, YEARS_RULE, pick_years_bucket
 from amorehiremepls.apply.browser import Plan, apply_location_fallbacks, normalize_screenshots
 from amorehiremepls.apply.tailoring import Tailor, page_limit_block_reason
 from amorehiremepls.candidate.profile import BandEvidence, Fact, Profile, compute_experience, desired_salary
@@ -405,6 +405,46 @@ class Answer:
         return self.__dict__.copy()
 
 
+def _typed_on_this_application(answer: dict) -> bool:
+    return "user:input" in list(answer.get("fact_ids") or [])
+
+
+def keep_typed_answers(previous: list[dict] | None, answers: list[Answer]) -> None:
+    """A value typed for this application stays. A profile fact fills a field only when nothing was typed for it.
+
+    Rebuilding the package maps every field from the profile again. That map is the default. It must not replace a
+    value the user already entered, including a value they cleared."""
+    by_id: dict[str, dict] = {}
+    by_label: dict[str, list[dict]] = {}
+    for item in previous or []:
+        if not isinstance(item, dict) or not _typed_on_this_application(item):
+            continue
+        field_id = str(item.get("field_id") or "")
+        if field_id:
+            by_id[field_id] = item
+        label = str(item.get("label") or "").strip().casefold()
+        if label:
+            by_label.setdefault(label, []).append(item)
+    for answer in answers:
+        if answer.fact_ids == ["artifact"]:
+            continue
+        saved = by_id.get(answer.field_id)
+        if saved is None:
+            matches = by_label.get(str(answer.label or "").strip().casefold()) or []
+            saved = matches[0] if len(matches) == 1 else None
+        if saved is None:
+            continue
+        answer.value = saved.get("value")
+        answer.needs_input = bool(saved.get("needs_input"))
+        answer.fact_ids = list(saved.get("fact_ids") or ["user:input"])
+        answer.reason = str(saved.get("reason") or ("supplied by you" if saved.get("value") else "left blank"))
+        if saved.get("sensitive"):
+            answer.sensitive = True
+        detail = saved.get("detail")
+        if isinstance(detail, dict):
+            answer.detail = dict(detail)
+
+
 def location_choice_line(saved: str, typed: str, chosen: str) -> str | None:
     """A plain update when the form had to use a later place. The saved place itself stays quiet."""
     typed_clean = (typed or "").strip()
@@ -509,18 +549,21 @@ def map_answers(
         if key in ("__years_full_time__", "__years_total__"):
             saved, saved_n = saved_years(profile, label)
             if saved is not None:
-                value = _years_option(f.options, saved.value or "", saved_n) if f.options else saved.value
+                value = _years_option(f.options, saved.value or "", saved_n, pick_years_bucket) if f.options else saved.value
                 answers.append(Answer(f.id, label, value, [saved.id], needs_input=value is None, reason=SAVED_ANSWER_REASON if value else f"option list lacks '{saved.value}'"))
                 continue
             years = exp.full_time_years_completed if key == "__years_full_time__" else exp.total_years_completed
+            # A question that offers ranges takes the range holding the computed number, never the bare number.
+            value = (pick_years_bucket(f.options, years) or _years_option(f.options, str(years), years)) if f.options else str(years)
             answers.append(
                 Answer(
                     f.id,
                     label,
-                    str(years),
+                    value,
                     [e.id for e in profile.employment],
-                    needs_input=bool(exp.unknown_ranges and key == "__years_total__"),
-                    reason="completed years computed from dates" + ("; some ranges unknown" if exp.unknown_ranges else ""),
+                    needs_input=value is None or bool(exp.unknown_ranges and key == "__years_total__"),
+                    reason=(f"{years} completed years computed from dates" if value else f"option list has no range for {years} years")
+                    + ("; some ranges unknown" if exp.unknown_ranges else ""),
                 )
             )
             continue
@@ -891,6 +934,8 @@ class ApplicationService:
             for a in answers:
                 if a.reason == "no tailored resume yet":
                     a.reason = block
+        # The map above is the profile default. A value already typed on this application replaces that default.
+        keep_typed_answers((app.get("review_package") or {}).get("answers"), answers)
         material_unknowns = [a.label for a in answers if a.needs_input and not a.sensitive]
         unknowns += [f"answer needed: {u}" for u in material_unknowns]
         unknowns += self.profile.missing_essentials()
@@ -1129,11 +1174,24 @@ class ApplicationService:
             self.store.release("jobs", {"_id": job["_id"]}, worker, job["status"] if job["status"] != "executing" else "qualified")
 
     def _keep_saved_failure(self, app: dict, reason: str) -> None:
-        """A replay keeps the failure already saved. It does not write a new history line."""
+        """A replay keeps the failure already saved. It does not write a new history line.
+
+        The approval record stays. The application itself is no longer shown as approved once the attempt failed."""
         saved = (reason or "").strip()
+        if saved == REPLAY_LABEL:
+            saved = ""
         current = str(app.get("reason") or "").strip()
-        if current == REPLAY_LABEL and saved and saved != REPLAY_LABEL:
-            self.apps.update_one({"_id": app["_id"]}, {"$set": {"reason": saved, "updated_at": utcnow()}})
+        fields: dict[str, Any] = {}
+        if saved and (not current or current == REPLAY_LABEL):
+            fields["reason"] = saved
+        if app.get("status") in ("authorized", "executing"):
+            fields["status"] = "failed"
+            if saved:
+                fields["reason"] = saved
+        if not fields:
+            return
+        fields["updated_at"] = utcnow()
+        self.apps.update_one({"_id": app["_id"]}, {"$set": fields})
 
     def _with_screenshots(self, job_id: str, app_id: str, evidence: Any) -> Any:
         if not isinstance(evidence, dict) or not evidence.get("screenshots"):

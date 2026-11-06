@@ -95,7 +95,7 @@ def test_job_fit_and_rules_are_grid_siblings_not_absolute():
     assert ".job-lower > .rules-card { grid-column: 1; grid-row: 2; }" in CSS
     menu = re.search(r"\.next-action details\.more \.pop-body \{([^}]*)\}", CSS).group(1)
     assert "top: calc(100% + 8px)" in menu and "right: 0" in menu and "left: auto" in menu
-    assert "animation: rise var(--motion) var(--ease) backwards" in CSS
+    assert "animation: rise var(--enter) var(--ease-in) backwards" in CSS
 
 
 def test_semantic_pills_focus_ring_and_reduced_motion_are_defined():

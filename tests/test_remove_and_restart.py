@@ -195,29 +195,30 @@ def _login(client) -> str:
     return re.search(r'name="csrf" value="([^"]+)"', client.get("/").text).group(1)
 
 
-def test_pages_show_a_typed_confirm_and_a_short_word_does_not_delete(client, store):
+def test_start_over_is_one_button_and_clears_the_unsent_attempt(client, store):
     _job(store, "job_page")
     _app(store, "job_page", _id="app_page")
     csrf = _login(client)
     app_page = client.get("/applications/app_page").text
     job_page = client.get("/jobs/job_page").text
-    assert "Type delete to confirm" in app_page and "Type restart to confirm" in app_page
-    assert "Remove or start over" in app_page
-    assert "Type delete to confirm" in job_page and "Type restart to confirm" in job_page
-    refused = client.post("/applications/app_page/delete", data={"csrf": csrf, "confirm": "no"})
-    assert refused.status_code == 303 and refused.headers["location"].endswith("err=confirm_needed")
+    assert "Start over" in app_page and "Restart this job" not in app_page and "Delete this application" not in app_page
+    assert "Type restart to confirm" not in app_page and "Type delete to confirm" not in app_page
+    assert "Start over" in job_page and "Type restart to confirm" not in job_page and "Type delete to confirm" not in job_page
+    untouched = client.post("/applications/app_page/start-over", data={})
+    assert untouched.status_code == 422
     assert store.c("applications").find_one({"_id": "app_page"})["status"] == "handoff"
-    sent = client.post("/jobs/job_page/delete-application", data={"csrf": csrf, "confirm": "delete"})
-    assert sent.status_code == 303 and "ok=app_removed" in sent.headers["location"]
+    sent = client.post("/jobs/job_page/start-over", data={"csrf": csrf})
+    assert sent.status_code == 303 and "ok=app_removed" in sent.headers["location"] and sent.headers["location"].startswith("/jobs/job_page")
     assert store.c("jobs").find_one({"_id": "job_page"})
     assert store.c("applications").find_one({"_id": "app_page"})["provenance"]["origin"] == "removed"
     assert submission_lock_reason(store.c("applications").find_one({"_id": "app_page"})) == "already_removed"
+    cleared = client.get("/jobs/job_page").text
+    assert "Start over" not in cleared
     _job(store, "job_again", status="needs_review")
-    _app(store, "job_again", _id="app_again")
-    restarted = client.post("/applications/app_again/restart", data={"csrf": csrf, "confirm": "restart"})
-    assert restarted.status_code == 303 and "ok=job_restarted" in restarted.headers["location"]
-    again = store.c("applications").find_one({"_id": "app_again"})
-    assert again["status"] in ("ready_for_review", "needs_input")
-    page = client.get("/jobs/job_again").text
-    assert "Apply on the job site yourself" not in page
-    assert "Type restart to confirm" in page
+    _app(store, "job_again", _id="app_again", evidence={"receipt_text": "thank you"})
+    kept = client.get("/applications/app_again").text
+    assert "Start over" not in kept
+    assert "A confirmation from the employer is already saved, so this attempt cannot be cleared." in kept
+    refused = client.post("/applications/app_again/start-over", data={"csrf": csrf})
+    assert refused.status_code == 303 and refused.headers["location"].endswith("err=receipt_saved")
+    assert store.c("applications").find_one({"_id": "app_again"})["evidence"]["receipt_text"] == "thank you"

@@ -7,6 +7,7 @@ from datetime import timedelta
 import pytest
 from fastapi.testclient import TestClient
 
+from amorehiremepls.candidate.profile import Fact, Profile, ProfileStore, Provenance
 from amorehiremepls.core.accounts import (
     AccountError,
     access_summary,
@@ -74,6 +75,26 @@ def test_migrate_stamps_records_and_a_second_run_does_not_add_another_admin(stor
     second = migrate_users(store, "correct-horse-battery", "Alex")
     assert second["admin_created"] is False
     assert store.db["users"].count_documents({"role": "admin", "status": "active"}) == 1
+
+
+@pytest.mark.mongo
+def test_profile_save_outside_a_session_keeps_the_owner(store):
+    migrate_users(store, "correct-horse-battery", "Alex")
+    admin = store.db["users"].find_one({"role": "admin"})["_id"]
+    profiles = ProfileStore(store)
+    with user_scope(admin):
+        profile = Profile()
+        profile.facts.append(Fact(category="address", key="city", value="Harbor", provenance=Provenance(source="test")))
+        profiles.save(profile, actor="test")
+    loaded = profiles.load()
+    loaded.facts.append(Fact(category="contact", key="email", value="alex@example.com", provenance=Provenance(source="test")))
+    profiles.save(loaded, actor="test")
+    saved = store.db["profile"].find_one({"key": "candidate"})
+    assert saved["user_id"] == admin
+    with user_scope(admin):
+        again = profiles.load()
+        assert again.fact_value("city") == "Harbor"
+        assert again.fact_value("email") == "alex@example.com"
 
 
 @pytest.mark.mongo

@@ -171,12 +171,12 @@ def test_approving_after_the_task_finished_queues_a_send_and_the_page_shows_the_
     queued = rt.store.c("runs").find_one({"params.application_id": app_id, "params.phase": "execute", "status": "queued"})
     assert queued is not None
     page = client.get(f"/applications/{app_id}")
-    assert page.status_code == 200 and "What is happening" in page.text and "You approved this package" in page.text
-    assert "Nothing is being filled in right now." in page.text and "The form is being filled in now." not in page.text
+    assert page.status_code == 200 and "What is happening" in page.text and "You approved this application" in page.text
+    assert "The form opens within a minute." in page.text and "The form is being filled in now." not in page.text
     activity = client.get(f"/applications/{app_id}/activity")
     body = activity.json()
     assert activity.status_code == 200 and body["live"] is True and body["working"] is False
-    assert body["state"] == "Nothing is being filled in right now." and body["now"] == "The form opens within a minute."
+    assert body["state"] == "The form opens within a minute." and body["now"] == ""
 
 
 def test_regenerate_documents_supersedes_artifacts_and_invalidates_approval(client, tmp_path):
@@ -214,7 +214,7 @@ def test_regenerate_documents_supersedes_artifacts_and_invalidates_approval(clie
     assert len([s for s in rt.auth.active("application_submit") if s.binding.target_id == job_id]) == 1
     # the job page shows the stepper and the regenerate action with its warning
     page = client.get(f"/jobs/{job_id}").text
-    assert "Rebuild the resume" in page and "approval for the old package is withdrawn" in page and "Approve" in page and "Contact recruiters" in page
+    assert "Rebuild the resume" in page and "The old approval no longer applies" in page and "Approve" in page and "Contact recruiters" in page
 
     r = client.post(f"/jobs/{job_id}/regenerate", data={"csrf": csrf})
     assert r.status_code == 303 and r.headers["location"].endswith("ok=regenerated"), r.headers["location"]

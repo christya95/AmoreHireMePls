@@ -18,8 +18,8 @@ appears anywhere else.
 | Import | `import` | The job ad is saved here from a link you pasted or a job board the app watches. Nothing is sent. |
 | Check fit | `qualify` | The app checks the job against your rules and explains how well you match. Nothing is sent. |
 | Tailor resume | `tailor` | The app writes a version of your resume for this job, using only facts from your approved resume. |
-| Read package | `review` | You read the resume and the form answers exactly as they would be sent. |
-| Approve | `authorize` | You give the go ahead for this exact package. Change anything and you will be asked again. |
+| Read application | `review` | You read the resume and the form answers exactly as they would be sent. |
+| Approve | `authorize` | You give the go ahead for this exact application. Change anything and you will be asked again. |
 | Apply | `submit` | The app applies on the job site, or hands it to you when the site needs a person. |
 | Save to tracker | `record` | The application is saved; with a tracker set up it is also written to your private GitHub tracker. |
 | Contact recruiters | `outreach` | You add recruiters at that employer and the app drafts short notes. You send them yourself. |
@@ -31,7 +31,7 @@ appears anywhere else.
 | Overview | index |
 | Jobs | jobs |
 | Applications → tabs "Prepared applications" and "Background tasks" | applications / review packages, worker runs |
-| Application package (one application) | review package |
+| This application (one application) | review package |
 | Resumes | Documents / artifacts |
 | Recruiters | Outreach |
 | Past applications | History / tracker import |
@@ -46,7 +46,7 @@ appears anywhere else.
 | Plain title | Technical term | Key |
 |---|---|---|
 | Approval | authorization scope | `authorization` |
-| Package fingerprint | material hash | `material_hash` |
+| Fingerprint | material hash | `material_hash` |
 | Prepare several at once | bounded batch | `batch` |
 | Approval for several jobs | batch scope | `batch_scope` |
 | Result unclear | needs_verification | `needs_verification` |
@@ -65,20 +65,26 @@ appears anywhere else.
 | Proof of applying | submission evidence | `evidence` |
 | Copy (application page: Technical details, and Technical details of the application) | copies the exact text in that block; the button then says Copied, or Copy failed | — |
 | Log (Overview, closed until opened, only when recent steps exist) | saved step lines: time and message, newest first | — |
-| Network Tab (application page; one list per job; open while a fill is starting or running) | each request's method, address, kind, status and timing, plus a short response when the form asks the site for choices; Clear removes only that job's list. Empty: "Nothing was recorded for the last time. The next time, this tab opens and lists requests from the start." Recording starts when the page session opens, before the first page load. The open page refreshes about once a second while a fill is starting or running, and stops when nothing is live. | — |
-| The form is being filled in now. | shown with the latest saved step while a fill is actually in progress | — |
-| Nothing is being filled in right now. | shown when no form is open, including when an earlier approval only repeated a saved result | — |
+| The form is being filled in now. | the whole status line while a fill is actually in progress | — |
+| Nothing is being filled in right now. | shown when no form is open and no saved step says more | — |
+| [Field] was typed as [value]. No list of places appeared, so the form is waiting. | the latest saved event says a place was typed and no list appeared, and a fill is not in progress. The field and the value come from that event. | — |
+| [Field] was typed as [value]. A list of places appeared, but none matched, so the form is waiting. | the latest saved event says a list appeared and none of the places matched | — |
+| The form was not opened. Showing the result already saved. | nothing is running and the latest pass did not open the form. This is the status line, not only a log row. | — |
+| Answer received. It will be typed into the same open form. | the green note only while that answer is not yet in the saved events. Once a saved event says it was typed, or that no list appeared, the note is removed and the status line is the only sentence. | — |
 | Last time, [question] was filled in as [typed]. This page now says [current]. That new answer has not been typed yet. | the answer on the page and the value from the last fill differ; shown under What to do now and What happened | — |
-| The form was not opened. Showing the result already saved. | a later pass that did not open the form | — |
+| Failed (red) | the headline after an attempt failed, including when an approval is still on file. Approved stays the headline only when that attempt has not failed. Applying now stays while a form is actually being filled. Applied stays after a success. | `failed` |
+| A value typed on this application | kept when the form is prepared again, for every field. A profile fact, including city and province, fills a field only when nothing was typed for it. | — |
 | Fill in the form | after the answers change, approves them if needed and opens the form with those answers | — |
 | Things the job asks for that you do not have | one coloured list row per skill gap from the saved fit. Missing answers are not in this list. The resume note under it is its own short note | — |
 | Still needed | plain sentences for missing answers and blockers. Examples: "A resume still needs to be selected." "Email is still needed." A form label becomes "[label] is still needed." An unknown key becomes "Something else is still needed." Raw field keys are never shown. | — |
 | Approved for this job · used 0 of 1 · ends [local time] | the approval line. No raw id. | — |
-| Proof of applying | one status chip, the picture, the time, and the page address. A short fingerprint may sit in the muted line. | — |
-| Use this answer (application page, while a required field is waiting) | the same open form receives the typed answer and continues; a sensitive value is not written into the log or the network tab | — |
+| Proof of applying | a list that scrolls inside its card (16rem): one status chip, the picture, the time, and the page address per picture. The status word is not repeated as text; the short fingerprint is a muted code line. | — |
+| What happened last time | the previous attempt: its status and reason, Technical details with Copy, the application id and the code of what would be sent (both in grey chips), Technical details of the application | — |
+| Code of the file you uploaded (optional) | the optional hash box on the "I applied on the site" form | — |
+| Use this answer (application page, while a required field is waiting) | the same open form receives the typed answer and continues; a sensitive value is not written into the log | — |
 | Try to solve captchas automatically (Settings → Applying; hint: "Uses the AI model; some job sites forbid this and may discard flagged applications.") | `AMORE_CAPTCHA_AUTOSOLVE` / control `captcha_autosolve` | — |
 | Retry with the app (application page, after a human check or failure) | re-plan: cancel waiting run, clear `form_plan.fields`, new run | — |
-| Questions on the Greenhouse form and the answers that will be sent | review package answers for `apply_route=greenhouse` | — |
+| Answers that will be sent | review package answers. Intro: "A blank field marked needed still has to be answered. Change anything below before you approve. Saving asks for approval again." | — |
 | Where it comes from (your profile, your work history, typed on this page, your resume file) | answer `fact_ids` | — |
 | Rebuild the resume | regenerate documents | `regenerate` |
 | Background task | run | `task` |
@@ -90,7 +96,7 @@ appears anywhere else.
 Applications: `queued` Queued · `preparing` Preparing · `ready_for_review` Waiting for your approval · `needs_input`
 Needs your answers · `authorized` Approved · `executing` Applying now · `handoff` Finish on the site
 yourself · `challenge_retry` Trying once more later · `needs_verification` Result unclear, check it · `submitted` Applied ·
-`failed` Failed · `duplicate` Already applied · `blocked` Blocked by your rules · `denied` Not approved.
+`failed` Failed (red; this is the headline once an attempt has failed, even if an approval is still saved) · `duplicate` Already applied · `blocked` Blocked by your rules · `denied` Not approved.
 
 Jobs: `new` New · `needs_review` Needs your decision · `qualified` Good fit · `applied` Applied · `applied_historical`
 Applied (from your tracker) · `rejected` Rejected · `excluded` Skipped by your rules · `closed` Closed.
@@ -173,6 +179,39 @@ A failed attempt keeps its technical reason in the evidence; the page shows one 
 | downloaded / latest version / not on GitHub yet | clone / HEAD / ahead |
 | never shown | idempotency, checkpoint, CSRF, material hash (as a phrase), SHA-256 (only inside `<code>`) |
 
+## The status block and the folds (application and job pages, 2026-11-06)
+
+One block sits at the top of both pages (`status_block` macro in `_macros.html`, data from `chrome.needed_now` through
+`routes.applications.application_view`). It has the status chip, one or two sentences from the latest saved event, and,
+only when the app needs the person, one ask in bold with its one control beside it. Nothing else on either page asks for
+anything. The reason sentence is added only when it says something the headline does not (`reason_adds`); the replay
+label and bookkeeping words never appear.
+
+| State | Sentences | Control |
+|---|---|---|
+| nothing needed | "Nothing is needed from you right now." | none |
+| failed, clearable | headline from the saved event, e.g. "The form was not opened. Showing the result already saved." · the stop reason · "Nothing is needed from you right now. Nothing was sent. To try again, use Start over." | none (Start over is in the header) |
+| applied | "Nothing is needed from you right now. Applied and recorded. Next: short notes to recruiters at this employer." | Contact recruiters (secondary) |
+| a check appeared, one more try queued | "Nothing is needed from you right now. A check appeared. The app tries once more later, then tells you if it still needs you." | none |
+| ready for you to read | "Read the resume and the answers, then approve this exact application. Your approval covers this job, these answers and these exact files only. If anything changes, you will be asked again." | Approve this exact application · Approval options (hours, note) |
+| one answer missing | "[Label] is still needed. Type it here and save. The application is then ready for your approval." | one text box or list, Save this answer |
+| several answers missing | "Some answers are still needed." | link to Answers that will be sent |
+| no resume | "A resume still needs to be selected." | Select a resume (profile page) |
+| a field is waiting on the open form | the field's label · "The same page is still open. Type the answer here and it is entered on that form. The form is not started over." | text box, Use this answer |
+| human check | "The page is being held on this computer at 127.0.0.1:[port]. Finish the check there. Continue uses the same approval and does not send the form again." | Continue |
+| answers changed since the last fill | "Fill in the form with the answers on this page. The job site is opened with these answers. Nothing else changes." | Fill in the form |
+| failed or human check, retry possible | "The site asked for a human check last time." or "The app can try again. It reads the form again and prepares fresh answers for your approval. Nothing is sent until you approve." | Retry with the app |
+| finish on the site yourself | "Apply on the job site yourself, then record the confirmation here." | I applied on the site |
+| result unclear | "Check the job site, then record whether it went through." | Save the result |
+
+Below the block and the header (name, employer · location, Open the job, Apply page, Start over), every
+section is a `<details>` fold (`fold` macro), closed unless it matters now: What would be sent (open while answers are
+missing or the application waits for approval), Still needed (open when a line exists), Things the job asks for that you
+do not have (closed, count in the meta), Your approval (closed), Proof of applying (open after a failed, applied or
+unclear attempt), What is happening (open while a task is working or a form is being filled), What happened last time
+(closed unless the app handed the form to you). The job page shows the same block with the same sentences; its control is
+a link to the application page.
+
 ## Colour and the technical chip (design notes)
 
 - One semantic system: good (`ok`, green), waiting (`warn`, amber), problem (`bad`, red), info (`info`, blue), neutral
@@ -213,11 +252,13 @@ filter names remain only as aliases.
   the site", "Withdraw"). No hyphens in glossary titles.
 - Flash messages and confirmation dialogs say what happened and what it means ("The resume was rebuilt. The files
   changed, so any earlier approval for this job was withdrawn.").
-- Delete and restart ask for a typed word (`delete` or `restart`) so one click does nothing. Both are refused when
-  the application was sent or an employer confirmation is already saved. Delete leaves the job. A GitHub tracker
-  row is marked withdrawn instead of being erased. Restart clears the unsent package and its approval, then prepares
-  a new package to read. It does not send anything. Rebuilding the resume makes new files, so the old approval
-  no longer applies. Both also delete the tailored resume files for that unsent application. The base resume stays.
+- Start over (`POST /applications/{id}/start-over` and `POST /jobs/{id}/start-over`) is one button. The sentence
+  beside it says the unsent attempt, its approval, and the resume files made for it are cleared, the job stays,
+  nothing is sent, and the tracker history is left as it is. It is refused when the application was sent or an
+  employer confirmation is already saved; the button is hidden and that page says so in one sentence. The job
+  stays. A GitHub tracker row is marked withdrawn instead of being erased. After it succeeds the person lands on
+  the job, ready to prepare it again. Rebuilding the resume is separate: a new resume file is made, the old
+  approval no longer applies, and nothing is sent. The base resume stays.
 - "Check which jobs are still posted" (`POST /jobs/check-postings`) re-reads open jobs one at a time, up to 25, and
   skips a job checked in the last 6 hours. "Check if this posting is still up" (`POST /jobs/{id}/check-posting`)
   checks that one job even if it was checked recently. A missing page (403 or 404), a page that says the job does
@@ -226,7 +267,7 @@ filter names remain only as aliases.
   update line. Repeated identical update lines stay stored and show as one line with a count.
 - "Remove unused resumes" (`POST /jobs/remove-unused-resumes` and `POST /applications/{id}/remove-resumes`) asks
   for the word `remove`. It deletes tailored files for applications that were never sent, and withdraws an approval
-  that pointed at a deleted file. It runs on its own when a posting is closed, deleted, or restarted. The base
+  that pointed at a deleted file. It runs on its own when a posting is closed or an unsent attempt is cleared. The base
   resume, a sent application, and GitHub tracker history are not deleted.
 - DOCX and PDF stay as they are. Site names, file paths and IDs stay in `<code>`.
 - Each stepper step has a one line `title` tooltip from `STEP_HELP`; `job_steps()` compares on the technical key, so a

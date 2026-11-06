@@ -1,16 +1,19 @@
-{# expects `shots` (described screenshot artifacts) and optional `show_job` (bool); each card opens the full-size PNG
+{# expects `shots` (described screenshot artifacts) and optional `show_job` (bool). One row per picture: the status
+   chip, the picture, the time and the page address; the hash sits muted at the end. Each picture opens full size
    through the hash-verified route in a new tab. Captures whose file never landed are listed without a link. #}
-<div class="shots">
+<ul class="shots" id="evidence-shots">
 {% for s in shots %}{% set href = ('/documents/' ~ s.artifact_id ~ '/download?kind=png&inline=1') if s.artifact_id else None %}
-  <figure class="shot">
-    {% if href %}<a href="{{ href }}" target="_blank" rel="noopener" title="Open full size in a new tab"><img src="{{ href }}" alt="{{ s.title }}" loading="lazy"></a>
-    {% else %}<div class="shot-missing">file not available on this host</div>{% endif %}
-    <figcaption>
-      {% set tone = {'failed': 'bad', 'validation': 'bad', 'challenge': 'warn', 'receipt': 'ok', 'ambiguous': 'warn'}.get(s.label, 'neutral') %}
+  {% set tone = {'failed': 'bad', 'validation': 'bad', 'challenge': 'warn', 'receipt': 'ok', 'ambiguous': 'warn'}.get(s.label, 'neutral') %}
+  <li class="shot" data-key="{{ s.sha256 or s.artifact_id or loop.index }}">
+    {% if href %}<a class="shot-pic" href="{{ href }}" target="_blank" rel="noopener" title="Open full size in a new tab"><img src="{{ href }}" alt="{{ s.title }}" loading="lazy"></a>
+    {% else %}<div class="shot-pic shot-missing">file not available on this host</div>{% endif %}
+    <div class="shot-meta">
       <span class="pill {{ tone }}">{{ s.title }}</span>
-      {% if show_job and s.job %}<small>{{ s.job.employer }} · {{ s.job.title }}{% if s.application_id %} · <a href="/applications/{{ s.application_id }}">open the application</a>{% endif %}</small>{% endif %}
-      <small class="meta">{% if s.captured_at %}{{ s.captured_at|local }} {{ tz_label() }}{% else %}time unknown{% endif %}{% if s.url %} · <a href="{{ s.url }}" target="_blank" rel="noopener" class="wrap">{{ s.url }}</a>{% endif %}{% if s.sha256 %} · <code class="muted">{{ s.sha256[:12] }}…</code>{% endif %}</small>
-    </figcaption>
-  </figure>
+      {% if show_job and s.job %}<span class="shot-job">{{ s.job.employer }} · {{ s.job.title }}{% if s.application_id %} · <a href="/applications/{{ s.application_id }}">open the application</a>{% endif %}</span>{% endif %}
+      <span class="meta">{% if s.captured_at %}{{ s.captured_at|local }} {{ tz_label() }}{% else %}time unknown{% endif %}</span>
+      {% if s.url %}<a class="meta wrap" href="{{ s.url }}" target="_blank" rel="noopener">{{ s.url }}</a>{% endif %}
+      {% if s.sha256 %}<code class="muted">{{ s.sha256[:12] }}…</code>{% endif %}
+    </div>
+  </li>
 {% endfor %}
-</div>
+</ul>

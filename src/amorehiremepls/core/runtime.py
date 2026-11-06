@@ -108,7 +108,28 @@ class Runtime:
 
     def reload_profile(self) -> Profile:
         self.profile = self.profiles.load()
+        if self.profile.base_resume is None:
+            self._adopt_folder_resume()
         return self.profile
+
+    def _adopt_folder_resume(self) -> bool:
+        """Choose the drop-folder resume when none is chosen. A resume already chosen is left alone."""
+        docs = self.candidate_docs()
+        if docs.base_resume is None:
+            return False
+        try:
+            self.profiles.select_base_resume(
+                docs.base_resume,
+                utcnow().date().isoformat(),
+                "user:candidate_folder",
+                self.settings.private_dir,
+                "from the candidate folder",
+            )
+        except Exception:
+            log.exception("could not choose the resume in the candidate folder")
+            return False
+        self.profile = self.profiles.load()
+        return self.profile.base_resume is not None
 
     def budget(self) -> Budget:
         s = self.settings

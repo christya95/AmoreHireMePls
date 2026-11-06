@@ -13,15 +13,11 @@ from amorehiremepls.web.chrome import (
     Path,
     RedirectResponse,
     Request,
-    answer_gap_line,
     fit_score,
-    form_filling_now,
     json,
     plain_failure,
-    shown_failure_reason,
     status_label,
     utcnow,
-    what_to_do_line,
 )
 from amorehiremepls.web.shots import split_screenshots
 
@@ -106,22 +102,18 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         scopes = [s for s in rt.auth.active("application_submit") if s.binding.target_id == job_id]
         active_run = next((r for r in runs if r["status"] in ("queued", "claimed", "running", "waiting", "paused")), None)
         outreach_n = rt.store.c("outreach").count_documents({"employer_norm": job.get("employer_norm")}) if job.get("employer_norm") else 0
-        if local and local.get("status") == "failed":
-            real = shown_failure_reason(local, rt.actions.by_key(f"submit:{job_id}"))
-            if real != (local.get("reason") or ""):
-                local = {**local, "reason": real}
-        action = rt.actions.by_key(f"submit:{job_id}")
-        filling = bool(local) and form_filling_now(local, runs, action)
-        gap = answer_gap_line(local, action) if local else ""
-        soon = ""
-        if local and not filling:
-            line = what_to_do_line(local, runs, (local or {}).get("reason") or "", action)
-            if line == "The form opens within a minute.":
-                soon = line
-        steps, next_step = job_steps(job, local, arts, bool(scopes), active_run, outreach_n, filling, gap, soon)
-        docs, shots = split_screenshots(arts)
-        from amorehiremepls.apply.applications import submission_lock_reason
+        view = None
+        if local:
+            from amorehiremepls.web.routes.applications import application_view
 
+            view = application_view(rt, local, job, session, runs)
+            local = view["a"]
+        filling = bool(view and view["filling"])
+        gap = view["gap"] if view else ""
+        line = view["happening"] if view else ""
+        soon = line if line == "The form opens within a minute." else ""
+        steps, next_step = job_steps(job, local, arts, bool(scopes), active_run, outreach_n, filling, gap, soon, line)
+        docs, shots = split_screenshots(arts)
         ctx = {
             "job": job,
             "fit": fit_score(job.get("fit")),
@@ -131,7 +123,9 @@ def register(app, rt, require_session, require_csrf, render) -> None:
             "runs": runs,
             "local_app": local,
             "scopes": scopes,
-            "can_clear": local is not None and submission_lock_reason(local) is None,
+            "can_clear": bool(view and view["can_clear"]),
+            "clear_block": (view or {}).get("clear_block") or "",
+            "view": view,
         }
         ctx.update(steps=steps, next_step=next_step, active_run=active_run)
         return render(request, "job.html", session, **ctx)
@@ -146,6 +140,7 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         filling: bool = False,
         gap: str = "",
         soon: str = "",
+        line: str = "",
     ) -> tuple[list[dict], dict]:
         """Linear workflow for one job with the current step and the single next action under it."""
         st = (app_doc or {}).get("status")
@@ -196,22 +191,25 @@ def register(app, rt, require_session, require_csrf, render) -> None:
             elif st in ("duplicate", "blocked", "denied"):
                 nxt = {"label": status_label(st), "href": app_href, "verb": "See why", "note": (app_doc or {}).get("reason") or ""}
             elif active_run:
-                nxt = {"label": "The app is preparing the application package", "href": run_href, "verb": "Watch", "note": ""}
+                nxt = {"label": "The app is preparing this application", "href": run_href, "verb": "Watch", "note": ""}
             else:
-                nxt = {"label": "Prepare the application package", "form": f"/jobs/{job['_id']}/run", "verb": "Tailor resume", "note": ""}
+                nxt = {"label": "Prepare this application", "form": f"/jobs/{job['_id']}/run", "verb": "Tailor resume", "note": ""}
         elif current == "authorize":
             note = "Your approval covers these answers and these exact files only."
-            nxt = {"label": "Read the package and approve this exact application", "href": f"{app_href}#authorize", "verb": "Read and approve", "note": note}
+            nxt = {"label": "Read this application and approve it", "href": app_href, "verb": "Read and approve", "note": note}
         elif current == "submit":
             if st == "handoff":
                 note = "The app cannot fill in this job site for you."
                 nxt = {"label": "Apply on the job site yourself, then record the confirmation", "href": app_href, "verb": "Finish on the site", "note": note}
             elif st == "needs_verification":
                 nxt = {"label": "The result is unclear. Check the job site", "href": app_href, "verb": "Check result", "note": ""}
-            elif st == "failed":
-                nxt = {"label": "Nothing is being filled in right now.", "href": app_href, "verb": "See what happened", "note": gap or plain_failure((app_doc or {}).get("reason"))}
             elif filling:
                 nxt = {"label": "The form is being filled in now.", "href": run_href or app_href, "verb": "Open it", "note": ""}
+            elif line and line != "Nothing is being filled in right now.":
+                extra = gap if gap and gap not in line else (soon if soon and soon not in line else "")
+                nxt = {"label": line, "href": app_href, "verb": "See what happened" if st == "failed" else "Open it", "note": extra}
+            elif st == "failed":
+                nxt = {"label": "Nothing is being filled in right now.", "href": app_href, "verb": "See what happened", "note": gap or plain_failure((app_doc or {}).get("reason"))}
             elif active_run and active_run.get("status") in ("queued", "claimed", "running"):
                 nxt = {"label": "Nothing is being filled in right now.", "href": app_href, "verb": "Open it", "note": gap or soon or "These answers have not been typed yet."}
             elif active_run and active_run.get("requested") == "resume":
@@ -254,7 +252,7 @@ def register(app, rt, require_session, require_csrf, render) -> None:
             from amorehiremepls.apply.applications import FormField
 
             fields = [
-                FormField(f.get("id", ""), f.get("label", ""), f.get("type", "text"), f.get("options", []), f.get("selector", ""), bool(f.get("required")))
+                FormField(f.get("id", ""), f.get("label", ""), f.get("type", "text"), f.get("options", []), f.get("selector", ""), bool(f.get("required")), f.get("meta") or {})
                 for f in (job.get("form_plan") or {}).get("fields", [])
             ]
             rt.applications().prepare(job_id, fields)
@@ -275,31 +273,16 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         code = "ok" if result["outcome"] != "unreadable" else "err"
         return RedirectResponse(f"/jobs/{job_id}?{code}={flash}", status_code=303)
 
-    @app.post("/jobs/{job_id}/delete-application")
-    def job_delete_application(request: Request, job_id: str, session: dict = Depends(require_session), csrf: str = Form(...), confirm: str = Form("")):
-        """Remove the unsent application for this job. The job itself stays."""
+    @app.post("/jobs/{job_id}/start-over")
+    def job_start_over(request: Request, job_id: str, session: dict = Depends(require_session), csrf: str = Form(...)):
+        """Clear the unsent application for this job. The job stays. Nothing is sent."""
         require_csrf(request, session, csrf)
-        if confirm.strip().lower() != "delete":
-            return RedirectResponse(f"/jobs/{job_id}?err=confirm_needed", status_code=303)
         local = rt.store.c("applications").find_one({"job_id": job_id, "provenance.origin": "local"})
         if local is None:
             return RedirectResponse(f"/jobs/{job_id}?err=missing", status_code=303)
         from amorehiremepls.web.routes.applications import _clear_application
 
-        return _clear_application(rt, local["_id"], "delete")
-
-    @app.post("/jobs/{job_id}/restart")
-    def job_restart(request: Request, job_id: str, session: dict = Depends(require_session), csrf: str = Form(...), confirm: str = Form("")):
-        """Clear the unsent application workflow so the package can be read and approved again. Does not submit."""
-        require_csrf(request, session, csrf)
-        if confirm.strip().lower() != "restart":
-            return RedirectResponse(f"/jobs/{job_id}?err=confirm_needed", status_code=303)
-        local = rt.store.c("applications").find_one({"job_id": job_id, "provenance.origin": "local"})
-        if local is None:
-            return RedirectResponse(f"/jobs/{job_id}?err=missing", status_code=303)
-        from amorehiremepls.web.routes.applications import _clear_application
-
-        return _clear_application(rt, local["_id"], "restart")
+        return _clear_application(rt, local["_id"])
 
     @app.post("/jobs/{job_id}/qualify")
     def job_qualify(request: Request, job_id: str, session: dict = Depends(require_session), csrf: str = Form(...)):

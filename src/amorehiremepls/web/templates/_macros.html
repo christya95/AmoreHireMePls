@@ -13,3 +13,49 @@
 {% macro hint(key) -%}
 {% set g = glossary[key] %}<details class="hint"><summary aria-label="What is {{ g[0] }}?" title="{{ g[0] }}">?</summary><div class="hint-body"><strong>{{ g[0] }}.</strong> {{ g[1] }} <a href="/help#{{ key }}">More in Help</a>{% if g[2] %} <code class="raw" title="technical term">{{ g[2] }}</code>{% endif %}</div></details>
 {%- endmacro %}
+{#- status_block(state, now, ask, note, working, live, more): the one block at the top of the job and application pages.
+    `state` is the headline status (chip through status()), `now` one or two sentences from the latest saved event,
+    `ask` the one thing the page needs from the person (or the sentence that says nothing is needed), `note` an optional
+    second sentence. The caller body holds the single control; it may be empty. `more` is a second sentence shown muted
+    after the control (for example where to go next once nothing is needed). The id and the data attributes are what
+    app.js refreshes while a task is live. -#}
+{% macro status_block(state, now='', ask='', note='', working=False, live=False, more='', idle_hidden=False, ask_id='') -%}
+<section class="next-action{% if working %} working{% endif %}" id="activity-banner" data-tone="{{ state|tone }}"{% if idle_hidden %} data-idle-hidden="1"{% endif %} aria-live="polite" aria-label="Where this stands">
+  <div class="body">
+    <div class="now-row">{{ status(state) }}<span class="working-line" id="activity-phase"><span class="dots" id="activity-dots" aria-hidden="true"{% if not working %} hidden{% endif %}><i></i><i></i><i></i></span></span></div>
+    <p class="now" id="activity-state"{% if not now %} hidden{% endif %}>{{ now }}</p>
+    {% if note %}<p class="now-sub">{{ note }}</p>{% endif %}
+    {% if ask %}<p class="ask"><strong{% if ask_id %} id="{{ ask_id }}"{% endif %}>{{ ask }}</strong>{% if more %} <span>{{ more }}</span>{% endif %}</p>{% endif %}
+  </div>
+  {% set control = caller() if caller else '' %}
+  {% if control|trim %}<div class="act">{{ control }}</div>{% endif %}
+</section>
+{%- endmacro %}
+{#- fold(id, title, open, meta, tone, flush, attrs): a card that is closed until it matters. The caller body is the
+    content. `meta` is a short muted note in the summary row (a count, a state); `tone` colours it as a pill.
+    `attrs` are extra attributes for the <details> element (data-* for app.js). -#}
+{% macro fold(id, title, open=False, meta='', tone='', flush=False, attrs='') -%}
+<details class="card fold{% if flush %} flush{% endif %}" id="{{ id }}"{% if open %} open{% endif %}{% if attrs %} {{ attrs|safe }}{% endif %}>
+  <summary><h3>{{ title }}</h3>{% if meta %}{% if tone %}<span class="pill {{ tone }}">{{ meta }}</span>{% else %}<span class="sum-meta">{{ meta }}</span>{% endif %}{% endif %}</summary>
+  <div class="fold-body">{{ caller() }}</div>
+</details>
+{%- endmacro %}
+{#- tech(pre_id, title, data): a closed block with the exact stored record and a Copy button app.js wires to it. -#}
+{% macro tech(pre_id, title, data) -%}
+<details class="disclosure"><summary>{{ title }}</summary>
+  <button type="button" class="secondary sm" data-copy="{{ pre_id }}">Copy</button>
+  <pre id="{{ pre_id }}">{{ data|json }}</pre></details>
+{%- endmacro %}
+{#- confirm_action(action, word, text, label, danger): a form that does nothing until the person types the word. -#}
+{% macro confirm_action(action, word, text, label, danger=False) -%}
+<form method="post" action="{{ action }}" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
+  <p>{{ text }}</p>
+  <label>Type {{ word }} to confirm <input name="confirm" autocomplete="off"></label>
+  <button class="{{ 'danger' if danger else 'secondary' }} sm w100">{{ label }}</button></form>
+{%- endmacro %}
+{#- one_confirm(action, text, label, danger): one button is the confirmation. No typed word. -#}
+{% macro one_confirm(action, text, label, danger=False) -%}
+<form method="post" action="{{ action }}" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
+  <p>{{ text }}</p>
+  <button class="{{ 'danger' if danger else 'secondary' }} sm w100">{{ label }}</button></form>
+{%- endmacro %}

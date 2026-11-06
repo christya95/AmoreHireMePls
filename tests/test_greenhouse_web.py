@@ -171,12 +171,12 @@ def test_approval_continues_a_task_still_waiting_for_answers_and_the_page_shows_
     saved = rt.store.c("runs").find_one({"_id": run["_id"]})
     assert saved["requested"] == "resume" and saved["resume_payload"]["inputs"]["first_name"] == "Ada"
     page = client.get("/applications/app_wait").text
-    assert "What is happening" in page and "You approved this package" in page and "Package ready for you to read" in page
+    assert "What is happening" in page and "You approved this application" in page and "Ready for you to read" in page
     assert "Continuing this application" in page
     assert "Nothing to do" not in page and "within a minute. Nothing" not in page
-    assert "Nothing is being filled in right now." in page and "The form is being filled in now." not in page
+    assert "The form is being filled in now." not in page
     rt.store.update_run(run["_id"], status="running")
     working = client.get("/applications/app_wait").text
-    assert 'class="next-action mt working"' in working
+    assert 'class="next-action working"' in working
     assert "The form is being filled in now." in working and "Nothing is being filled in right now." not in working
     assert client.get("/applications/app_wait/activity").json()["working"] is True

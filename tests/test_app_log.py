@@ -180,9 +180,7 @@ def test_the_application_page_log_is_closed_and_hides_a_secret(client):
     run = rt.store.create_run("application", {"job_id": "job_log"})
     rt.store.c("runs").update_one({"_id": run["_id"]}, {"$set": {"events": events}})
     page = client.get("/applications/app_log").text
-    assert "<summary>Network Tab</summary>" in page
-    assert ">Clear</button>" in page
-    assert 'id="network-tab" open' not in page
+    assert "Network Tab" not in page and 'id="network-tab"' not in page and ">Clear</button>" not in page
     assert "<summary>Log</summary>" not in page
     assert SECRET not in page
     overview = client.get("/").text

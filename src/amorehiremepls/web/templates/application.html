@@ -1,165 +1,145 @@
 {% extends "base.html" %}{% block content %}
-{% from "_macros.html" import status, hint, company with context %}
+{% from "_macros.html" import status, hint, company, status_block, fold, tech, confirm_action, one_confirm with context %}
 {% set pkg = a.review_package %}
-{% set step = {'ready_for_review': ('Read the resume and the answers, then approve this exact application.', '#authorize'),
-               'needs_input': ('Fill in the answers marked "needed" and save. The application is then ready for your approval.', '#answers'),
-               'handoff': (('The job site showed a human check. Finish that check and the submit on the site yourself, then record the confirmation text here.' if a.handoff_kind == 'human_check' else 'Apply on the job site yourself using the resume below, then record the confirmation text here.'), '#record'),
-               'needs_verification': ('Check the job site, then record whether it went through.', '#record'),
-               'challenge_retry': ('A check appeared. The app will try this once more later, then tell you if it still needs you.', None),
-               'submitted': ('Applied and recorded. Next: short notes to recruiters under Recruiters.', '/outreach'),
-               'failed': ((a.reason|failure) ~ (' Retry with the app reads the form again and asks for your approval first.' if can_retry else ' See "What happened" below.'), '#record')}.get(a.status) %}
+{% set needed = ((pkg.outstanding if pkg else []) or [])|needed %}
+{% set gaps = (pkg.gaps if pkg else [])|map('plain')|reject('equalto', '')|list %}
+{% set editable = a.status in ('needs_input', 'ready_for_review') %}
+{% set idle_line = 'Nothing is being filled in right now.' %}
+{% set now_line = '' if (happening == idle_line and need.kind) else happening %}
 <div class="stack">
-<div class="card">
+{% call status_block(show_status, now=now_line, ask=need.title, note=show_reason, working=filling, more=need.text, idle_hidden=(need.kind != ''), ask_id=('field-answer-label' if need.kind == 'field' else '')) %}
+  {% if need.kind == 'human_check' %}
+  <form method="post" action="/applications/{{ a._id }}/continue" id="human-check"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}"><button><svg class="icon"><use href="#i-check"/></svg>Continue</button></form>
+  {% elif need.kind == 'field' %}
+  <form method="post" action="/applications/{{ a._id }}/field-answer" id="field-answer"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}">
+    <label>{{ hold.field_label }} <input name="answer" autocomplete="off" required></label>
+    <button>Use this answer</button></form>
+  {% elif need.kind == 'answer' %}
+  {% set f = need.field %}
+  <form method="post" action="/applications/{{ a._id }}/inputs"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>{{ f.label }} {% if f.options %}<select name="input_{{ f.field_id }}" required><option value="">choose one</option>{% for opt in f.options %}<option value="{{ opt }}">{{ opt }}</option>{% endfor %}</select>{% else %}<input name="input_{{ f.field_id }}" autocomplete="off" required placeholder="needed">{% endif %}</label>
+    <button>Save this answer</button></form>
+  {% elif need.kind == 'answers' %}
+  <a class="btn" href="#answers"><svg class="icon"><use href="#i-arrow"/></svg>Answer the questions</a>
+  {% elif need.kind == 'resume' %}
+  <a class="btn" href="/profile"><svg class="icon"><use href="#i-profile"/></svg>Select a resume</a>
+  {% elif need.kind == 'approve' %}
+  <form method="post" action="/applications/{{ a._id }}/authorize"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}">
+    <button><svg class="icon"><use href="#i-check"/></svg>Approve this exact application</button>
+    <details class="disclosure options"><summary>Approval options</summary>
+      <div class="form-row"><div class="field narrow"><label>Good for (hours)</label><input name="hours" type="number" value="24" min="1" max="168"></div><div class="field"><label>Note to yourself</label><input name="note" placeholder="optional"></div></div></details></form>
+  {% elif need.kind == 'fill' %}
+  <form method="post" action="/applications/{{ a._id }}/fill"><input type="hidden" name="csrf" value="{{ csrf }}"><button><svg class="icon"><use href="#i-arrow"/></svg>Fill in the form</button></form>
+  {% elif need.kind == 'retry' %}
+  <form method="post" action="/applications/{{ a._id }}/retry"><input type="hidden" name="csrf" value="{{ csrf }}"><button><svg class="icon"><use href="#i-arrow"/></svg>Retry with the app</button></form>
+  {% elif need.kind == 'manual' %}
+  <form method="post" action="/applications/{{ a._id }}/manual" class="ask-form"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="field"><label>The exact confirmation text you saw</label><input name="confirmation" required></div>
+    <div class="field narrow"><label>Date applied</label><input name="application_date" placeholder="YYYY-MM-DD" required></div>
+    <div class="field"><label>Code of the file you uploaded (optional)</label><input name="resume_sha256" placeholder="SHA-256"></div>
+    <button><svg class="icon"><use href="#i-hand"/></svg>I applied on the site</button></form>
+  {% elif need.kind == 'verify' %}
+  <form method="post" action="/applications/{{ a._id }}/reconcile" class="ask-form"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="field"><label>What did the job site show?</label><select name="resolved"><option value="succeeded">It was sent</option><option value="failed">It was not sent</option></select></div>
+    <div class="field"><label>What you saw</label><input name="confirmation" placeholder="the confirmation text or page"></div>
+    <div class="field narrow"><label>Date applied</label><input name="application_date" placeholder="YYYY-MM-DD"></div>
+    <button><svg class="icon"><use href="#i-check"/></svg>Save the result</button></form>
+  {% elif a.status == 'submitted' %}
+  <a class="btn secondary" href="/outreach"><svg class="icon"><use href="#i-arrow"/></svg>Contact recruiters</a>
+  {% endif %}
+{% endcall %}
+
+<header class="card">
   <div class="welcome">
     {{ company(job.employer, job, "lg") }}
     <div>
       <h1>{{ job.title }}</h1>
-      <p>{{ job.employer }} · application <span class="mono">{{ a._id }}</span></p>
-      <div class="flex mt">{{ status(a.status) }}{% if a.reason %}<small>{{ a.reason|failure if a.status == 'failed' else a.reason }}</small>{% endif %}</div>
+      <p>{{ job.employer }}{% if job.location %} · {{ job.location }}{% endif %}</p>
     </div>
-    <div class="actions"><a class="btn secondary sm" href="/jobs/{{ job._id }}">Open the job</a>{% if pkg %}<a class="btn secondary sm" href="{{ pkg.apply_url }}" target="_blank" rel="noopener">Apply page ↗</a>{% endif %}
-      {% if can_clear %}<details class="pop more"><summary class="btn secondary sm">Remove or start over</summary><div class="pop-body stack gap-s">
-        <form method="post" action="/applications/{{ a._id }}/restart" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
-          <p>Clears this unsent application and its approval. The job stays. You then read the resume and the answers and approve them again. Rebuilding the resume makes new files, so the old approval no longer applies. Nothing is sent.</p>
-          <label>Type restart to confirm <input name="confirm" autocomplete="off"></label>
-          <button class="secondary sm w100">Restart this job</button></form>
-        <form method="post" action="/applications/{{ a._id }}/delete" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
-          <p>Removes this application. The job stays. This is only possible because nothing was sent. Your GitHub tracker history is not erased.</p>
-          <label>Type delete to confirm <input name="confirm" autocomplete="off"></label>
-          <button class="danger sm w100">Delete this application</button></form>
-        <form method="post" action="/applications/{{ a._id }}/remove-resumes" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}">
-          <p>Deletes the tailored resume files for this application. Your base resume stays. This is only possible because nothing was sent. An approval that pointed at a deleted file no longer applies.</p>
-          <label>Type remove to confirm <input name="confirm" autocomplete="off"></label>
-          <button class="secondary sm w100">Remove unused resumes</button></form>
-      </div></details>{% endif %}</div>
+    <nav class="actions" aria-label="This application"><a class="btn secondary sm" href="/jobs/{{ job._id }}">Open the job</a>{% if pkg %}<a class="btn secondary sm" href="{{ pkg.apply_url }}" target="_blank" rel="noopener">Apply page ↗</a>{% endif %}
+      {% if can_clear %}<details class="pop more"><summary class="btn secondary sm">Start over</summary><div class="pop-body stack gap-s">
+        {{ one_confirm('/applications/' ~ a._id ~ '/start-over', glossary.start_over[1], 'Start over', danger=True) }}
+        {{ confirm_action('/applications/' ~ a._id ~ '/remove-resumes', 'remove', 'Deletes the tailored resume files for this application. Your base resume stays. This is only possible because nothing was sent. An approval that pointed at a deleted file no longer applies.', 'Remove unused resumes') }}
+      </div></details>{% elif clear_block %}<p class="note">{{ clear_block }}</p>{% endif %}</nav>
   </div>
-  {% if hold and hold.purpose != 'field' %}
-  <div class="next-action mt attention" id="human-check">
-    <div class="body"><small class="muted">What to do now</small><strong>Human check needed</strong>
-      <p>The page is being held{% if hold.cdp_port %} on this computer at 127.0.0.1:{{ hold.cdp_port }}{% endif %}. If you can open it, finish the check, then press Continue. Continue uses the same approval and does not send the form again.</p>
-      <p>If you cannot open the page, wait. When the time is up you will be asked to finish on the site yourself.</p>
-    </div>
-    <form method="post" action="/applications/{{ a._id }}/continue"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}"><button>Continue</button></form>
-  </div>
-  {% elif not (hold and hold.purpose == 'field') %}<div class="next-action mt{% if filling %} working{% endif %}" id="activity-banner" aria-live="polite"><div class="body"><small class="muted">What to do now</small><strong class="working-line" id="activity-phase"><span id="activity-state">{% if filling %}The form is being filled in now.{% else %}Nothing is being filled in right now.{% endif %}</span><span class="dots" id="activity-dots" aria-hidden="true"{% if not filling %} hidden{% endif %}><i></i><i></i><i></i></span></strong>{% if now_line %}<strong id="activity-now" class="step-now">{{ now_line }}</strong>{% else %}<strong id="activity-now" class="step-now" hidden></strong>{% endif %}{% if not filling and not now_line and step %}<p class="step-now">{{ step[0] }}</p>{% endif %}</div>{% if can_fill %}<form method="post" action="/applications/{{ a._id }}/fill"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Fill in the form</button></form>{% elif not filling and step and step[1] %}<a class="btn" href="{{ step[1] }}"><svg class="icon"><use href="#i-arrow"/></svg>{{ a.status|verb }}</a>{% endif %}</div>{% endif %}
-  {% if hold and hold.purpose == 'field' and hold.field_label %}
-  <div class="next-action mt attention" id="field-answer">
-    <div class="body"><small class="muted">What to do now</small><strong id="field-answer-label">{{ hold.field_label }}</strong>
-      <p id="field-answer-reason">{{ hold.field_reason }}</p>
-      <p>The same page is still open. Type the answer here and it is entered on that form. The form is not started over.</p>
-    </div>
-    <form method="post" action="/applications/{{ a._id }}/field-answer" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}">
-      <label>{{ hold.field_label }} <input name="answer" autocomplete="off" required></label>
-      <button>Use this answer</button>
-    </form>
-  </div>
-  {% endif %}
-</div>
+</header>
 
 {% if pkg %}
-<div class="grid-main">
-  <div class="stack">
-    <div class="card">
-      <div class="card-h"><h3>What would be sent</h3><span class="pill">{{ pkg.apply_route|label if pkg.apply_route else 'depends on the site' }}</span><span class="sub">Where it goes and what is attached. Nothing here is sent until you approve.</span></div>
-      <table class="kv compact">
-        <tr><td>Job ad</td><td class="wrap"><a href="{{ pkg.posting_url }}" target="_blank" rel="noopener">{{ pkg.posting_url }}</a></td></tr>
-        <tr><td>Job ID</td><td>{{ pkg.requisition_id or '—' }}</td></tr>
-        <tr><td>Apply at</td><td class="wrap">{{ pkg.apply_url }}</td></tr>
-        <tr><td>Resume</td><td>{% if pkg.document %}<span class="wrap">{{ pkg.document.filename }}</span><span class="sub">DOCX <code>{{ pkg.document.sha256[:16] }}…</code> · PDF {% if pkg.document.pdf_sha256 %}<code>{{ pkg.document.pdf_sha256[:16] }}…</code>{% else %}not made{% endif %} · pages {{ pkg.document.pages if pkg.document.pages is not none else 'not counted' }} {% if not pkg.document.page_limit_verified %}<span class="pill warn">{{ pkg.document.render_note }}</span>{% endif %}</span>{% else %}<span class="pill bad">no resume</span>{% endif %}</td></tr>
-        <tr><td>Package fingerprint {{ hint('material_hash') }}</td><td><code>{{ a.material_hash }}</code></td></tr>
-        {% if doc_art %}<tr><td>Read what would be uploaded</td><td>{% with d = doc_art %}{% include "_doc_actions.html" %}{% endwith %}</td></tr>{% endif %}
-      </table>
-    </div>
-    <div class="card flush" id="answers">
-      {% set editable = a.status in ('needs_input', 'ready_for_review') %}
-      <div class="card-h"><h3>{% if site_label %}Questions on the {{ site_label }} form and the answers that will be sent{% else %}Answers{% endif %}</h3>{% if a.status == 'needs_input' %}<span class="pill warn">answers needed</span>{% endif %}<span class="sub">Each answer says whether it came from your profile, your work history, or something you typed here. Blank "needed" fields are questions your profile cannot answer. Self-identification questions use the answers you saved when the form offers a matching choice; otherwise they stay blank, or take the "I don't wish to answer" choice when the form insists. Either way they are shown here. A pay figure marked "proposed" comes from a salary estimate; open "Why this figure" and change it if you want.{% if editable %} Change any answer below before you approve. Saving a change asks for approval again. The resume file stays as prepared.{% endif %}</span></div>
-      <form method="post" action="/applications/{{ a._id }}/inputs"><input type="hidden" name="csrf" value="{{ csrf }}">
-      <div class="table-wrap"><table><thead><tr><th>Question</th><th>Answer</th><th>Where it comes from</th></tr></thead><tbody>
-      {% for ans in pkg.answers %}{% set file_answer = ans.fact_ids == ['artifact'] %}
-      <tr><td>{{ ans.label }}{% if ans.sensitive %} <span class="pill">personal</span>{% endif %}{% if ans.required %} <span class="pill">required</span>{% endif %}</td>
-        <td>{% if editable and not file_answer %}{% if ans.options %}<select name="input_{{ ans.field_id }}"><option value="">left blank</option>{% for opt in ans.options %}<option value="{{ opt }}" {% if ans.value == opt %}selected{% endif %}>{{ opt }}</option>{% endfor %}{% if ans.value and ans.value not in ans.options %}<option value="{{ ans.value }}" selected>{{ ans.value }}</option>{% endif %}</select>{% else %}<input name="input_{{ ans.field_id }}" value="{{ ans.value or '' }}" placeholder="{{ 'needed' if ans.needs_input else 'left blank' }}">{% endif %}{% elif ans.value is none %}<span class="muted">left blank</span>{% elif file_answer %}<span class="wrap">{{ ans.value.rsplit('/', 1)[-1] }}</span>{% else %}{{ ans.value }}{% endif %}{% if ans.detail and ans.detail.rationale %}<details class="disclosure"><summary>Why this figure</summary><p>{{ ans.detail.rationale }}</p><small class="muted">Confidence {{ ans.detail.confidence }}{% if ans.detail.range_low and ans.detail.range_high %} · typical band {{ ans.detail.range_low }} to {{ ans.detail.range_high }}{% endif %}{% if ans.detail.source_kinds %} · based on {{ ans.detail.source_kinds|join(', ') }}{% endif %}. An estimate, not a quote from this employer; never below your minimum.</small></details>{% endif %}</td><td><small>{{ ans.fact_ids|map('evidence')|reject('equalto', '')|unique|join(', ') }}{% set why = ans.reason|plain %}{% if why %} · {{ why }}{% endif %}</small></td></tr>
-      {% else %}<tr><td colspan="3"><div class="empty">No form questions were found. Only the resume is uploaded.</div></td></tr>{% endfor %}</tbody></table></div>
-      {% if editable %}<div class="form-actions pad"><button>Save answers</button></div>{% endif %}</form>
-    </div>
-    {% set needed = (pkg.outstanding or [])|needed %}
-    {% if needed %}<div class="card" id="needed">
-      <div class="card-h"><h3>Still needed</h3><span class="sub">These have to be filled in before this application can be sent.</span></div>
-      <ul class="needed-list">{% for line in needed %}<li>{{ line }}</li>{% endfor %}</ul>
-    </div>{% endif %}
-    <div class="card" id="gaps">
-      <div class="card-h"><h3>Things the job asks for that you do not have</h3><span class="sub">Only the skills this job asks for that the resume does not show.{% if needed %} Missing answers are in the list above.{% endif %}</span></div>
-      {% set gaps = pkg.gaps|map('plain')|reject('equalto', '')|list %}
-      {% if gaps %}<ul class="gap-list">{% for g in gaps %}<li class="gap-item tone-{{ loop.cycle('warn', 'bad', 'accent') }}">{{ g }}</li>{% endfor %}</ul>
-      {% else %}<p class="note">None found.</p>{% endif %}
-      {% if pkg.unsupported_requirements_note %}{% set note = pkg.unsupported_requirements_note|plain %}{% set bits = note.split('. ') %}<p class="note gap-note">{{ bits[0] }}{% if bits|length > 1 %}.{% endif %}</p>{% endif %}
-    </div>
+{% call fold('sent', 'What would be sent', open=(a.status in ('needs_input', 'ready_for_review')), meta=(pkg.answers|length ~ ' answers' if pkg.answers else 'resume only'), flush=True) %}
+  <div class="pad">
+  <p class="sub">Where it goes and what is attached. Nothing here is sent until you approve.</p>
+  <table class="kv compact">
+    <tr><td>Job ad</td><td class="wrap"><a href="{{ pkg.posting_url }}" target="_blank" rel="noopener">{{ pkg.posting_url }}</a></td></tr>
+    <tr><td>Job ID</td><td>{{ pkg.requisition_id or '—' }}</td></tr>
+    <tr><td>Job site</td><td>{{ pkg.apply_route|label if pkg.apply_route else 'depends on the site' }} <span class="sub wrap">{{ pkg.apply_url }}</span></td></tr>
+    <tr><td>Resume</td><td>{% if pkg.document %}<span class="wrap">{{ pkg.document.filename }}</span><span class="sub">pages {{ pkg.document.pages if pkg.document.pages is not none else 'not counted' }}{% if not pkg.document.pdf_sha256 %} · PDF not made{% endif %} {% if not pkg.document.page_limit_verified %}<span class="pill warn">{{ pkg.document.render_note }}</span>{% endif %}</span>{% else %}<span class="pill bad">no resume</span>{% endif %}</td></tr>
+    {% if doc_art %}<tr><td>Read what would be uploaded</td><td>{% with d = doc_art %}{% include "_doc_actions.html" %}{% endwith %}</td></tr>{% endif %}
+  </table>
   </div>
-  <div class="stack">
-    <div class="card {{ 'attention' if a.status == 'ready_for_review' }}" id="authorize">
-      <div class="card-h"><h3>Your approval</h3>{{ hint('authorization') }}<svg class="icon"><use href="#i-key"/></svg></div>
-      {% for s in scopes %}<p class="approval-line"><span class="pill ok">{% if s.mode == 'batch' %}Approved for several jobs{% else %}Approved for this job{% endif %}</span> <small>used {{ s.used_count }} of {{ s.max_count }} · ends {{ s.expires_at|local }}</small></p>{% endfor %}
-      {% if a.status == 'ready_for_review' %}
-      <form method="post" action="/applications/{{ a._id }}/authorize" class="stack gap-s"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}">
-        <div class="form-row"><div class="field narrow"><label>Good for (hours)</label><input name="hours" type="number" value="24" min="1" max="168"></div><div class="field"><label>Note to yourself</label><input name="note" placeholder="optional"></div></div>
-        <button><svg class="icon"><use href="#i-check"/></svg>{% if answers_changed %}Fill in the form{% else %}Approve this exact application{% endif %}</button>
-        <small>Covers this job, these answers and these exact files only. If anything changes, you will be asked again.</small></form>
-      {% elif not scopes %}<p class="note">Nothing to approve right now. The approve button appears here when the application is ready.</p>{% endif %}
-    </div>
-    {% if shots %}<div class="card" id="evidence">
-      <div class="card-h"><h3>Proof of applying</h3>{{ hint('evidence') }}<span class="sub">What the app saw: the filled form right before the final click and the page shown afterwards. Click a picture to open it full size.</span></div>
-      {% include "_shots.html" %}
-    </div>{% endif %}
-    <div class="card" id="updates" data-activity="/applications/{{ a._id }}/activity"{% if activity_live %} data-live="1"{% endif %}>
-      <div class="card-h"><h3>What is happening</h3><span class="sub">Each step the app takes on this application. New steps show up here on their own while it is working.</span></div>
-      {% if updates %}
-      <div class="timeline" id="activity-lines">{% for u in updates %}<div class="list-item"><span class="t">{{ u.at|local }}</span><span>{{ u.text }}{% if u.count > 1 %} ({{ u.count }}){% endif %}</span></div>{% endfor %}</div>
-      {% else %}<div class="timeline" id="activity-lines"></div><p class="note">Nothing has happened yet.</p>{% endif %}
-    </div>
-    <div class="card" id="record">
-      <div class="card-h"><h3>What happened</h3>{% if a.status == 'needs_verification' %}{{ hint('needs_verification') }}{% elif a.status == 'handoff' %}{{ hint('handoff') }}{% endif %}</div>
-      {% if gap %}<p id="answer-gap">{{ gap }}</p>{% endif %}
-      {% if action %}<p>Attempt <code class="raw">{{ action._id }}</code> {{ status(action.status) }} {{ (action.outcome_reason|failure) if a.status == 'failed' and action.outcome_reason else (action.outcome_reason or '') }}</p>
-      {% if a.status == 'failed' and a.next_action %}<p class="note">{{ a.next_action }}</p>{% endif %}
-      <details class="disclosure"><summary>Technical details</summary>
-        <button type="button" class="secondary sm" data-copy="technical-details">Copy</button>
-        <pre id="technical-details">{{ action.evidence|json }}</pre></details>{% else %}<p class="note">Nothing has been sent for this application.</p>{% endif %}
-      {% if a.status == 'needs_verification' %}
-      <form method="post" action="/applications/{{ a._id }}/reconcile" class="stack gap-s mt"><input type="hidden" name="csrf" value="{{ csrf }}">
-        <div class="field"><label>What did the job site show?</label><select name="resolved"><option value="succeeded">It was sent</option><option value="failed">It was not sent</option></select></div>
-        <div class="field"><label>What you saw</label><input name="confirmation" placeholder="the confirmation text or page"></div>
-        <div class="field narrow"><label>Date applied</label><input name="application_date" placeholder="YYYY-MM-DD"></div>
-        <button class="secondary">Save the result</button></form>
-      {% endif %}
-      {% if can_retry %}
-      <form method="post" action="/applications/{{ a._id }}/retry" class="mt"><input type="hidden" name="csrf" value="{{ csrf }}">
-        <p class="note">{% if a.handoff_kind == 'human_check' %}The site asked for a human check last time. The app can try again (it reads the form afresh and asks for your approval first); if the check comes back, you finish it yourself.{% else %}The app can fill in {{ site_label }} forms. Let it read the form again and prepare fresh answers for your approval.{% endif %}</p>
-        <button><svg class="icon"><use href="#i-arrow"/></svg>Retry with the app</button></form>
-      {% endif %}
-      {% if a.status == 'handoff' %}
-      <form method="post" action="/applications/{{ a._id }}/manual" class="stack gap-s mt"><input type="hidden" name="csrf" value="{{ csrf }}">
-        <div class="field"><label>The exact confirmation text you saw</label><input name="confirmation" required></div>
-        <div class="form-row"><div class="field narrow"><label>Date applied</label><input name="application_date" placeholder="YYYY-MM-DD" required></div><div class="field">
-          <label>Fingerprint of the file you uploaded (optional)</label><input name="resume_sha256" placeholder="SHA-256"></div></div>
-        <button><svg class="icon"><use href="#i-hand"/></svg>I applied on the site</button></form>
-      {% endif %}
-      {% if a.evidence %}<details class="disclosure mt"><summary>Technical details of the application</summary>
-        <button type="button" class="secondary sm" data-copy="application-details">Copy</button>
-        <pre id="application-details">{{ a.evidence|json }}</pre></details>{% endif %}
-    </div>
-  </div>
-</div>
-{% else %}
-<div class="card"><div class="empty">Nothing prepared yet. The app prepares the resume and answers, then waits for you to read them.<div class="actions center mt"><a class="btn secondary sm" href="/jobs/{{ job._id }}">Open the job</a></div></div>
-  {% if a.status == 'handoff' %}<form method="post" action="/applications/{{ a._id }}/manual" class="form-row"><input type="hidden" name="csrf" value="{{ csrf }}">
-    <div class="field"><label>The exact confirmation text you saw</label><input name="confirmation" required></div><div class="field narrow"><label>Date applied</label><input name="application_date" placeholder="YYYY-MM-DD" required></div><div class="field"><label>Fingerprint of the uploaded file (optional)</label><input name="resume_sha256" placeholder="SHA-256"></div>
-    <button>I applied on the site</button></form>{% endif %}</div>
+  <section id="answers" aria-label="Answers that will be sent">
+  <div class="card-h pad-x"><h3>Answers that will be sent</h3>{% if a.status == 'needs_input' %}<span class="pill warn">answers needed</span>{% endif %}<span class="sub">A blank field marked needed still has to be answered. Change anything below before you approve. Saving asks for approval again.</span></div>
+  <form method="post" action="/applications/{{ a._id }}/inputs"><input type="hidden" name="csrf" value="{{ csrf }}">
+  <div class="table-wrap"><table><thead><tr><th>Question</th><th>Answer</th><th>Where it comes from</th></tr></thead><tbody>
+  {% for ans in pkg.answers %}{% set file_answer = ans.fact_ids == ['artifact'] %}
+  <tr><td>{{ ans.label }}{% if ans.sensitive %} <span class="pill">personal</span>{% endif %}{% if ans.required %} <span class="pill">required</span>{% endif %}</td>
+    <td>{% if editable and not file_answer %}{% if ans.options %}<select name="input_{{ ans.field_id }}"><option value="">left blank</option>{% for opt in ans.options %}<option value="{{ opt }}" {% if ans.value == opt %}selected{% endif %}>{{ opt }}</option>{% endfor %}{% if ans.value and ans.value not in ans.options %}<option value="{{ ans.value }}" selected>{{ ans.value }}</option>{% endif %}</select>{% else %}<input name="input_{{ ans.field_id }}" value="{{ ans.value or '' }}" placeholder="{{ 'needed' if ans.needs_input else 'left blank' }}">{% endif %}{% elif ans.value is none %}<span class="muted">left blank</span>{% elif file_answer %}<span class="wrap">{{ ans.value.rsplit('/', 1)[-1] }}</span>{% else %}{{ ans.value }}{% endif %}{% if ans.detail and ans.detail.rationale %}<details class="disclosure"><summary>Why this figure</summary><p>{{ ans.detail.rationale }}</p><small class="muted">Confidence {{ ans.detail.confidence }}{% if ans.detail.range_low and ans.detail.range_high %} · typical band {{ ans.detail.range_low }} to {{ ans.detail.range_high }}{% endif %}{% if ans.detail.source_kinds %} · based on {{ ans.detail.source_kinds|join(', ') }}{% endif %}. An estimate, not a quote from this employer; never below your minimum.</small></details>{% endif %}</td><td><small>{{ ans.fact_ids|map('evidence')|reject('equalto', '')|unique|join(', ') }}{% set why = ans.reason|plain %}{% if why %} · {{ why }}{% endif %}</small></td></tr>
+  {% else %}<tr><td colspan="3"><div class="empty">No form questions were found. Only the resume is uploaded.</div></td></tr>{% endfor %}</tbody></table></div>
+  {% if editable %}<div class="form-actions pad"><button>Save answers</button></div>{% endif %}</form>
+  </section>
+{% endcall %}
+
+{% if needed %}
+{% call fold('needed', 'Still needed', open=True, meta=(needed|length ~ ' to fill in'), tone='warn') %}
+  <p class="sub">These have to be filled in before this application can be sent.</p>
+  <ul class="needed-list">{% for line in needed %}<li>{{ line }}</li>{% endfor %}</ul>
+{% endcall %}
 {% endif %}
 
-<div class="card" id="network" data-activity="/applications/{{ a._id }}/activity"{% if activity_live %} data-live="1"{% endif %}><details class="disclosure" id="network-tab"{% if network_open %} open{% endif %}><summary>Network Tab</summary>
-  <form method="post" action="/applications/{{ a._id }}/network/clear"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary sm" type="submit">Clear</button></form>
-  <div class="timeline log" id="network-lines">{% for row in network_rows %}<div class="list-item" data-id="{{ row.id }}"><span class="t">{{ row.at }}</span><span class="msg"><span class="line">{{ row.method }} {% if row.status is not none %}{{ row.status }}{% else %}—{% endif %} {{ row.type }}{% if row.timing %} · {{ row.timing }}{% endif %}</span><span class="url">{{ row.url }}</span>{% if row.body %}<span class="body">{{ row.body }}</span>{% endif %}</span></div>{% endfor %}</div>
-  <p class="note" id="network-empty"{% if network_rows %} hidden{% endif %}>Nothing was recorded for the last time. The next time, this tab opens and lists requests from the start.</p>
-  <script type="application/json" id="network-seed">{{ network_seed | safe }}</script>
-</details></div>
+{% call fold('gaps', 'Things the job asks for that you do not have', meta=(gaps|length ~ ' found' if gaps else 'none found')) %}
+  <p class="sub">Only the skills this job asks for that the resume does not show.{% if needed %} Missing answers are in the list above.{% endif %}</p>
+  {% if gaps %}<ul class="gap-list">{% for g in gaps %}<li class="gap-item tone-{{ loop.cycle('warn', 'bad', 'accent') }}">{{ g }}</li>{% endfor %}</ul>
+  {% else %}<p class="note">None found.</p>{% endif %}
+  {% if pkg.unsupported_requirements_note %}{% set note = pkg.unsupported_requirements_note|plain %}{% set bits = note.split('. ') %}<p class="note gap-note">{{ bits[0] }}{% if bits|length > 1 %}.{% endif %}</p>{% endif %}
+{% endcall %}
+
+{% call fold('authorize', 'Your approval', meta=('approved' if scopes else 'not yet'), tone=('ok' if scopes else '')) %}
+  <div class="sub">{{ glossary.authorization[1] }} {{ hint('authorization') }}</div>
+  {% for s in scopes %}<p class="approval-line"><span class="pill ok">{% if s.mode == 'batch' %}Approved for several jobs{% else %}Approved for this job{% endif %}</span> <small>used {{ s.used_count }} of {{ s.max_count }} · ends {{ s.expires_at|local }}</small></p>{% endfor %}
+  {% if a.status == 'ready_for_review' %}<p class="note">The Approve button is at the top of this page. It covers this job, these answers and these exact files only.</p>
+  {% elif not scopes %}<p class="note">Nothing to approve right now. The Approve button appears at the top of this page when the application is ready.</p>{% endif %}
+{% endcall %}
+
+{% if shots %}
+{% call fold('evidence', 'Proof of applying', open=(show_status in ('failed', 'submitted', 'needs_verification')), meta=(shots|length ~ ' pictures' if shots|length != 1 else '1 picture')) %}
+  <div class="sub">What the app saw: the filled form right before the final click and the page shown afterwards. Open a picture to see it full size. {{ hint('evidence') }}</div>
+  <div class="scroll-box">{% include "_shots.html" %}</div>
+{% endcall %}
+{% endif %}
+
+{% call fold('updates', 'What is happening', open=(activity_live or filling), meta=('updating' if activity_live else (updates|length ~ ' steps' if updates else '')), attrs=('data-activity="/applications/' ~ a._id ~ '/activity"' ~ (' data-live="1"' if activity_live else ''))) %}
+  <p class="sub">Each step the app takes on this application, newest first. New steps show up here on their own while it is working.</p>
+  {% if updates %}
+  <div class="timeline scroll-box" id="activity-lines">{% for u in updates %}<div class="list-item" data-key="{{ u.at|local }}|{{ u.text }}"><span class="t">{{ u.at|local }}</span><span>{{ u.text }}{% if u.count > 1 %} ({{ u.count }}){% endif %}</span></div>{% endfor %}</div>
+  {% else %}<div class="timeline scroll-box" id="activity-lines"></div><p class="note">Nothing has happened yet.</p>{% endif %}
+{% endcall %}
+
+{% call fold('record', 'What happened last time', open=(a.status == 'handoff' and need.kind != 'manual'), meta=(action.status|label if action else 'nothing sent yet')) %}
+  {% if gap %}<p id="answer-gap">{{ gap }}</p>{% endif %}
+  {% if action %}<p class="flex">{{ status(action.status) }}<span>{{ (action.outcome_reason|failure) if a.status == 'failed' and action.outcome_reason else (action.outcome_reason or '') }}</span></p>
+  {% if a.status == 'failed' and a.next_action %}<p class="note">{{ a.next_action }}</p>{% endif %}
+  {{ tech('technical-details', 'Technical details', action.evidence) }}{% else %}<p class="note">Nothing has been sent for this application.</p>{% endif %}
+  {% if a.status == 'handoff' and need.kind != 'manual' %}
+  <form method="post" action="/applications/{{ a._id }}/manual" class="stack gap-s mt"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <p class="note">If you applied on the site yourself, record it here instead.</p>
+    <div class="form-row"><div class="field"><label>The exact confirmation text you saw</label><input name="confirmation" required></div><div class="field narrow"><label>Date applied</label><input name="application_date" placeholder="YYYY-MM-DD" required></div><div class="field">
+      <label>Code of the file you uploaded (optional)</label><input name="resume_sha256" placeholder="SHA-256"></div></div>
+    <button class="secondary"><svg class="icon"><use href="#i-hand"/></svg>I applied on the site</button></form>
+  {% endif %}
+  <div class="note mt">Application <code class="raw">{{ a._id }}</code> · code of what would be sent {{ hint('material_hash') }} <code class="raw">{{ a.material_hash }}</code></div>
+  {% if a.evidence %}{{ tech('application-details', 'Technical details of the application', a.evidence) }}{% endif %}
+{% endcall %}
+{% else %}
+<section class="card"><div class="empty">Nothing prepared yet. The app prepares the resume and answers, then waits for you to read them.<div class="actions center mt"><a class="btn secondary sm" href="/jobs/{{ job._id }}">Open the job</a></div></div></section>
+{% endif %}
 </div>
 {% endblock %}

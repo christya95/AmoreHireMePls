@@ -217,7 +217,7 @@ def test_every_page_is_free_of_jargon(client, tmp_path):
 def test_step_names_and_glossary_are_plain():
     from amorehiremepls.web.ui_settings import GLOSSARY, NEXT_ACTIONS, PAGE_INTROS, STATUS_LABELS, STEP_HELP
 
-    assert list(STEP_HELP) == ["Import", "Check fit", "Tailor resume", "Read package", "Approve", "Apply", "Save to tracker", "Contact recruiters"]
+    assert list(STEP_HELP) == ["Import", "Check fit", "Tailor resume", "Read application", "Approve", "Apply", "Save to tracker", "Contact recruiters"]
     for name, (tip, tech) in STEP_HELP.items():
         assert tip.endswith(".") and tech.islower() and "-" not in name
     corpus = " ".join([*STATUS_LABELS.values(), *NEXT_ACTIONS.values(), *(t for g in GLOSSARY.values() for t in g[:2]), *(x for v in PAGE_INTROS.values() for x in v)])

@@ -75,6 +75,48 @@ VALIDATION_SELECTOR = "[role=alert], .error, .field-error, .helper-text--error, 
 FILE_WORDS = re.compile(r"resume|résumé|\bcv\b|curriculum", re.I)
 ATTACH_WORDS = re.compile(r"attach|upload|choose file|browse|select file|add file", re.I)
 PREFLIGHT_TYPES = ("fill", "select", "check", "upload", "click", "choose", "choose_multi", "autocomplete")
+# Rows in the field's own menu and in a menu drawn later on the same frame or the top page.
+SUGGESTION_SELECTOR = '[role="option"], .select__option, [id*="-option-"], .pac-item, [role="listbox"] li'
+_ROW_JS = (
+    "els => els.map(el => {"
+    " const style = window.getComputedStyle(el);"
+    " if (el.hidden || style.display === 'none' || style.visibility === 'hidden') return '';"
+    " return (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();"
+    " })"
+)
+_FOCUS_JS = (
+    "els => els.findIndex(el => el.getAttribute('aria-selected') === 'true' "
+    "|| (el.className && el.className.toString().includes('focused')) "
+    "|| el.classList.contains('pac-item-selected'))"
+)
+# A menu drawn over the field (react-select portals this). Read and press the row in the page so a covered
+# input click cannot time out before the place is chosen.
+_MENU_ROWS_JS = """() => {
+  const visible = (el) => {
+    const style = window.getComputedStyle(el);
+    if (el.hidden || style.display === 'none' || style.visibility === 'hidden') return false;
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  };
+  const labels = [];
+  for (const el of document.querySelectorAll('.select__option, [role="option"], .pac-item')) {
+    if (!visible(el)) continue;
+    const text = (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();
+    if (text && !labels.includes(text)) labels.push(text);
+  }
+  return labels;
+}"""
+_MENU_CLICK_JS = """(label) => {
+  const want = (label || '').replace(/\\s+/g, ' ').trim();
+  for (const el of document.querySelectorAll('.select__option, [role="option"], .pac-item')) {
+    const text = (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();
+    if (text !== want) continue;
+    el.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
+    el.click();
+    return true;
+  }
+  return false;
+}"""
 
 # Runs in the page: context text for every file input (own label, aria-labelledby of its group, nearest heading-like
 # text in the enclosing sections) plus its identifying attributes. Index = position in `input[type=file]`.
@@ -168,32 +210,90 @@ def location_queries(value: str, fallbacks: list[str] | None = None) -> list[str
     return queries
 
 
-def suggestion_rank(query: str, suggestion: str) -> int | None:
+def _place_parts(text: str) -> list[str]:
+    return [part.strip() for part in text.split(",") if part.strip()]
+
+
+def _city_part(text: str) -> str:
+    parts = _place_parts(text)
+    return parts[0] if parts else text.strip()
+
+
+def _longer_city_name(suggestion_city: str, typed_city: str) -> bool:
+    """True when the row's first part only begins with the typed city, as a beach, valley, or island does."""
+    return bool(typed_city) and suggestion_city.startswith(typed_city) and len(suggestion_city) > len(typed_city)
+
+
+def _parts_agree(parts: list[str], suggestion: str) -> bool:
+    words = re.findall(r"[a-z0-9]+", suggestion)
+
+    def part_ok(part: str) -> bool:
+        if part in suggestion:
+            return True
+        head = part.split()[0]
+        return len(head) >= 4 and any(len(word) == 2 and head.startswith(word) for word in words)
+
+    return all(part_ok(part) for part in parts)
+
+
+def _part_agrees(want: str, got: str) -> bool:
+    if want == got or want in got or got in want:
+        return True
+    return _parts_agree([want], got)
+
+
+def _match_rank(want: str, got: str) -> int | None:
+    if got == want:
+        return 3
+    longer = _longer_city_name(_city_part(got), _city_part(want))
+    if want in got and not longer:
+        return 2
+    parts = _place_parts(want)
+    if longer:
+        return 1 if len(parts) < 2 or _parts_agree(parts, got) else None
+    if len(parts) < 2:
+        return 1 if want in got else None
+    return 1 if _parts_agree(parts, got) else None
+
+
+def _region_bonus(query: str, suggestion: str, preferred: str) -> int:
+    """An exact city row ranks higher when its later parts agree with the saved region and country."""
+    if _city_part(suggestion) != _city_part(query):
+        return 0
+    saved = _place_parts(preferred)
+    found = _place_parts(suggestion)
+    bonus = 0
+    if len(saved) >= 2 and len(found) >= 2 and _part_agrees(saved[1], found[1]):
+        bonus += 1
+    if len(saved) >= 3 and len(found) >= 3 and _part_agrees(saved[2], found[2]):
+        bonus += 1
+    return bonus
+
+
+def suggestion_rank(query: str, suggestion: str, preferred: str | None = None) -> int | None:
     """How well a suggestion matches a typed place. None means it does not. Higher is a closer match.
 
     A two letter word in the suggestion counts as a region when the typed region starts with those letters,
-    so a short region code still matches the saved region name.
+    so a short region code still matches the saved region name. A longer name that only starts with the
+    city ranks below the row whose first part is that city. When `preferred` names a region or country,
+    an exact city row that agrees with those parts ranks above one that does not.
     """
     want = " ".join(query.casefold().split())
     got = " ".join(suggestion.casefold().split())
     if not want or not got:
         return None
-    if got == want:
-        return 3
-    if want in got:
-        return 2
-    parts = [p.strip() for p in want.split(",") if p.strip()]
-    if len(parts) < 2:
-        return 1 if want in got else None
-    words = re.findall(r"[a-z0-9]+", got)
+    base = _match_rank(want, got)
+    if base is None or not preferred:
+        return base
+    place = " ".join(preferred.casefold().split())
+    return base + _region_bonus(want, got, place)
 
-    def part_ok(part: str) -> bool:
-        if part in got:
-            return True
-        head = part.split()[0]
-        return len(head) >= 4 and any(len(word) == 2 and head.startswith(word) for word in words)
 
-    return 1 if all(part_ok(part) for part in parts) else None
+def exact_city_row(query: str, suggestion: str) -> bool:
+    """The row's first comma-separated part is the typed city, not a longer name that only starts with it."""
+    want = " ".join(query.casefold().split())
+    got = " ".join(suggestion.casefold().split())
+    return bool(want and got) and _city_part(got) == _city_part(want)
 
 
 def _label_from_path(path: str) -> str:
@@ -301,7 +401,7 @@ def location_attempt_note(label: str, query: str, chosen: str | None = None, mis
     """What the location box just did, using the place that was typed."""
     name = (label or "").strip() or "Location"
     if chosen:
-        return f"{name}: chose {chosen}"
+        return f"{name}: typed {query}. A list appeared. Chose {chosen}."
     if missed:
         options = _option_list(offered)
         if options:
@@ -322,7 +422,7 @@ def location_failure_reason(queries: list[str], offered: list[str] | None = None
 
 
 ANSWERABLE_FIELDS = {"fill", "select", "choose", "choose_multi", "autocomplete"}
-PAGE_NOT_CONTINUED = "The page could not stay open while waiting for an answer. A new visit starts from the beginning and does not continue this form. Nothing was sent."
+PAGE_NOT_CONTINUED = "The page could not stay open while waiting for an answer. Starting again begins at the top of the form and does not continue this form. Nothing was sent."
 
 
 def apply_location_fallbacks(plan: Plan, fallbacks: list[str]) -> None:
@@ -638,7 +738,7 @@ class BrowserAdapter:
                 loc.select_option(label=answer, timeout=step.timeout_ms)
                 chosen = answer
             else:
-                chosen = self._type_and_pick(scope, loc, answer, step.timeout_ms, step.sensitive)
+                chosen = self._type_and_pick(scope, loc, answer, step.timeout_ms, step.sensitive, preferred=answer)
             self._note_place(evidence, step, "" if step.sensitive else answer, "" if step.sensitive else chosen)
             if not step.sensitive:
                 self._say(location_attempt_note(label, answer, chosen=chosen))
@@ -976,7 +1076,7 @@ class BrowserAdapter:
             if not step.sensitive:
                 self._say(location_attempt_note(step.label, query))
             try:
-                chosen = self._type_and_pick(scope, loc, query, step.timeout_ms, step.sensitive)
+                chosen = self._type_and_pick(scope, loc, query, step.timeout_ms, step.sensitive, preferred=step.value)
             except ActionFailed as exc:
                 got = [] if step.sensitive else [str(item).strip() for item in (exc.evidence.get("offered") or []) if str(item).strip()]
                 self._remember_choices(shown, got)
@@ -1010,55 +1110,316 @@ class BrowserAdapter:
         detail = {"value": step.value, "tried": queries, "offered": shown[:8], "difficulty": reason}
         raise ActionFailed(reason, detail, retryable=True) from last
 
-    def _suggestion_options(self, scope: _Scope):
-        """Suggestion rows, including a menu drawn on the top page while the form sits in a frame."""
-        selector = '[role="option"]:visible, .select__option:visible, [id*="-option-"]:visible'
-        loc = scope.locator(selector)
-        try:
-            if loc.count():
-                return loc
-        except Exception:
-            pass
-        if scope.frame_selector:
-            top = scope.page.locator(selector)
-            try:
-                if top.count():
-                    return top
-            except Exception:
-                pass
-        return loc
-
     def _note_place(self, evidence: dict | None, step: Step, query: str, chosen: str) -> None:
         if evidence is None or (step.label or "").strip().casefold() != "location" or step.sensitive:
             return
         evidence["location_typed"] = query
         evidence["location_chosen"] = chosen
 
-    def _type_and_pick(self, scope: _Scope, loc, query: str, timeout_ms: int, sensitive: bool) -> str:
+    def _pause(self, scope: _Scope, ms: int) -> None:
+        page = getattr(scope, "page", scope)
+        waiter = getattr(page, "wait_for_timeout", None)
+        if not callable(waiter):
+            waiter = getattr(scope, "wait_for_timeout", None)
+        if not callable(waiter):
+            return
+        try:
+            waiter(ms)
+        except Exception:
+            return
+
+    def _frame_of(self, loc):
+        """The frame that contains this input. A menu drawn beside the field lives in that same frame."""
+        marker = getattr(loc, "frame", None)
+        if marker is not None and hasattr(marker, "locator"):
+            return marker
+        try:
+            handle = loc.element_handle(timeout=1000)
+        except Exception:
+            return None
+        if handle is None:
+            return None
+        try:
+            return handle.owner_frame()
+        except Exception:
+            return None
+
+    def _menu_roots(self, scope: _Scope, frame) -> list:
+        roots = []
+        for root in (frame, scope, getattr(scope, "page", None)):
+            if root is not None and root not in roots:
+                roots.append(root)
+        return roots
+
+    def _nearby_menu(self, loc):
+        try:
+            shell = loc.locator("xpath=ancestor::*[contains(@class,'select')][1]")
+            return shell.locator(SUGGESTION_SELECTOR)
+        except Exception:
+            return None
+
+    def _owned_menu(self, root, loc):
+        try:
+            menu_id = (loc.get_attribute("aria-controls") or loc.get_attribute("aria-owns") or "").strip()
+        except Exception:
+            return None
+        if not menu_id:
+            return None
+        safe = menu_id.replace("\\", "").replace('"', "")
+        try:
+            return root.locator(f'[id="{safe}"]').locator(SUGGESTION_SELECTOR)
+        except Exception:
+            return None
+
+    def _broad_menu(self, root):
+        try:
+            return root.locator(SUGGESTION_SELECTOR)
+        except Exception:
+            return None
+
+    def _row_entries(self, menu) -> list[tuple[int, str]]:
+        if menu is None:
+            return []
+        try:
+            if menu.count() == 0:
+                return []
+        except Exception:
+            return []
+        raw: list | None = None
+        try:
+            got = menu.evaluate_all(_ROW_JS)
+            if isinstance(got, list):
+                raw = got
+        except Exception:
+            raw = None
+        if raw is None:
+            try:
+                raw = list(menu.all_inner_texts())
+            except Exception:
+                return []
+        entries: list[tuple[int, str]] = []
+        for index, text in enumerate(raw):
+            cleaned = " ".join(str(text or "").split())
+            if cleaned:
+                entries.append((index, cleaned))
+        return entries
+
+    def _best_entry(self, query: str, entries: list[tuple[int, str]], preferred: str | None) -> tuple[int, str, int] | None:
+        best: tuple[int, str, int] | None = None
+        for index, text in entries:
+            if not exact_city_row(query, text):
+                continue
+            rank = suggestion_rank(query, text, preferred=preferred)
+            if rank is None:
+                continue
+            if best is None or rank > best[2]:
+                best = (index, text, rank)
+        return best
+
+    def _best_in_menus(self, menus: list, query: str, preferred: str | None, seen: list[str]) -> tuple[Any, int, str, int] | None:
+        best: tuple[Any, int, str, int] | None = None
+        for menu in menus:
+            entries = self._row_entries(menu)
+            for _index, text in entries:
+                if text not in seen:
+                    seen.append(text)
+            picked = self._best_entry(query, entries, preferred)
+            if picked is not None and (best is None or picked[2] > best[3]):
+                best = (menu, picked[0], picked[1], picked[2])
+        return best
+
+    def _focused_index(self, menu) -> int | None:
+        try:
+            found = menu.evaluate_all(_FOCUS_JS)
+        except Exception:
+            return None
+        return found if isinstance(found, int) and found >= 0 else None
+
+    def _arrow_to(self, loc, focused: int, index: int) -> None:
+        delta = index - focused
+        key = "ArrowDown" if delta > 0 else "ArrowUp"
+        for _ in range(abs(delta)):
+            loc.press(key)
+        loc.press("Enter")
+
+    def _still_unpicked(self, loc, query: str, chosen: str) -> bool:
+        reader = getattr(loc, "input_value", None)
+        if not callable(reader):
+            return False
+        try:
+            current = " ".join(str(reader(timeout=400) or "").split())
+        except Exception:
+            return False
+        if not current or chosen.casefold() in current.casefold():
+            return False
+        return current.casefold() == " ".join(query.casefold().split())
+
+    def _dom_rows(self, scope: _Scope) -> list[tuple[int, str]]:
+        page = getattr(scope, "page", None)
+        evaler = getattr(page, "evaluate", None)
+        if not callable(evaler):
+            return []
+        try:
+            raw = evaler(_MENU_ROWS_JS)
+        except Exception:
+            return []
+        if not isinstance(raw, list):
+            return []
+        return [(index, text) for index, text in enumerate(raw) if isinstance(text, str) and text.strip()]
+
+    def _dom_click_label(self, loc, label: str) -> bool:
+        page = getattr(loc, "page", None)
+        evaler = getattr(page, "evaluate", None)
+        if not callable(evaler):
+            return False
+        try:
+            return bool(evaler(_MENU_CLICK_JS, label))
+        except Exception:
+            return False
+
+    def _select_listed_row(self, loc, menu, index: int, query: str, chosen: str, timeout_ms: int) -> None:
+        """Click the row, or move to it with the keyboard when the field still shows only the typed text."""
+        if menu is None:
+            if self._dom_click_label(loc, chosen) and not self._still_unpicked(loc, query, chosen):
+                return
+            raise ActionFailed(f"could not choose '{chosen}'", {"value": query, "offered": [chosen]})
+        focused = self._focused_index(menu)
+        moved = False
+        if focused is not None:
+            try:
+                self._arrow_to(loc, focused, index)
+                moved = True
+            except Exception:
+                moved = False
+            if moved and not self._still_unpicked(loc, query, chosen):
+                return
+        short = min(int(timeout_ms or 2000), 2000)
+        try:
+            menu.nth(index).click(timeout=short)
+        except Exception:
+            if self._dom_click_label(loc, chosen) and not self._still_unpicked(loc, query, chosen):
+                return
+            if not moved:
+                self._arrow_to(loc, focused or 0, index)
+        if self._still_unpicked(loc, query, chosen):
+            if self._dom_click_label(loc, chosen) and not self._still_unpicked(loc, query, chosen):
+                return
+            if not moved:
+                self._arrow_to(loc, focused or 0, index)
+            if self._still_unpicked(loc, query, chosen):
+                raise ActionFailed(f"could not choose '{chosen}'", {"value": query, "offered": [chosen]})
+
+    def _read_suggestion(self, scope: _Scope, loc, frame, query: str, preferred: str | None) -> tuple[Any, int, str, list[str]] | None:
+        """The closest exact city row in the field's menu, its frame, or a menu portaled on the top page."""
+        seen: list[str] = []
+        field_menus = []
+        later_menus = []
+        near = self._nearby_menu(loc)
+        if near is not None:
+            field_menus.append(near)
+        for root in self._menu_roots(scope, frame):
+            bucket = field_menus if root is frame else later_menus
+            owned = self._owned_menu(root, loc)
+            broad = self._broad_menu(root)
+            if owned is not None:
+                bucket.append(owned)
+            if broad is not None:
+                bucket.append(broad)
+        found = self._best_in_menus(field_menus, query, preferred, seen)
+        if found is None:
+            found = self._best_in_menus(later_menus, query, preferred, seen)
+        if found is None:
+            dom = self._dom_rows(scope)
+            for _index, text in dom:
+                if text not in seen:
+                    seen.append(text)
+            picked = self._best_entry(query, dom, preferred)
+            if picked is not None:
+                return None, -1, picked[1], seen
+        if found is not None:
+            return found[0], found[1], found[2], seen
+        if seen:
+            return None, -1, "", seen
+        return None
+
+    def _wait_for_suggestion(self, scope: _Scope, loc, query: str, preferred: str | None, timeout_ms: int, sensitive: bool) -> tuple[Any, int, str]:
+        frame = self._frame_of(loc)
+        budget = min(max(int(timeout_ms or 0), 1000), 8000)
+        ticks = max(1, budget // 200)
         shown = "the chosen personal answer" if sensitive else f"'{query}'"
-        loc.click(timeout=timeout_ms)
+        last_seen: list[str] = []
+        for _tick in range(ticks):
+            self._pause(scope, 200)
+            found = self._read_suggestion(scope, loc, frame, query, preferred)
+            if found is None:
+                continue
+            menu, index, text, seen = found
+            last_seen = seen
+            if text and ((menu is not None and index >= 0) or (menu is None and index < 0)):
+                return menu, index, text
+        if last_seen and not sensitive:
+            raise ActionFailed(f"option '{query}' is not offered; the site offers {last_seen[:8]}", {"value": query, "offered": last_seen[:20]})
+        if last_seen and sensitive:
+            raise ActionFailed(f"option {shown} is not offered by the site", {"offered": last_seen[:20]})
+        raise ActionFailed(f"no suggestions appeared for {shown}", {} if sensitive else {"value": query, "offered": []})
+
+    def _take_open(self, scope: _Scope, loc, preferred: str, query: str, timeout_ms: int) -> str | None:
+        """Choose a matching row that is already open. Returns the row text when the field accepts it."""
+        frame = self._frame_of(loc)
+        found = self._read_suggestion(scope, loc, frame, preferred, preferred)
+        if not found:
+            return None
+        menu, index, text, _seen = found
+        if not text:
+            return None
+        try:
+            self._select_listed_row(loc, menu, index, query, text, timeout_ms)
+        except Exception:
+            return None
+        if self._still_unpicked(loc, query, text):
+            return None
+        return text
+
+    def _focus_field(self, loc, timeout_ms: int) -> bool:
+        """Click the field. A short timeout: an open list covers the input and must be read, not waited out."""
+        short = min(max(int(timeout_ms or 2000), 500), 2000)
+        try:
+            loc.click(timeout=short)
+            return True
+        except Exception:
+            return False
+
+    def _type_and_pick(self, scope: _Scope, loc, query: str, timeout_ms: int, sensitive: bool, preferred: str | None = None) -> str:
+        shown = "the chosen personal answer" if sensitive else f"'{query}'"
+        place = preferred or query
+        taken = self._take_open(scope, loc, place, query, timeout_ms)
+        if taken:
+            return taken
+        if not self._focus_field(loc, timeout_ms):
+            # The click opened the list and then the list covered the field. Choose that row.
+            taken = self._take_open(scope, loc, place, query, timeout_ms)
+            if taken:
+                return taken
+            try:
+                loc.press("Escape")
+            except Exception:
+                pass
+            try:
+                loc.click(timeout=1500, force=True)
+            except Exception:
+                pass
         # Keystrokes, not a pasted value: the location box only searches as someone types.
         loc.press("Control+A")
         loc.press("Backspace")
         loc.press_sequentially(query, delay=40, timeout=timeout_ms)
-        options = self._suggestion_options(scope)
         try:
-            options.first.wait_for(state="visible", timeout=min(timeout_ms, 5000))
+            menu, index, text = self._wait_for_suggestion(scope, loc, query, preferred or query, timeout_ms, sensitive)
+        except ActionFailed:
+            raise
         except Exception as exc:
             raise ActionFailed(f"no suggestions appeared for {shown}", {} if sensitive else {"value": query, "offered": []}) from exc
-        texts = [t.strip() for t in options.all_inner_texts()]
-        best_at: int | None = None
-        best_rank = 0
-        for index, text in enumerate(texts):
-            rank = suggestion_rank(query, text)
-            if rank is not None and (best_at is None or rank > best_rank):
-                best_at, best_rank = index, rank
-        if best_at is None:
-            if sensitive:
-                raise ActionFailed(f"option {shown} is not offered by the site", {"offered": texts[:20]})
-            raise ActionFailed(f"option '{query}' is not offered; the site offers {texts[:8]}", {"value": query, "offered": texts[:20]})
-        options.nth(best_at).click(timeout=timeout_ms)
-        return texts[best_at]
+        self._select_listed_row(loc, menu, index, query, text, timeout_ms)
+        return text
 
     def _pick_option(self, scope: _Scope, loc, value: str, timeout_ms: int, exact: bool, sensitive: bool = False) -> None:
         shown = "the chosen personal answer" if sensitive else f"'{value}'"  # a self-identification value never lands in evidence

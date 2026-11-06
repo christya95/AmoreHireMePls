@@ -16,7 +16,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from amorehiremepls.core.db import Store
+from amorehiremepls.core.db import Store, current_user_id
 from amorehiremepls.core.util import new_id, normalize_employer, sha256_file, utcnow
 
 Kind = Literal["full_time", "internship", "contract", "unknown"]
@@ -365,7 +365,14 @@ class ProfileStore:
 
     def save(self, profile: Profile, actor: str = "system") -> Profile:
         profile.version += 1
-        self.store.c("profile").replace_one({"key": "candidate"}, {**profile.model_dump(), "updated_at": utcnow()}, upsert=True)
+        doc = {**profile.model_dump(), "updated_at": utcnow()}
+        # A save with nobody signed in must not drop the owner. Without it, the next signed-in page loads an empty profile.
+        if current_user_id.get() is None:
+            existing = self.store.db["profile"].find_one({"key": "candidate", "user_id": {"$exists": True}}, {"user_id": 1})
+            owner = (existing or {}).get("user_id")
+            if owner:
+                doc["user_id"] = owner
+        self.store.c("profile").replace_one({"key": "candidate"}, doc, upsert=True)
         self.store.audit("profile_saved", "candidate", actor=actor, version=profile.version)
         return profile
 

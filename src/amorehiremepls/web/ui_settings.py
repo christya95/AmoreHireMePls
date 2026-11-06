@@ -427,8 +427,8 @@ STEP_HELP: dict[str, tuple[str, str]] = {
     "Import": ("The job ad is saved here from a link you pasted or a job board the app watches. Nothing is sent.", "import"),
     "Check fit": ("The app checks the job against your rules and explains how well you match. Nothing is sent.", "qualify"),
     "Tailor resume": ("The app writes a version of your resume for this job, using only facts from your approved resume.", "tailor"),
-    "Read package": ("You read the resume and the form answers exactly as they would be sent.", "review"),
-    "Approve": ("You give the go ahead for this exact package. Change anything and you will be asked again.", "authorize"),
+    "Read application": ("You read the resume and the form answers exactly as they would be sent.", "review"),
+    "Approve": ("You give the go ahead for this exact application. Change anything and you will be asked again.", "authorize"),
     "Apply": ("The app applies on the job site, or hands it to you when the site needs a person.", "submit"),
     "Save to tracker": ("The application is written to your private GitHub tracker.", "record"),
     "Contact recruiters": ("You add recruiters at that employer and the app drafts short notes. You send them yourself.", "outreach"),
@@ -442,7 +442,7 @@ GLOSSARY: dict[str, tuple[str, str, str]] = {
         "authorization scope",
     ),
     "material_hash": (
-        "Package fingerprint",
+        "Fingerprint",
         "A short code made from everything that would be sent: the answers, the resume file, the job and the apply link. If any of it changes, the code changes and the old approval no longer counts.",
         "material hash",
     ),
@@ -503,8 +503,13 @@ GLOSSARY: dict[str, tuple[str, str, str]] = {
     ),
     "regenerate": (
         "Rebuild the resume",
-        "Makes a fresh tailored DOCX (and PDF when LibreOffice is installed). New files mean a new package fingerprint, so any approval for the old package is withdrawn and the package is rebuilt.",
+        "A new resume file is made. The old approval no longer applies. Nothing is sent.",
         "regenerate documents",
+    ),
+    "start_over": (
+        "Start over",
+        "Clears this unsent attempt, its approval, and the resume files made for it. The job stays, so you can prepare it again. Nothing is sent, and the tracker history is left as it is.",
+        "clear unsent application",
     ),
     "task": (
         "Background task",
@@ -536,16 +541,16 @@ PAGE_INTROS: dict[str, tuple[str, str]] = {
         "Paste a link to add a job. Open a job to tailor a resume and prepare an application.",
     ),
     "job.html": (
-        "One job from start to finish. The steps at the top show where it is and what comes next.",
-        "Use the button under the steps. Everything else on this page is information you can read.",
+        "One job from start to finish. The block at the top says what is happening and what, if anything, it needs from you.",
+        "The steps show where this job is. Everything else on this page is information you can read.",
     ),
     "applications.html": (
         "Applications the app has prepared: the resume, the answers and where they would go.",
         "Open one to answer questions, approve it, finish it on the site or check an unclear result.",
     ),
     "application.html": (
-        "Everything that would be sent for this job, exactly as it would be sent.",
-        "Read the resume and the answers. Approve only when you are happy. Your approval covers this exact content and nothing else.",
+        "One application. The block at the top says what is happening and asks for the one thing it needs, if anything.",
+        "The sections below are closed until they matter. Open any of them to read what would be sent and what happened.",
     ),
     "runs.html": (
         "The app's background tasks, one per application attempt. A task pauses whenever it needs you.",
@@ -791,6 +796,7 @@ def plain_failure(reason: Any) -> str:
             break
     text = re.sub(r"Call log:.*$", "", text, flags=re.I).strip()
     text = text.replace("'", "").strip(" .;:")
+    text = text[:1].upper() + text[1:]
     return f"{text}. Nothing was sent." if text else "Nothing was sent."
 
 
