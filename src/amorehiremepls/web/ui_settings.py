@@ -385,6 +385,9 @@ STATUS_LABELS: dict[str, str] = {
     "run_pause_requested": "Task pause requested",
     "run_resume_requested": "Task resume requested",
     "run_cancel_requested": "Task cancel requested",
+    "run_cancelled": "Task cancelled before it started",
+    "run_hidden": "Task hidden from the list",
+    "runs_hidden": "Finished tasks hidden from the list",
     "tracker_synced": "Saved to GitHub",
     # salary and preference option codes
     "midpoint": "Middle of the range",
@@ -504,7 +507,7 @@ GLOSSARY: dict[str, tuple[str, str, str]] = {
     ),
     "task": (
         "Background task",
-        "Work the app does on its own, one task per application attempt. A task pauses whenever it needs you, for example for answers or an approval.",
+        "Work the app does on its own, one task per application attempt. Still waiting is at the top. Finished and cancelled tasks sit below and can be hidden. Hiding a row does not delete the job or the application.",
         "run",
     ),
     "snapshot": (

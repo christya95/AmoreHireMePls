@@ -9,20 +9,24 @@
       <div class="flex mt">{{ status(run.status) }}{% if run.requested %}<span class="pill">{{ run.requested }} requested</span>{% endif %}{% if run.params.job_id %}<a class="btn secondary sm" href="/jobs/{{ run.params.job_id }}">Open the job</a>{% endif %}</div>
     </div>
     <div class="actions">
+      {% if run.status in ('queued', 'claimed', 'running', 'waiting', 'paused') %}
       <form class="inline" method="post" action="/runs/{{ run._id }}/pause"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Pause</button></form>
       <form class="inline" method="post" action="/runs/{{ run._id }}/resume"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Resume</button></form>
-      <form class="inline" method="post" action="/runs/{{ run._id }}/cancel"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Cancel</button></form>
+      {% if can_cancel_detail %}<form class="inline" method="post" action="/runs/{{ run._id }}/cancel"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Cancel</button></form>{% endif %}
+      {% endif %}
     </div>
   </div>
   {% if run.error %}<div class="flash bad mt">{{ run.error }}</div>{% endif %}
 </div>
 
-{% if run.interrupt %}
+{% if run.status in ('waiting', 'paused') and run.interrupt %}
 <div class="card attention">
   <div class="card-h"><h3>Waiting for you: {{ run.interrupt.type|label|lower }}</h3><span class="pill warn">paused</span></div>
   {% if run.interrupt.application_id %}<p><a class="btn" href="/applications/{{ run.interrupt.application_id }}"><svg class="icon"><use href="#i-arrow"/></svg>Open the application</a> <small>Answer, approve or record there. The task carries on by itself afterwards.</small></p>{% endif %}
   <details class="disclosure"><summary>Technical details</summary><pre>{{ run.interrupt|json }}</pre></details>
 </div>
+{% elif run.interrupt and run.interrupt.application_id %}
+<p class="note"><a href="/applications/{{ run.interrupt.application_id }}">Open the application</a></p>
 {% endif %}
 
 <div class="grid-2">

@@ -82,7 +82,7 @@ yourself · `challenge_retry` Trying once more later · `needs_verification` Res
 Jobs: `new` New · `needs_review` Needs your decision · `qualified` Good fit · `applied` Applied · `applied_historical`
 Applied (from your tracker) · `rejected` Rejected · `excluded` Skipped by your rules · `closed` Closed.
 
-Background tasks: `claimed` Starting · `running` Running · `waiting` Waiting for you · `paused` Paused · `cancelled`
+Background tasks: the page is "Still waiting" (in the queue) and "Already finished" (not in the queue). Hide removes a finished row from the list only. Cancel stops a task that has not started and leaves the job and the application. `claimed` Starting · `running` Running · `waiting` Waiting for you · `paused` Paused · `cancelled`
 Cancelled · `succeeded`/`completed` Finished. Why it waits: `awaiting_authorization` Waiting for your approval ·
 `awaiting_input`/`needs_input` Needs your answers · `handoff` Finish on the site yourself · `emergency_stop` Stopped by
 the emergency stop.

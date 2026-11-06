@@ -1,19 +1,61 @@
 {% extends "base.html" %}{% block content %}
 {% from "_macros.html" import status, hint, company with context %}
 <div class="stack">
-<div class="page-head"><div><h1>Background tasks</h1><p>One task per application attempt. "Waiting for you" means the task paused on an application that needs you. {{ hint('task') }}</p></div>{% include "_app_tabs.html" %}</div>
+<div class="page-head"><div>
+  <h1>Background tasks</h1>
+  <p>{{ summary }} {{ hint('task') }}</p>
+</div>{% include "_app_tabs.html" %}</div>
+
 <div class="card flush">
+  <div class="card-h"><h3>Still waiting</h3><span class="sub">Cancel stops a task that has not started. The job and the application stay.</span></div>
   <div class="table-wrap"><table>
-    <thead><tr><th>Job</th><th>Status</th><th>Waiting for</th>{% if show_usage %}<th>AI use</th>{% endif %}<th>Task</th><th class="right">Started</th></tr></thead>
-    <tbody>{% for r in runs %}{% set j = jobs.get(r.params.job_id) %}<tr class="{{ 'hot' if r.status in ('waiting', 'paused') }}{{ ' hot bad' if r.status == 'failed' }}">
-      <td>{% if j %}<a class="row-person" href="/jobs/{{ r.params.job_id }}">{{ company(j.employer, j) }}<span><strong>{{ j.employer }}</strong><span class="sub">{{ j.title }}</span></span></a>{% else %}{{ r.kind|label }}{% endif %}</td>
-      <td>{{ status(r.status) }}{% if r.requested %} <small>{{ r.requested }} requested</small>{% endif %}</td>
-      <td>{% if r.interrupt %}{{ r.interrupt.type|label }}{% if r.interrupt.application_id %} · <a class="btn sm" href="/applications/{{ r.interrupt.application_id }}">Open application</a>{% endif %}{% endif %}</td>
-      {% if show_usage %}<td><small>{{ r.usage.calls }} calls{% if r.usage.cost_known %} · ${{ '%.4f'|format(r.usage.cost_usd or 0) }}{% else %} · cost unknown{% endif %}</small></td>{% endif %}
-      <td><a href="/runs/{{ r._id }}">{{ r.kind|label }}</a><span class="sub mono">{{ r._id }}</span></td>
-      <td class="right nowrap">{{ r.created_at|local }}</td></tr>
-    {% else %}<tr><td colspan="{{ 6 if show_usage else 5 }}"><div class="empty"><svg class="icon"><use href="#i-runs"/></svg>No tasks yet. Tasks start from a job page ("Tailor resume").<div class="actions center mt"><a class="btn sm" href="/jobs">Go to jobs</a></div></div></td></tr>{% endfor %}</tbody>
+    <thead><tr><th>Job</th><th>Status</th><th></th>{% if show_usage %}<th>AI use</th>{% endif %}<th>Task</th><th class="right">Started</th></tr></thead>
+    <tbody>
+    {% for r in waiting %}{% set j = jobs.get(r.params.job_id) %}
+      <tr class="{{ 'hot' if r.status in ('waiting', 'paused') }}{{ ' hot bad' if r.status == 'failed' }}">
+        <td>{% if j %}<a class="row-person" href="/jobs/{{ r.params.job_id }}">{{ company(j.employer, j) }}<span><strong>{{ j.employer }}</strong><span class="sub">{{ j.title }}</span></span></a>{% else %}{{ r.kind|label }}{% endif %}</td>
+        <td>{{ status(r.status) }}{% if r.requested == 'cancel' %} <small>Cancel requested</small>{% endif %}
+          {% if r.status in ('waiting', 'paused') and r.interrupt %}
+            <div class="sub">{{ r.interrupt.type|label }}{% if r.interrupt.application_id %} · <a href="/applications/{{ r.interrupt.application_id }}">Open application</a>{% endif %}</div>
+          {% endif %}
+        </td>
+        <td>{% if r.status == 'queued' and r.requested != 'cancel' and r._id not in busy_runs and r.params.job_id not in busy_jobs %}
+          <form method="post" action="/runs/{{ r._id }}/cancel"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="next" value="/runs"><button class="btn sm secondary">Cancel</button></form>
+        {% endif %}</td>
+        {% if show_usage %}<td><small>{{ r.usage.calls }} calls{% if r.usage.cost_known %} · ${{ '%.4f'|format(r.usage.cost_usd or 0) }}{% else %} · cost unknown{% endif %}</small></td>{% endif %}
+        <td><a href="/runs/{{ r._id }}">{{ r.kind|label }}</a><span class="sub mono">{{ r._id }}</span></td>
+        <td class="right nowrap">{{ r.created_at|local }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="{{ 6 if show_usage else 5 }}"><div class="empty">Nothing is waiting.</div></td></tr>
+    {% endfor %}
+    </tbody>
   </table></div>
 </div>
+
+{% if earlier %}
+<div class="card flush">
+  <div class="card-h">
+    <h3>Already finished</h3>
+    <span class="sub">Finished, cancelled, and failed. These are not waiting. Hiding one only removes it from this list.</span>
+    <form method="post" action="/runs/hide-finished"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn sm secondary">Hide finished and cancelled</button></form>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Job</th><th>Status</th>{% if show_usage %}<th>AI use</th>{% endif %}<th>Task</th><th class="right">Started</th><th></th></tr></thead>
+    <tbody>
+    {% for r in earlier %}{% set j = jobs.get(r.params.job_id) %}
+      <tr>
+        <td>{% if j %}<a class="row-person" href="/jobs/{{ r.params.job_id }}">{{ company(j.employer, j) }}<span><strong>{{ j.employer }}</strong><span class="sub">{{ j.title }}</span></span></a>{% else %}{{ r.kind|label }}{% endif %}</td>
+        <td>{{ status(r.status) }}{% if r.interrupt and r.interrupt.application_id %}<div class="sub"><a href="/applications/{{ r.interrupt.application_id }}">Open application</a></div>{% endif %}</td>
+        {% if show_usage %}<td><small>{{ r.usage.calls }} calls{% if r.usage.cost_known %} · ${{ '%.4f'|format(r.usage.cost_usd or 0) }}{% else %} · cost unknown{% endif %}</small></td>{% endif %}
+        <td><a href="/runs/{{ r._id }}">{{ r.kind|label }}</a><span class="sub mono">{{ r._id }}</span></td>
+        <td class="right nowrap">{{ r.created_at|local }}</td>
+        <td><form method="post" action="/runs/{{ r._id }}/hide"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="next" value="/runs"><button class="btn sm secondary">Hide</button></form></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endif %}
 </div>
 {% endblock %}
