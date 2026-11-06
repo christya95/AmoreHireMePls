@@ -90,6 +90,7 @@ class GreenhouseSource(HttpSource):
                     location=(j.get("location") or {}).get("name"),
                     posted_at=j.get("updated_at"),
                     content_text=html_to_text(j.get("content")),
+                    employment_type=greenhouse_employment(j.get("metadata")),
                     extra={"departments": [d.get("name") for d in j.get("departments", [])]},
                 )
             )
@@ -265,8 +266,43 @@ INJECTION_PATTERNS = [
 ]
 _INJECTION_RE = re.compile("|".join(INJECTION_PATTERNS), re.IGNORECASE)
 
-CONTRACT_TERMS = ("contract", "contractor", "temporary", "temp ", "fixed term", "fixed-term", "internship", "intern ", "co-op", "coop", "freelance", "part-time", "part time")
-PERMANENT_TERMS = ("permanent", "full-time", "full time", "fulltime", "regular")
+# A job board's own employment field. "Regular" is the usual full-time value. contract_or_temporary is not a board
+# value; it was an old guess from a loose word scan and is ignored.
+_BOARD_PERMANENT = {"permanent", "full-time", "full time", "fulltime", "regular"}
+_BOARD_NON_PERMANENT = {
+    "contract": "a contract role",
+    "contractor": "a contract role",
+    "temporary": "a temporary role",
+    "internship": "an internship",
+    "intern": "an internship",
+    "co-op": "a co-op",
+    "coop": "a co-op",
+    "part-time": "a part-time role",
+    "part time": "a part-time role",
+    "fixed-term": "a fixed-term role",
+    "fixed term": "a fixed-term role",
+    "freelance": "a freelance role",
+    "seasonal": "a seasonal role",
+}
+# An explicit statement that the role itself is not permanent. A bare "contract" inside another word
+# ("contractor", "ContractAPI") does not match. "excluding internships / co-ops" is about experience, not the role.
+_EXPERIENCE_ASIDE = re.compile(r"\b(?:excluding|except|not including|other than|beyond)\b(?:\W+\w+){0,6}\W*$", re.I)
+_NON_PERMANENT_PHRASE = re.compile(
+    r"\b("
+    r"\d{1,2}\s*-\s*months?\s+contracts?"
+    r"|\d{1,2}\s+months?\s+contracts?"
+    r"|fixed[\s-]term"
+    r"|temporary(?:\s+(?:position|role|contract|employment|assignment))"
+    r"|contracts?(?:\s+(?:position|role|opening|basis))"
+    r"|on a contract"
+    r"|part[\s-]time"
+    r"|freelance"
+    r"|seasonal(?:\s+(?:position|role|work|employment))"
+    r"|(?:internships?|interns?|co[\s-]?ops?)"
+    r")\b",
+    re.I,
+)
+_PERMANENT_ROLE = re.compile(r"\b(?:permanent|full[\s-]time)\s+(?:position|role|employment|opportunity)\b", re.I)
 # Profession neutral signs of a very small or very new company. A candidate adds their own field's phrases
 # ("founding engineer", "first sales hire") under [preferences].startup_signals_extra.
 STARTUP_SIGNALS = ("early stage", "early-stage", "seed stage", "pre-seed", "series a", "small team of", "founding team", "first hire", "first employee")
@@ -305,6 +341,25 @@ def work_arrangement(policy: str | None) -> str | None:
     return None
 
 
+def greenhouse_employment(metadata: list | None) -> str | None:
+    """The board's Employment Type value, lowercased, or None when the job does not state one."""
+    for row in metadata or []:
+        if str(row.get("name") or "").strip().lower() == "employment type":
+            value = str(row.get("value") or "").strip().lower()
+            return value or None
+    return None
+
+
+def explicit_non_permanent_phrase(text: str) -> str | None:
+    """The posting's own words when it states that the role is not permanent. None when it says nothing, or the
+    words are about past experience ("excluding internships") or sit inside another word ("contractor")."""
+    for match in _NON_PERMANENT_PHRASE.finditer(text or ""):
+        if _EXPERIENCE_ASIDE.search((text or "")[: match.start()]):
+            continue
+        return re.sub(r"\s+", " ", match.group(0)).strip()
+    return None
+
+
 def qualify(job: dict, extracted: dict, profile: Profile, posting_text: str = "") -> Qualification:
     reasons: list[str] = []
     flags: list[str] = []
@@ -325,27 +380,36 @@ def qualify(job: dict, extracted: dict, profile: Profile, posting_text: str = ""
     if (extracted.get("closing_status") or "").lower() in ("closed", "filled", "expired"):
         return Qualification(decision="excluded", reasons=["posting closed"], flags=flags, injection_suspected=bool(inj))
 
-    # employment type
-    etype = (extracted.get("employment_type") or job.get("employment_type") or "").lower()
-    if not etype:
-        if any(t in text_low for t in ("contract", "temporary", "internship", "co op", "coop", "freelance", "part time")):
-            etype = "contract_or_temporary"
-        elif any(t in text_low for t in ("permanent", "full time", "fulltime", "regular")):
-            etype = "permanent"
+    # employment type. Silence is permanent. Only the board's own field, or an explicit phrase in the posting, says otherwise.
+    raw = (extracted.get("employment_type") or job.get("employment_type") or "").strip().lower()
+    if raw == "contract_or_temporary":
+        raw = ""
+    phrase = None
+    board_label = None
+    if raw in _BOARD_NON_PERMANENT:
+        etype = "non_permanent"
+        board_label = _BOARD_NON_PERMANENT[raw]
+    elif raw in _BOARD_PERMANENT:
+        etype = "permanent"
+    else:
+        phrase = explicit_non_permanent_phrase(posting_text or "")
+        if phrase and _PERMANENT_ROLE.search(posting_text or ""):
+            etype = "either"
+        elif phrase:
+            etype = "non_permanent"
         else:
-            etype = "unknown"
+            etype = "permanent"
     if "permanent" in prefs.employment_types:
-        if etype in ("contract", "contractor", "temporary", "internship", "intern", "co-op", "part-time", "contract_or_temporary", "fixed-term"):
-            if "permanent" in text_low and "contract" in text_low:
-                flags.append("permanent_or_contract")
-                decision = "needs_review"
-                reasons.append("posting offers permanent or contract; confirm permanent")
-            else:
-                return Qualification(decision="excluded", reasons=[f"employment type {etype} is not permanent"], employment_type=etype, flags=flags)
-        elif etype == "unknown":
-            flags.append("employment_type_unknown")
+        if etype == "either":
+            flags.append("permanent_or_contract")
             decision = "needs_review"
-            reasons.append("employment type not stated")
+            reasons.append(f'The posting offers a permanent role and also says "{phrase}". Confirm it is permanent.')
+        elif etype == "non_permanent":
+            if board_label:
+                reason = f"The job board lists this as {board_label}, so this is not a permanent role."
+            else:
+                reason = f'The posting says "{phrase}", so this is not a permanent role.'
+            return Qualification(decision="excluded", reasons=[reason], employment_type="contract", flags=flags)
 
     # role family. An exception phrase in the title ("ai engineer") keeps it even when an excluded word also appears.
     excepted = any(x in title_low for x in prefs.excluded_role_family_exceptions)
