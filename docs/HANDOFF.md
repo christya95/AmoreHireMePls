@@ -5,11 +5,12 @@ Written 2026-11-06 17:38 Toronto at commit `1d60045`. Read this first in every n
 ## State now
 
 - Deployed 17:37: NAS stack `amorehiremepls`, image `lepia/amorehiremepls:1d60045c6f80` (commit `1d60045`). Web and worker healthy; NAS `/health` 200. Local dashboard python pid 74353 (op pid 73705), started 17:37, `/health` 200, same commit. NAS runs the worker; local web is display only.
+- LinkedIn application forms: a signed-in Easy Apply style page is filled from saved answers and stops before submit unless an approval already matches. Sign-in, a verify-it's-you page, and a step with no saved answer stay a handoff. Nothing was sent. No messages or connection requests. Fixture tested only. The worker needs `www.linkedin.com` and `linkedin.com` on `AMORE_BROWSER_ALLOWED_HOSTS` before a real page can open.
 - Eight one-character boxes under "Security code" are found and filled one character each (`browser.py`: `CODE_MARK`, `_CODE_BOXES_JS`, `_type_code`). The name-based selector missed them, so the 16:13 attempt never showed "Code from your email". Fixture tested. The live prompt is the next check.
 - Also in this image: Remove on a prepared row, Cancel before the final click, 90 s receipt wait, one resubmit after the emailed code, place-list host allowed, phone country rows ignored, typed answers win, exact city row, years buckets.
 - The 16:13 Faire attempt reached the code prompt and was not sent. No employer receipt exists. Nothing has been submitted by the app.
 - Live and used for real: profile store, base resume, tracker preview/import (nothing pushed), discovery by URL, model check through `op run`, deterministic tailoring, review and approval gates, application status, fit check, `candidate/` drop folder, self identification, salary case, timezone and tracker settings, `profile.toml`. `amore migrate-users` ran once (222 stamped).
-- Fixture tested only: Greenhouse, Lever and Ashby form filling, including the eight-box code field; the salary skill; Workday refresh; notifications; the human check and the one later try.
+- Fixture tested only: Greenhouse, Lever, Ashby and LinkedIn form filling, including the eight-box code field; the salary skill; Workday refresh; notifications; the human check and the one later try. LinkedIn has not been opened live.
 - Data (counts only, live database): contact and address facts, links, availability, notice, work arrangements, compensation floor, five self identification facts, 62 answers, 11 skills, 11 education rows. Profile city and province are still the defaults; `location_fallbacks` is empty. Faire application `app_6a78e38192928c99` (job `job_d0f65161045baf54`).
 
 ## Decisions

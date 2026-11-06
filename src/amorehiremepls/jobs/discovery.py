@@ -944,7 +944,7 @@ class Discovery:
             snapshot=snapshot,
         )
         if li:
-            self.jobs.set_status(job["_id"], job.get("status", "new"), apply_route="linkedin_or_employer_site_handoff")
+            self.jobs.set_status(job["_id"], job.get("status", "new"), apply_route="linkedin")
         return self.jobs.get(job["_id"])
 
     def refresh_posting(self, job_id: str, client: httpx.Client | None = None) -> dict:

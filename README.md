@@ -383,7 +383,7 @@ The stack joins the NAS MongoDB's Docker network, stores files under `AMORE_DATA
 
 Settings worth knowing:
 
-- 🌐 **`AMORE_BROWSER_ALLOWED_HOSTS`**: exact hostnames the worker may open, comma separated, no wildcards. Empty blocks all live browsing. Typical value: the public Greenhouse, Lever and Ashby board hosts. LinkedIn and Workday are not included; they are handoffs.
+- 🌐 **`AMORE_BROWSER_ALLOWED_HOSTS`**: exact hostnames the worker may open, comma separated, no wildcards. Empty blocks all live browsing. Typical value: the public Greenhouse, Lever and Ashby board hosts, plus `www.linkedin.com` and `linkedin.com` when a signed-in LinkedIn form should be filled. Workday stays a handoff. LinkedIn messages and connection requests are not sent by the app.
 - 💸 **`AMORE_BUDGET_*`**: per-run limits, by default 200 000 tokens, 2.00 USD, 60 tool steps, 1800 seconds. A run that hits a limit stops with `BudgetExhausted` and tells you.
 - 🧠 **`AMORE_MODEL`**: a bare model name uses `AMORE_MODEL_PROVIDER` (OpenAI by default); `anthropic:<model>` switches a run to Anthropic. No model means deterministic paths only.
 - 🕰️ **`AMORE_TIMEZONE`**: the IANA zone for schedules and every date the dashboard shows (default `UTC`).
@@ -632,9 +632,9 @@ Honest status, as of the latest increment ([docs/capability-map.md](docs/capabil
 
 ## 🗺️ Roadmap and known limits
 
-- **Greenhouse forms** are filled by a real adapter (question list from the public Job Board API, both the current `job-boards.greenhouse.io` layout and the older one, receipt tied to the job id). It is fixture tested, not yet live verified: no real Greenhouse application has been sent through it. Lever and Ashby forms are still handoffs.
-- **Site-specific adapters** for Workday and LinkedIn Easy Apply do not exist; those sites are handoffs today.
-- **LinkedIn** has no supported API for this account: jobs are imported by link, recruiters are added by hand, and Connect notes are sent by you.
+- **Greenhouse forms** are filled by a real adapter (question list from the public Job Board API, both the current `job-boards.greenhouse.io` layout and the older one, receipt tied to the job id). It is fixture tested, not yet live verified: no real Greenhouse application has been sent through it. Lever and Ashby forms are filled the same way and are also fixture tested only.
+- **LinkedIn application forms** can be filled in a browser session that is already signed in. The receipt must name the job. A signed-out page, a verify-it's-you page, and any step without a saved answer stop before anything is sent. No live LinkedIn application has been sent. Workday stays a handoff.
+- **LinkedIn** has no supported API for this account: jobs are imported by link, recruiters are added by hand, and Connect notes are sent by you. The app does not send LinkedIn messages or connection requests.
 - **Email outreach** needs an SMTP configuration and its own approval scope; it is implemented but not configured.
 - **Your role words are yours to tune**: a title with none of your `role_families` words is held for review rather than dropped; add the title styles your field uses (the original owner's open question was whether "Product Engineer" counts) under `[preferences]`.
 - **Operations**: decide when to stop the Mac worker once the NAS stack has proven itself; tighten the Tailscale ACL for the database port; copy browser sessions to the NAS after signing in on the Mac.

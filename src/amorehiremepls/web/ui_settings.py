@@ -463,7 +463,7 @@ GLOSSARY: dict[str, tuple[str, str, str]] = {
     ),
     "handoff": (
         "Finish on the site yourself",
-        "This job site needs a person (for example LinkedIn Easy Apply, Workday, a login or a human check such as a captcha). The package is ready for you. Apply yourself, then record the confirmation text here.",
+        "This job site needs a person when it asks you to sign in, to verify it is you, or to finish a step the app does not fill. Finish that part, then record the confirmation here.",
         "handoff",
     ),
     "human_check": (

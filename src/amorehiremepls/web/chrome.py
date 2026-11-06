@@ -888,6 +888,28 @@ def needed_now(
     if can_fill:
         text = "The job site is opened with these answers. Nothing else changes."
         return {"kind": "fill", "title": "Fill in the form with the answers on this page.", "text": text, "field": None}
+    wall = str(app.get("handoff_kind") or "")
+    if status == "handoff" and wall == "login" and can_retry:
+        return {
+            "kind": "retry",
+            "title": "Sign in on the job site first.",
+            "text": "Nothing was sent. The app will not sign in for you. After you are signed in, it can fill the form.",
+            "field": None,
+        }
+    if status == "handoff" and wall == "checkpoint":
+        return {
+            "kind": "manual",
+            "title": "The job site asked you to verify it is you.",
+            "text": "Finish that check yourself. Nothing was sent. Then record the confirmation here.",
+            "field": None,
+        }
+    if status == "handoff" and wall == "unsupported":
+        return {
+            "kind": "manual",
+            "title": "Finish the remaining step on the job site, then record the confirmation here.",
+            "text": "The app filled what it could and stopped before sending.",
+            "field": None,
+        }
     if can_retry and status in ("failed", "handoff"):
         if app.get("handoff_kind") == "human_check":
             text = "The app can try again. It reads the form afresh and asks for your approval first. If the check comes back, you finish it yourself."

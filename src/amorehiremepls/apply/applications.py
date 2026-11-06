@@ -1155,10 +1155,15 @@ class ApplicationService:
             nxt = (
                 "finish the human check and the submit on the site yourself, then record the confirmation"
                 if exc.evidence.get("challenge")
-                else "refresh the site session from the Mac (amore browser login) or complete manually"
+                else {
+                    "checkpoint": "The job site asked you to verify it is you. Finish that yourself. Nothing was sent.",
+                    "unsupported": "Finish the remaining step on the job site, then record the confirmation. Nothing was sent.",
+                }.get(str(exc.evidence.get("wall") or ""), "Sign in on the job site in the saved browser session, then try again. Nothing was sent.")
             )
-            kind = "human_check" if exc.evidence.get("challenge") else "handoff"
-            self._set(app_id, "handoff", reason=str(exc), next_action=nxt, evidence=ev, handoff_kind="human_check" if kind == "human_check" else "login")
+            kind = "human_check" if exc.evidence.get("challenge") else str(exc.evidence.get("wall") or "login")
+            if kind not in ("human_check", "login", "checkpoint", "unsupported"):
+                kind = "login"
+            self._set(app_id, "handoff", reason=str(exc), next_action=nxt, evidence=ev, handoff_kind=kind)
             self.store.audit("application_handoff", app_id, host=host, challenge=exc.evidence.get("challenge"), captcha_attempts=len(exc.evidence.get("captcha_attempts") or []))
             self._note_location_choice(app, ev)
             self._notify(self.apps.find_one({"_id": app_id}), kind)

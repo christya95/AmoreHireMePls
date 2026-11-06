@@ -244,11 +244,14 @@ class RealServices:
         if job.get("form_plan", {}).get("fields"):
             return job["form_plan"]["fields"]
         url = job.get("apply_url") or job.get("posting_url")
-        if not url or job.get("apply_route") == "linkedin_or_employer_site_handoff":
+        if not url:
             return []
         from amorehiremepls.apply.ats import adapter_for
 
         adapter = adapter_for(url, job.get("apply_route"))
+        # Older LinkedIn imports kept a handoff route. A job URL the adapter owns is read here; anything else stays manual.
+        if adapter is None and job.get("apply_route") == "linkedin_or_employer_site_handoff":
+            return []
         if adapter is not None:
             try:  # the vendor's public question list needs no browser and names every control
                 qs = adapter.fetch_questions(job)

@@ -51,6 +51,7 @@ appears anywhere else.
 | Approval for several jobs | batch scope | `batch_scope` |
 | Result unclear | needs_verification | `needs_verification` |
 | Finish on the site yourself | handoff | `handoff` |
+| Sign in on the job site first | a signed-in LinkedIn form can be filled after approval; a verify-it's-you page and a step the app cannot fill stay manual | — |
 | Human check | captcha / challenge | `human_check` |
 | Human check needed | attention card and notification while the page is held | — |
 | Continue | same approval, same package; the form is not sent again | — |

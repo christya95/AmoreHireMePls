@@ -377,6 +377,7 @@ class Step:
     optional: bool = False  # skip silently when the control does not exist on this layout
     sensitive: bool = False  # self-identification answer: error messages and evidence never quote the value
     fallbacks: list[str] = field(default_factory=list)  # autocomplete: further queries when the value is not offered
+    missing_is_handoff: bool = False  # the control is the way into the form; if it is absent, stop for a person and send nothing
 
 
 @dataclass
@@ -393,6 +394,7 @@ class Plan:
     frame_selector: str | None = None  # run the steps inside this iframe when it exists (embedded boards)
     resource_hosts: list[str] = field(default_factory=list)  # extra hosts for scripts/styles/frames (never navigation)
     site: str = ""  # plain site name for messages ("Greenhouse")
+    handoff_if_submit_missing: bool = False  # the final button is not on this page yet: stop for a person, do not record a send
 
 
 def _note_text(message: str) -> str:
@@ -715,6 +717,13 @@ class BrowserAdapter:
         for i, step in enumerate(plan.steps):
             if evidence.get("user_finished"):
                 return
+            if step.final and plan.handoff_if_submit_missing and not self._present(scope, step):
+                site = plan.site or "The job site"
+                self._snapshot(page, evidence, "handoff", shots)
+                raise HandoffRequired(
+                    f"{site} still has a step this application does not fill. Nothing was sent.",
+                    {**evidence, "wall": "unsupported", "final_clicked": False},
+                )
             if step.final:
                 # the filled-in review state exactly as it looked before the irreversible click
                 self._snapshot(page, evidence, "summary", shots)
@@ -738,6 +747,13 @@ class BrowserAdapter:
             evidence["steps_done"] = i + 1
             if step.type in ("click",) and not step.final:
                 self._detect_login(page, evidence, shots)
+                if plan.handoff_if_submit_missing and (errs := self._validation_errors(scope)):
+                    site = plan.site or "The job site"
+                    self._snapshot(page, evidence, "handoff", shots)
+                    raise HandoffRequired(
+                        f"{site} asked for an answer this application does not have. Nothing was sent.",
+                        {**evidence, "wall": "unsupported", "validation_errors": errs[:3], "final_clicked": False},
+                    )
                 self._detect_validation_errors(scope, evidence, shots)
         self._await_receipt(scope, plan, evidence, shots, solver, hold)
 
@@ -839,10 +855,16 @@ class BrowserAdapter:
         missing: list[dict[str, str]] = []
         for step in required:
             if not self._present(scope, step):
-                missing.append({"label": step.label or step.selector[:80], "type": step.type, "selector": step.selector})
-        evidence["preflight"] = {"checked": len(required), "missing": missing}
+                missing.append({"label": step.label or step.selector[:80], "type": step.type, "selector": step.selector, "handoff": step.missing_is_handoff})
+        evidence["preflight"] = {"checked": len(required), "missing": [{k: v for k, v in row.items() if k != "handoff"} for row in missing]}
         if missing:
-            self._snapshot(scope.page, evidence, "failed", shots)
+            self._snapshot(scope.page, evidence, "failed" if not all(row.get("handoff") for row in missing) else "handoff", shots)
+            if all(row.get("handoff") for row in missing):
+                site = plan.site or "The job site"
+                raise HandoffRequired(
+                    f"{site} does not open an application form on this page. Nothing was sent.",
+                    {**evidence, "wall": "unsupported", "final_clicked": False},
+                )
             names = ", ".join(m["label"] for m in missing)
             file_missing = any(m["type"] == "upload" for m in missing)
             head = "resume field not found" if file_missing and FILE_WORDS.search(names) else "the form is missing fields the app expected"
@@ -1087,6 +1109,10 @@ class BrowserAdapter:
             loc = scope.locator(step.selector).first
             if loc.count():
                 return loc
+        if step.type == "click" and step.label:
+            named = scope.root.get_by_role("button", name=step.label).first
+            if named.count():
+                return named
         if step.label:
             loc = scope.get_by_label(step.label, exact=False).first
             if loc.count():
@@ -1744,9 +1770,13 @@ class BrowserAdapter:
             title = page.title() or ""
         except Exception:
             return
-        if has_pw or LOGIN_PATTERNS.search(title) or LOGIN_PATTERNS.search(page.url):
+        url = page.url or ""
+        checkpoint = bool(re.search(r"/checkpoint(?:/|$|\?)", url, re.I) or re.search(r"verify it.?s you|quick security check", title, re.I))
+        login = bool(has_pw or LOGIN_PATTERNS.search(title) or LOGIN_PATTERNS.search(url) or re.search(r"/(?:login|uas/login|authwall)(?:/|$|\?)", url, re.I))
+        if login or checkpoint:
+            evidence["wall"] = "checkpoint" if checkpoint else "login"
             self._snapshot(page, evidence, "handoff", shots)
-            raise HandoffRequired("login or human verification challenge detected", {**evidence, "url": page.url})
+            raise HandoffRequired("login or human verification challenge detected", {**evidence, "url": url})
 
     def _validation_errors(self, scope: _Scope) -> list[str]:
         try:

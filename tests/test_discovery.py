@@ -157,7 +157,7 @@ def test_linkedin_url_import_becomes_handoff_and_dedupes_with_tracker_history(st
     j = disc.import_url(
         "https://www.linkedin.com/jobs/view/4467629125/?refId=zzz", employer="Tata Consultancy Services", title="Java Developer", posting_text="Permanent Java Developer in Toronto"
     )
-    assert j["linkedin_job_id"] == "4467629125" and j["apply_route"] == "linkedin_or_employer_site_handoff"
+    assert j["linkedin_job_id"] == "4467629125" and j["apply_route"] == "linkedin"
     store.c("applications").insert_one({"_id": "app_li-4467629125", "job_id": j["_id"], "tracker_record_id": "li-4467629125", "status": "submitted"})
     q = disc.qualify_job(j["_id"], use_model_extraction=False)
     assert q["status"] == "excluded" and "already_applied" in q["qualification"]["flags"]
