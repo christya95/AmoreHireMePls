@@ -200,7 +200,7 @@ label and bookkeeping words never appear.
 | a field is waiting on the open form | the field's label · "The same page is still open. Type the answer here and it is entered on that form. The form is not started over." | text box, Use this answer |
 | human check | "The page is being held on this computer at 127.0.0.1:[port]. Finish the check there. Continue uses the same approval and does not send the form again." | Continue |
 | answers changed since the last fill | "Fill in the form with the answers on this page. The job site is opened with these answers. Nothing else changes." | Fill in the form |
-| failed or human check, retry possible | "The site asked for a human check last time." or "The app can try again. It reads the form again and prepares fresh answers for your approval. Nothing is sent until you approve." | Retry with the app |
+| failed or human check, retry possible | "The site asked for a human check last time." or "The app can try again. It reads the form again and prepares the answers afresh. If your approval still covers these exact answers and files, it applies right away; if anything changed, you are asked again before anything is sent." | Retry with the app |
 | finish on the site yourself | "Apply on the job site yourself, then record the confirmation here." | I applied on the site |
 | result unclear | "Check the job site, then record whether it went through." | Save the result |
 

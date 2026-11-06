@@ -883,7 +883,10 @@ def needed_now(
         if app.get("handoff_kind") == "human_check":
             text = "The app can try again. It reads the form afresh and asks for your approval first. If the check comes back, you finish it yourself."
             return {"kind": "retry", "title": "The site asked for a human check last time.", "text": text, "field": None}
-        text = "It reads the form again and prepares fresh answers for your approval. Nothing is sent until you approve."
+        text = (
+            "It reads the form again and prepares the answers afresh. If your approval still covers these exact answers and files, "
+            "it applies right away; if anything changed, you are asked again before anything is sent."
+        )
         return {"kind": "retry", "title": "The app can try again.", "text": text, "field": None}
     if status == "handoff":
         return {

@@ -77,13 +77,18 @@ ATTACH_WORDS = re.compile(r"attach|upload|choose file|browse|select file|add fil
 PREFLIGHT_TYPES = ("fill", "select", "check", "upload", "click", "choose", "choose_multi", "autocomplete")
 # Rows in the field's own menu and in a menu drawn later on the same frame or the top page.
 SUGGESTION_SELECTOR = '[role="option"], .select__option, [id*="-option-"], .pac-item, [role="listbox"] li'
-_ROW_JS = (
-    "els => els.map(el => {"
+# A row counts only when it can be seen: its own style, every ancestor (a closed picker keeps its rows in the page
+# under display:none) and a real box on screen.
+_VISIBLE_JS = (
+    "(el) => {"
     " const style = window.getComputedStyle(el);"
-    " if (el.hidden || style.display === 'none' || style.visibility === 'hidden') return '';"
-    " return (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();"
-    " })"
+    " if (el.hidden || style.display === 'none' || style.visibility === 'hidden') return false;"
+    " if (el.checkVisibility && !el.checkVisibility({visibilityProperty: true})) return false;"
+    " const rect = el.getBoundingClientRect();"
+    " return rect.width > 0 && rect.height > 0;"
+    "}"
 )
+_ROW_JS = f"els => {{ const visible = {_VISIBLE_JS}; return els.map(el => visible(el) ? (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim() : ''); }}"
 _FOCUS_JS = (
     "els => els.findIndex(el => el.getAttribute('aria-selected') === 'true' "
     "|| (el.className && el.className.toString().includes('focused')) "
@@ -92,12 +97,7 @@ _FOCUS_JS = (
 # A menu drawn over the field (react-select portals this). Read and press the row in the page so a covered
 # input click cannot time out before the place is chosen.
 _MENU_ROWS_JS = """() => {
-  const visible = (el) => {
-    const style = window.getComputedStyle(el);
-    if (el.hidden || style.display === 'none' || style.visibility === 'hidden') return false;
-    const rect = el.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
-  };
+  const visible = __VISIBLE__;
   const labels = [];
   for (const el of document.querySelectorAll('.select__option, [role="option"], .pac-item')) {
     if (!visible(el)) continue;
@@ -105,10 +105,12 @@ _MENU_ROWS_JS = """() => {
     if (text && !labels.includes(text)) labels.push(text);
   }
   return labels;
-}"""
+}""".replace("__VISIBLE__", _VISIBLE_JS)
 _MENU_CLICK_JS = """(label) => {
+  const visible = __VISIBLE__;
   const want = (label || '').replace(/\\s+/g, ' ').trim();
   for (const el of document.querySelectorAll('.select__option, [role="option"], .pac-item')) {
+    if (!visible(el)) continue;
     const text = (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();
     if (text !== want) continue;
     el.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
@@ -116,7 +118,7 @@ _MENU_CLICK_JS = """(label) => {
     return true;
   }
   return false;
-}"""
+}""".replace("__VISIBLE__", _VISIBLE_JS)
 
 # Runs in the page: context text for every file input (own label, aria-labelledby of its group, nearest heading-like
 # text in the enclosing sections) plus its identifying attributes. Index = position in `input[type=file]`.
