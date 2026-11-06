@@ -319,6 +319,14 @@ The open job list can be checked, and tailored resumes that were never sent can 
 
 Deployed `origin/main` at `39ecd36` (posting cleanup `669e644` and delete/restart `ecd69ce`). Init exited 0, web and worker healthy. `/health` 200. Password sign-in landed on Overview and the greeting shows the display name (name not printed). No live job or application was deleted, restarted, closed, or rechecked. The new controls were not clicked on the live pages.
 
+## Background tasks list (2026-11-05 22:32 Toronto)
+
+The Background tasks page is two groups. Still waiting shows how many tasks are waiting to start, running, and paused, and names the application the worker will start next. Cancel is on every task that has not started, including a job search request, and it does not delete the job or the application. A task already sending is refused. Already finished holds completed, cancelled, and failed rows. Hide, and Hide finished and cancelled, set `dismissed` on the run. The job, application, artifacts, and tracker history stay. A cancelled row no longer shows a waiting reason. `tests/test_task_list.py`. Full suite 363 passed, ruff clean.
+
+## NAS deploy 2026-11-05 22:32: `lepia/amorehiremepls:9a3a35ba5962`
+
+Deployed `origin/main` at `9a3a35b`. The first Portainer call had no route to the NAS. The image was already pushed, and a second apply updated the stack. Init exited 0, web and worker healthy. `/health` 200. The Overview greeting includes the display name (name not printed). The live task page shows Still waiting and Already finished. No live task was cancelled or hidden.
+
 ## Exact next step
 
 Queue item 5 waits for a confirmed employer receipt. Do not draft recruiter Connect notes until one exists. Do not retry the Faire application or mark the BMO job closed; those are owner decisions (handoff questions 4 and 5). The new controls are on the NAS; do not confirm a destructive action on the live Workday job unless the owner asks. Open owner questions are 1, 2, 3, 4, 5, 7, 8, and 9. Question 6 is answered: tracker sync keeps running for an expired member.
