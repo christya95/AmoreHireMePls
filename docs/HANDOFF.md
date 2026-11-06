@@ -5,10 +5,11 @@ session. No private values: field names and counts only. Keep under 120 lines; f
 
 ## State now
 
-- Deployed 14:56: NAS stack `amorehiremepls`, image `lepia/amorehiremepls:719082c5e83f` (commit `719082c`). Local dashboard
-  python pid 21704 (op pid 21691) on the same commit. The 14:45 Faire attempt bound Location ("Chose Milton, Ontario,
+- Deployed 15:07: NAS stack `amorehiremepls`, image `lepia/amorehiremepls:bc811fbdd25a` (commit `bc811fb`). Local dashboard
+  python pid 25907 (op pid 25867) on the same commit. The 14:45 Faire attempt bound Location ("Chose Milton, Ontario,
   Canada") then failed on the synthetic Country box, which resolved to the phone code picker ("Canada +1"); an optional
-  suggestion box with no matching row is now cleared and skipped. Owner retries.
+  suggestion box with no matching row is skipped; a row "Canada +1" now counts as Canada (the 14:58 attempt skipped it and
+  the form said "Select a country"). Owner retries.
 - Deployed 13:56: `1b7083e`: the place list host `api-geocode-earth-proxy.greenhouse.io` is now a Greenhouse resource host
   (the gate had aborted it, so no city ever appeared); phone country code rows are ignored.
 - Committed in `c3d1ec0` and deployed (full suite passed, ruff clean); the working tree is clean:
