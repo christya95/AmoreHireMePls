@@ -13,7 +13,6 @@ session. No private values: field names and counts only. Keep under 120 lines; f
   appeared; the DOM fallback then read the phone country code rows. Both fixed (host added, `data-dial-code` rows
   ignored). Owner retries the Faire application; check its Location field answer first (one attempt typed "Yes" from it).
 - Committed in `c3d1ec0` and deployed (full suite passed, ruff clean); the working tree is clean:
-  - A failed attempt shows Failed in red (`chrome.py` headline); approval is no longer the headline after a failure.
   - A value the person types on the application wins for every field; profile facts fill only untouched fields; typed values
     survive a rebuild (`applications.py: keep_typed_answers`).
   - A replay that did not open the form says "The form was not opened. Showing the result already saved."
