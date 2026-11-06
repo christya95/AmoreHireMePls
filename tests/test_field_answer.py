@@ -224,6 +224,16 @@ def test_a_code_emailed_after_the_final_click_is_asked_for_typed_and_the_receipt
         def locator(self, selector):
             return _Empty()
 
+    class _Submit:
+        clicks = 0
+
+        @property
+        def first(self):
+            return self
+
+        def click(self, timeout=None):
+            _Submit.clicks += 1
+
     class _CodePage(_Scope):
         def __init__(self, box) -> None:
             super().__init__(_Field())
@@ -233,6 +243,8 @@ def test_a_code_emailed_after_the_final_click_is_asked_for_typed_and_the_receipt
         def locator(self, selector):
             if "one-time-code" in selector:
                 return self.box
+            if selector == "button.send":
+                return _Submit()
             return _Empty()
 
         def body_text(self):
@@ -249,10 +261,12 @@ def test_a_code_emailed_after_the_final_click_is_asked_for_typed_and_the_receipt
     notes: list[str] = []
     adapter._say = notes.append  # type: ignore[method-assign]
     adapter._snapshot = lambda *args, **kwargs: None  # type: ignore[method-assign]
-    plan = Plan(start_url="https://boards.example/apply", steps=[Step("click", "button", final=True, timeout_ms=2000)], receipt_text="thank you for applying")
+    plan = Plan(start_url="https://boards.example/apply", steps=[Step("click", "button.send", final=True, timeout_ms=2000)], receipt_text="thank you for applying")
     evidence: dict = {"steps_done": 1, "final_clicked": True}
     adapter._await_receipt(page, plan, evidence, adapter._shot_target(), None, hold)
-    assert box.filled == ["47469002"] and box.pressed == ["Enter"]  # spaces dropped, Enter because there is no dialog button
+    assert box.filled == ["47469002"] and box.pressed == []  # spaces dropped
+    assert _Submit.clicks == 1 and evidence["code_resubmitted"] is True  # the site asks for one resubmit with the code; done once
+    assert "Sending the application with the code" in notes
     assert hold.beats and hold.beats[-1]["field_label"] == CODE_LABEL and "email" in hold.beats[-1]["field_reason"]
     assert hold.finished == "continued" and evidence["email_code"] == "typed"
     assert any("emailed you a code" in note for note in notes)

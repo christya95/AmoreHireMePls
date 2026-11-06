@@ -459,6 +459,7 @@ class BrowserConfig:
     resource_hosts: set[str] = field(default_factory=set)  # sub-resource hosts allowed on every plan
     captcha_max_attempts: int = 3
     cdp_port: int = 0  # localhost debug port, used only while a human-check hold is active
+    receipt_wait_ms: int = 90000  # patience after the final click before the result is called unclear; a plan may ask for more
 
 
 @dataclass
@@ -826,7 +827,7 @@ class BrowserAdapter:
     def _await_receipt(self, scope: _Scope, plan: Plan, evidence: dict, shots: _ShotTarget, solver: Any | None, hold: Any | None = None) -> None:
         """After the final click: wait for the confirmation, but stop early on a human check or a validation error."""
         page = scope.page
-        timeout_ms = plan.steps[-1].timeout_ms if plan.steps else 15000
+        timeout_ms = max(plan.steps[-1].timeout_ms if plan.steps else 15000, self.config.receipt_wait_ms)
         deadline = time.monotonic() + timeout_ms / 1000
         attempts = 0
         while True:
@@ -913,8 +914,20 @@ class BrowserAdapter:
         self._say(f"{CODE_LABEL}: typing the code")
         box.fill(code, timeout=5000)
         evidence["email_code"] = "typed"
-        if not self._press_code_button(scope, box):
-            box.press("Enter")
+        if self._press_code_button(scope, box):
+            return True
+        # The site's own instruction ("after you enter the code, resubmit your application"): the first click did not
+        # send, so the form is sent once more, exactly once, with the code in place.
+        final = next((s for s in reversed(plan.steps) if s.final and s.type == "click" and s.selector), None)
+        if final is not None and not evidence.get("code_resubmitted"):
+            evidence["code_resubmitted"] = True
+            try:
+                scope.locator(final.selector).first.click(timeout=5000)
+                self._say("Sending the application with the code")
+                return True
+            except Exception:
+                pass
+        box.press("Enter")
         return True
 
     def _press_code_button(self, scope: _Scope, box) -> bool:

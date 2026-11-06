@@ -106,7 +106,7 @@ def test_personal_questions_decline_or_stay_blank_and_unknowns_need_an_answer(tm
 
 def _browser(tmp_path) -> BrowserAdapter:
     artifact_dir = tmp_path / "artifacts"
-    cfg = BrowserConfig(allowed_hosts={"127.0.0.1"}, upload_root=artifact_dir, artifact_dir=artifact_dir, session_dir=tmp_path / "sessions")
+    cfg = BrowserConfig(allowed_hosts={"127.0.0.1"}, upload_root=artifact_dir, artifact_dir=artifact_dir, session_dir=tmp_path / "sessions", receipt_wait_ms=1500)
     return BrowserAdapter(cfg)
 
 

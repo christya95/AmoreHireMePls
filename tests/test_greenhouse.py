@@ -157,7 +157,9 @@ def board():
 
 def _browser(tmp_path, solver=None, attempts: int = 3) -> BrowserAdapter:
     artifact_dir = tmp_path / "artifacts"
-    cfg = BrowserConfig(allowed_hosts={"127.0.0.1"}, upload_root=artifact_dir, artifact_dir=artifact_dir, session_dir=tmp_path / "sessions", captcha_max_attempts=attempts)
+    cfg = BrowserConfig(
+        allowed_hosts={"127.0.0.1"}, upload_root=artifact_dir, artifact_dir=artifact_dir, session_dir=tmp_path / "sessions", captcha_max_attempts=attempts, receipt_wait_ms=1500
+    )
     return BrowserAdapter(cfg, captcha_solver=solver)
 
 
