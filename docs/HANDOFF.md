@@ -5,11 +5,12 @@ No private values here: field names and counts only. Keep under 120 lines; finis
 
 ## State now
 
-- Deployed: NAS Portainer stack `amorehiremepls`, image `lepia/amorehiremepls:cab6c4cf7c67` (commit `cab6c4c`). Web and
+- Deployed: NAS Portainer stack `amorehiremepls`, image `lepia/amorehiremepls:10d155d8d52d` (commit `10d155d`). Web and
   worker healthy, dashboard `http://192.168.2.49:8790` (`/health` 200, Overview greeting shows the display name, tracker
-  on). A queued application with no owner is attached to the active admin and then claimed. The run page says why a
-  task has not started. Background tasks stay split into Still waiting and Already finished. No live task was cancelled
-  or hidden. `amore migrate-users` has been run once (admin created, 222 records stamped).
+  on). A queued application with no owner is attached to the active admin and then claimed. A task that has not started
+  is titled with the job name, shows Cancel and one waiting sentence, and hides pause, resume, and the empty result
+  cards. The footer says the app is idle, or names the task it is on. Clear leaves "Nothing is waiting" and a link to
+  Jobs. Clear was not pressed on the live queue. `amore migrate-users` has been run once (admin created, 222 records stamped).
 - Live and used for real: profile store, base resume registration, tracker preview/import (nothing pushed), discovery by URL,
   model check through `op run`, deterministic tailoring with a 2 page PDF, review package and approval gates, honest
   application status plus the Updates list on the Overview (built from stored events, no model call), fit check with resume
@@ -19,7 +20,7 @@ No private values here: field names and counts only. Keep under 120 lines; finis
   edit), `AMORE_TIMEZONE` and tracker settings, profession neutral code with `candidate/profile.toml` as the one customization
   surface (`amore profile import --from … [--dry-run]`, `export --to …`, `fingerprint`, Profile page Load button). The
   owner's live preferences are exported to the gitignored Mac copy of `profile.toml`; the NAS Profile card says "not found"
-  because the file is only on the Mac. Layout is the six packages in `docs/architecture.md`. Suite: 363 passed, ruff clean.
+  because the file is only on the Mac. Layout is the six packages in `docs/architecture.md`. Suite: 368 passed, ruff clean.
   Posting cleanup, delete/restart, and the task list split are on this image. A sent application, a receipt, the base
   resume, and tracker history are kept.
 - Fixture tested only: Greenhouse, Lever and Ashby form filling including the hidden input upload fix and the pre fill form
