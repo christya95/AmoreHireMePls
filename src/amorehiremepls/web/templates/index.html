@@ -107,7 +107,7 @@
     <div class="card-h"><h3>System</h3><a class="btn ghost sm" href="/status">Details</a></div>
     <table class="kv compact">
       <tr><td>Database</td><td><span class="pill {{ 'ok' if health.ok else 'bad' }}">{{ 'ok' if health.ok else 'down' }}</span> <small>{{ health.db.version or '' }}</small></td></tr>
-      <tr><td>Background tasks</td><td><span class="pill {{ 'ok' if worker_ok else 'warn' }}">{{ 'running' if worker_ok else 'not running' }}</span></td></tr>
+      <tr><td>Background tasks</td><td>{{ worker_line }}</td></tr>
       <tr><td>AI model</td><td><span class="pill {{ 'ok' if health.provider_configured else 'warn' }}">{{ provider }}</span>
         {% if provider_last %}<small>last check {{ 'ok' if provider_last.ok else 'failed' }} {{ provider_last.at|local }}{% if provider_last.error %} · {{ provider_last.error }}{% endif %}</small>{% endif %}
         <form method="post" action="/provider/check" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="next" value="/"><button class="ghost xs">Check now</button></form></td></tr>

@@ -5,7 +5,21 @@
   <h1>Background tasks</h1>
   <p>{{ summary }} {{ hint('task') }}</p>
 </div>{% include "_app_tabs.html" %}</div>
+{% if waiting or earlier %}
+<details class="disclosure">
+  <summary>Clear background tasks</summary>
+  <form method="post" action="/runs/clear" class="stack gap-s mt"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <p>Cancels every task that has not started, and hides finished, cancelled, and failed tasks from this list. The job and the application stay. A task that has already started sending is left as it is.</p>
+    <label>Type clear to confirm <input name="confirm" autocomplete="off"></label>
+    <button class="secondary">Clear background tasks</button>
+  </form>
+</details>
+{% endif %}
+{% if left_running %}<p class="note">{{ left_running }} {{ 'task was' if left_running == 1 else 'tasks were' }} left running because they had already started.</p>{% endif %}
 
+{% if not waiting and not earlier %}
+<div class="card"><div class="empty">Nothing is waiting. <a href="/jobs">Back to Jobs</a></div></div>
+{% else %}
 <div class="card flush">
   <div class="card-h"><h3>Still waiting</h3><span class="sub">Cancel stops a task that has not started. The job and the application stay.</span></div>
   <div class="table-wrap"><table>
@@ -56,6 +70,7 @@
     </tbody>
   </table></div>
 </div>
+{% endif %}
 {% endif %}
 </div>
 {% endblock %}

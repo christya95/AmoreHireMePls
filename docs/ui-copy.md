@@ -153,7 +153,7 @@ A failed attempt keeps its technical reason in the evidence; the page shows one 
 | company logo (Settings → Appearance, on by default; off shows initials; downloaded once by the app, never an AI call) | favicon, employer icon |
 | other profile or email for the same person | alias |
 | check / record the result | reconcile |
-| the app, background tasks running | the worker, heartbeat |
+| the app is idle, the app is on a task, background tasks are not running | the worker, heartbeat, background tasks running while only queued |
 | AI model, AI connection | model provider |
 | words in / out (unit shown as a `tokens` chip) | tokens |
 | rules only | deterministic |

@@ -58,8 +58,24 @@ from amorehiremepls.web.routes.profile import register as register_profile
 from amorehiremepls.web.routes.public import register as register_public
 from amorehiremepls.web.routes.settings import register as register_settings
 from amorehiremepls.web.routes.sync import register as register_sync
+from amorehiremepls.web.task_list import worker_status
 
 __all__ = ["BRAND_DIR", "DOCX_MEDIA_TYPE", "create_app", "favicon_svg", "saved_form_inputs"]
+
+
+def _worker_footer(rt: Runtime, health: dict) -> tuple[str, str]:
+    """Dot class and the footer sentence. Queued work does not count as the worker being on a task."""
+    healthy = bool(health.get("ok")) and worker_healthy(rt)
+    active = None
+    jobs: dict = {}
+    if health.get("ok"):
+        active = rt.store.c("runs").find_one({"status": {"$in": ["claimed", "running"]}}, sort=[("updated_at", -1)])
+        job_id = ((active or {}).get("params") or {}).get("job_id")
+        if job_id:
+            job = rt.store.c("jobs").find_one({"_id": job_id}, {"employer": 1, "title": 1})
+            if job:
+                jobs[job["_id"]] = job
+    return worker_status(healthy, active, jobs)
 
 
 def create_app(rt: Runtime) -> FastAPI:
@@ -139,6 +155,7 @@ def create_app(rt: Runtime) -> FastAPI:
         health = rt.health()
         role = (session or {}).get("role") or "admin"
         show_usage = show_usage_for(session)
+        worker_dot, worker_line = _worker_footer(rt, health)
         user_doc = None
         user_id = str((session or {}).get("user") or "")
         if user_id.startswith("user_"):
@@ -162,7 +179,9 @@ def create_app(rt: Runtime) -> FastAPI:
             "show_usage": show_usage,
             "access_badge": summary["badge"] if summary and role == "member" else None,
             "health": health,
-            "worker_ok": worker_healthy(rt) if health.get("ok") else False,
+            "worker_ok": worker_dot == "",
+            "worker_dot": worker_dot,
+            "worker_line": worker_line,
             "ui": ui,
             "display_name": name,
             "initials": initials(name),

@@ -19,6 +19,7 @@ from amorehiremepls.web.task_list import (
     SEND_KINDS,
     can_cancel,
     can_hide,
+    clear_plan,
     next_application,
     next_name,
     offer_cancel,
@@ -27,6 +28,7 @@ from amorehiremepls.web.task_list import (
     queue_summary,
     queued_reason,
     side_effect_started,
+    task_title,
 )
 
 
@@ -55,6 +57,33 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         if n:
             rt.store.audit("runs_hidden", None, count=n)
         return RedirectResponse("/runs", status_code=303)
+
+    @app.post("/runs/clear")
+    def clear_tasks(request: Request, session: dict = Depends(require_session), csrf: str = Form(...), confirm: str = Form("")):
+        """Cancel queued tasks that have not started, and hide finished ones. A task that is already sending stays."""
+        require_csrf(request, session, csrf)
+        if confirm.strip().lower() != "clear":
+            return RedirectResponse("/runs?err=confirm_needed", status_code=303)
+        runs = list(rt.store.c("runs").find({"dismissed": {"$ne": True}}))
+        busy_jobs = {a.get("job_id") for a in rt.store.c("applications").find({"status": "executing"}, {"job_id": 1})}
+        busy_runs = {a.get("run_id") for a in rt.store.c("actions").find({"status": "executing", "kind": {"$in": sorted(SEND_KINDS)}}, {"run_id": 1})}
+        cancel_ids, hide_ids, left = clear_plan(runs, busy_runs, busy_jobs)
+        for run_id in cancel_ids:
+            settled = rt.store.c("runs").update_one(
+                {"_id": run_id, "status": "queued"},
+                {"$set": {"status": "cancelled", "requested": None, "interrupt": None, "finished_at": utcnow(), "note": "cancelled before it started", "updated_at": utcnow()}},
+            )
+            if settled.modified_count != 1:
+                left += 1
+                hide_ids = [item for item in hide_ids if item != run_id]
+                continue
+            rt.store.run_event(run_id, "cancelled before it started")
+        for run_id in hide_ids:
+            rt.store.update_run(run_id, dismissed=True)
+            rt.store.run_event(run_id, "hidden from the task list")
+        if cancel_ids or hide_ids:
+            rt.store.audit("runs_cleared", None, cancelled=len(cancel_ids), hidden=len(hide_ids), left=left)
+        return RedirectResponse(f"/runs?ok=tasks_cleared&left={left}", status_code=303)
 
     @app.post("/runs/{run_id}/{what}")
     def run_control(request: Request, run_id: str, what: str, session: dict = Depends(require_session), csrf: str = Form(...), payload: str = Form(""), next: str = Form("")):
@@ -107,6 +136,8 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         summary = queue_summary(waiting, next_name(nxt, jobs))
         busy_jobs = {a.get("job_id") for a in rt.store.c("applications").find({"status": "executing"}, {"job_id": 1})}
         busy_runs = {a.get("run_id") for a in rt.store.c("actions").find({"status": "executing", "kind": {"$in": sorted(SEND_KINDS)}}, {"run_id": 1})}
+        raw_left = request.query_params.get("left") or ""
+        left_running = int(raw_left) if request.query_params.get("ok") == "tasks_cleared" and raw_left.isdigit() else 0
         return render(
             request,
             "runs.html",
@@ -117,6 +148,7 @@ def register(app, rt, require_session, require_csrf, render) -> None:
             summary=summary,
             busy_jobs=busy_jobs,
             busy_runs=busy_runs,
+            left_running=left_running,
             tab="runs",
         )
 
@@ -165,4 +197,16 @@ def register(app, rt, require_session, require_csrf, render) -> None:
             owner_state=owner_state_for(run, owner, accounts),
             emergency=rt.store.emergency_stop_active(),
         )
-        return render(request, "run.html", session, run=run, can_cancel_detail=offer_cancel(run, side_effect_started(rt.store, run)), queue_reason=reason)
+        job_id = (run.get("params") or {}).get("job_id")
+        job = rt.store.c("jobs").find_one({"_id": job_id}, {"employer": 1, "title": 1}) if job_id else None
+        if job is None and job_id and session.get("role") != "member":
+            job = rt.store.db["jobs"].find_one({"_id": job_id}, {"employer": 1, "title": 1})
+        return render(
+            request,
+            "run.html",
+            session,
+            run=run,
+            run_title=task_title(run, job),
+            can_cancel_detail=offer_cancel(run, side_effect_started(rt.store, run)),
+            queue_reason=reason,
+        )

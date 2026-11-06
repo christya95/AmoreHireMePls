@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from amorehiremepls.core.config import Settings
 from amorehiremepls.core.runtime import Runtime
 from amorehiremepls.core.util import utcnow
-from amorehiremepls.web.task_list import next_application, partition, queue_summary, queued_reason
+from amorehiremepls.web.task_list import next_application, partition, queue_summary, queued_reason, worker_status
 from amorehiremepls.web.web import create_app
 from tests.conftest import TEST_MONGO_URI
 
@@ -27,6 +27,11 @@ def test_queued_reason_names_a_missing_owner_a_hold_and_a_quiet_worker():
     assert "holding" in queued_reason(held, now=now, worker_at=now - timedelta(minutes=4), owner_state="active", emergency=False)
     assert "has not checked in" in queued_reason(run, now=now, worker_at=None, owner_state="active", emergency=False)
     assert queued_reason({**run, "status": "running"}, now=now, worker_at=now, owner_state="active", emergency=False) is None
+    queued = {"status": "queued", "kind": "application", "params": {"job_id": "j1"}}
+    assert worker_status(True, queued, {}) == ("idle", "The app is idle")
+    running = {"status": "running", "kind": "application", "params": {"job_id": "j1"}}
+    assert worker_status(True, running, {"j1": {"employer": "Acme", "title": "Role"}}) == ("", "The app is on Acme, Role")
+    assert worker_status(False, None, {}) == ("warn", "Background tasks are not running")
 
 
 def test_summary_names_the_oldest_application_and_counts_the_three_states():
@@ -98,7 +103,11 @@ def test_queued_run_page_says_it_has_not_started_and_when_the_worker_checked_in(
     run = store.create_run("application", {"job_id": "job_acme"})
     store.set_control("worker_heartbeat", {"at": utcnow()})
     page = client.get(f"/runs/{run['_id']}").text
+    assert "<h1>Acme, Example role</h1>" in page and f'<p class="note mono">{run["_id"]}</p>' in page
     assert "It has not started." in page and "The worker just checked in." in page
+    assert ">Pause</button>" not in page and ">Resume</button>" not in page and ">Cancel</button>" in page
+    assert "AI use" not in page and "<h3>Result</h3>" not in page
+    assert "The app is idle" in page and "Background tasks running" not in page
     assert "no owner" not in page
 
 
@@ -163,3 +172,15 @@ def test_hide_removes_a_finished_row_from_the_list_and_keeps_the_record(client):
     assert store.c("runs").find_one({"_id": other["_id"]})["dismissed"] is True
     assert store.c("runs").find_one({"_id": first["_id"]})["status"] == "queued"
     assert "Already finished" not in client.get("/runs").text
+
+
+def test_clear_leaves_nothing_waiting_and_a_link_back_to_jobs(client):
+    csrf = _login(client)
+    store, first, *_ = _seed(client)
+    assert client.post("/runs/clear", data={"csrf": csrf, "confirm": "clear"}).status_code == 303
+    page = client.get("/runs").text
+    assert "Nothing is waiting." in page and 'href="/jobs">Back to Jobs</a>' in page
+    assert "<h3>Still waiting</h3>" not in page and "<h3>Already finished</h3>" not in page
+    assert store.c("runs").find_one({"_id": first["_id"]})["status"] == "cancelled"
+    assert store.c("jobs").find_one({"_id": "job_acme"})["title"] == "Example role"
+    assert store.c("applications").find_one({"_id": "app_acme"})["status"] == "handoff"

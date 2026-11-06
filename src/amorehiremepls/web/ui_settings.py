@@ -507,7 +507,9 @@ GLOSSARY: dict[str, tuple[str, str, str]] = {
     ),
     "task": (
         "Background task",
-        "Work the app does on its own, one task per application attempt. Still waiting is at the top. Finished and cancelled tasks sit below and can be hidden. Hiding a row does not delete the job or the application.",
+        "Work the app does on its own, one task per application attempt. Still waiting is at the top. "
+        "Finished and cancelled tasks sit below and can be hidden. Clear background tasks cancels ones that have not started "
+        "and hides the finished ones. Nothing that was already sending is cancelled, and the job and the application stay.",
         "run",
     ),
     "snapshot": (

@@ -22,7 +22,7 @@
   </nav>
   <div class="sidebar-foot">
     <div><span class="dot {{ '' if health.ok else 'off' }}"></span>Database {{ 'connected' if health.ok else 'down' }}</div>
-    <div><span class="dot {{ '' if worker_ok else 'warn' }}"></span>Background tasks {{ 'running' if worker_ok else 'not running' }}</div>
+    <div><span class="dot {{ worker_dot }}"></span>{{ worker_line }}</div>
   </div>
 </aside>
 <div class="main">

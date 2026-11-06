@@ -203,6 +203,7 @@ FLASHES = {
     ),
     "resumes_none": ("No unused tailored resumes were found. Sent applications and your base resume were left as they are.", "ok"),
     "confirm_needed": ("Type the confirmation word to continue. Nothing was changed.", "bad"),
+    "tasks_cleared": ("Queued tasks that had not started were cancelled, and finished tasks were hidden from this list. Jobs and applications stay.", "ok"),
     "already_sent": ("This application was already sent, so it was left as it is.", "bad"),
     "receipt_saved": ("A confirmation from the employer is already saved, so this application was left as it is.", "bad"),
     "result_unclear": ("The result is unclear, so this application stays until you record what the site showed.", "bad"),

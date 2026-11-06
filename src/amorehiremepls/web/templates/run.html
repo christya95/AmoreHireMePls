@@ -4,13 +4,15 @@
 <div class="card">
   <div class="welcome">
     <div>
-      <h1>Background task <span class="mono">{{ run._id }}</span></h1>
-      <p>{{ run.kind|label }} <code class="raw" title="thread id">{{ run.thread_id }}</code></p>
+      <h1>{{ run_title }}</h1>
+      <p class="note mono">{{ run._id }}</p>
       <div class="flex mt">{{ status(run.status) }}{% if run.requested %}<span class="pill">{{ run.requested }} requested</span>{% endif %}{% if run.params.job_id %}<a class="btn secondary sm" href="/jobs/{{ run.params.job_id }}">Open the job</a>{% endif %}</div>
       {% if queue_reason %}<p class="note mt">{{ queue_reason }}</p>{% endif %}
     </div>
     <div class="actions">
-      {% if run.status in ('queued', 'claimed', 'running', 'waiting', 'paused') %}
+      {% if run.status == 'queued' %}
+      {% if can_cancel_detail %}<form class="inline" method="post" action="/runs/{{ run._id }}/cancel"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Cancel</button></form>{% endif %}
+      {% elif run.status in ('claimed', 'running', 'waiting', 'paused') %}
       <form class="inline" method="post" action="/runs/{{ run._id }}/pause"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Pause</button></form>
       <form class="inline" method="post" action="/runs/{{ run._id }}/resume"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Resume</button></form>
       {% if can_cancel_detail %}<form class="inline" method="post" action="/runs/{{ run._id }}/cancel"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Cancel</button></form>{% endif %}
@@ -30,7 +32,7 @@
 <p class="note"><a href="/applications/{{ run.interrupt.application_id }}">Open the application</a></p>
 {% endif %}
 
-<div class="grid-2">
+{% if run.status != 'queued' %}<div class="grid-2">
   {% if show_usage %}<div class="card"><div class="card-h"><h3>AI use</h3></div>
     <table class="kv compact">
       <tr><td>Calls</td><td>{{ run.usage.calls }}</td></tr>
@@ -39,7 +41,7 @@
       <tr><td>Cost</td><td>{% if run.usage.cost_known %}${{ '%.4f'|format(run.usage.cost_usd or 0) }}{% else %}<span class="pill warn">unknown</span>{% endif %}</td></tr>
     </table></div>{% endif %}
   <div class="card"><div class="card-h"><h3>Result</h3></div>{% if run.summary %}<pre>{{ run.summary|json }}</pre>{% else %}<p class="note">No result yet.</p>{% endif %}</div>
-</div>
+</div>{% endif %}
 
 <div class="card"><div class="card-h"><h3>What the task did</h3><span class="pill">{{ run.events|length }}</span></div>
   <div class="list timeline">{% for e in run.events %}<div class="list-item"><span class="t">{{ e.at|local }}</span><div class="body"><strong>{{ e.message }}</strong>{% for k, v in e.items() if k not in ('at', 'message') %}<small class="mono wrap">{{ k }}: {{ v }}</small>{% endfor %}</div></div>

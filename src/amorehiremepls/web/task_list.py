@@ -36,6 +36,31 @@ def can_hide(run: dict) -> bool:
     return not run.get("dismissed") and not in_queue(run.get("status"))
 
 
+def clear_plan(runs: list[dict], busy_run_ids: set[str], busy_job_ids: set[str]) -> tuple[list[str], list[str], int]:
+    """Which tasks Clear cancels, which it hides, and how many stay because they already started.
+
+    A queued task that has not started is cancelled and then hidden. Finished rows are hidden.
+    A task that is already sending, or that is no longer just queued, stays on the list."""
+    cancel: list[str] = []
+    hide: list[str] = []
+    left = 0
+    for run in runs:
+        if run.get("dismissed"):
+            continue
+        job_id = (run.get("params") or {}).get("job_id")
+        busy = run.get("_id") in busy_run_ids or bool(job_id and job_id in busy_job_ids)
+        if run.get("status") == "queued" and not busy:
+            cancel.append(run["_id"])
+            hide.append(run["_id"])
+            continue
+        if can_hide(run):
+            hide.append(run["_id"])
+            continue
+        if in_queue(run.get("status")):
+            left += 1
+    return cancel, hide, left
+
+
 def partition(runs: list[dict]) -> tuple[list[dict], list[dict]]:
     """Visible rows, newest first, split into still waiting and already finished."""
     visible = [r for r in runs if not r.get("dismissed")]
@@ -65,6 +90,28 @@ def queue_summary(waiting: list[dict], next_label: str | None) -> str:
     elif to_start and not any(r.get("kind") == "application" and r.get("status") == "queued" for r in waiting):
         line += " A job search is waiting. It does not apply to a job."
     return line
+
+
+def task_title(run: dict, job: dict | None) -> str:
+    """The name a person would recognise. A job search has no job."""
+    if run.get("kind") in ("discovery", "discovery_request"):
+        return "Job search"
+    if not job:
+        return "Application" if run.get("kind") == "application" else "Background task"
+    employer = (job.get("employer") or "").strip()
+    title = (job.get("title") or "").strip()
+    if employer and title:
+        return f"{employer}, {title}"
+    return employer or title or "Application"
+
+
+def worker_status(healthy: bool, active: dict | None, jobs: dict) -> tuple[str, str]:
+    """Footer dot class and sentence. A queued task is not work in progress."""
+    if not healthy:
+        return "warn", "Background tasks are not running"
+    if not active or active.get("status") not in RUNNING:
+        return "idle", "The app is idle"
+    return "", f"The app is on {task_title(active, jobs.get((active.get('params') or {}).get('job_id')))}"
 
 
 def next_name(run: dict | None, jobs: dict) -> str | None:
