@@ -327,6 +327,10 @@ The Background tasks page is two groups. Still waiting shows how many tasks are 
 
 Deployed `origin/main` at `9a3a35b`. The first Portainer call had no route to the NAS. The image was already pushed, and a second apply updated the stack. Init exited 0, web and worker healthy. `/health` 200. The Overview greeting includes the display name (name not printed). The live task page shows Still waiting and Already finished. No live task was cancelled or hidden.
 
+## Queued task with no owner (2026-11-05, 22:50 Toronto)
+
+A queued application written by the pre-account session has no `user_id`. After accounts exist, the worker only claims runs for an active person, so that task stayed Queued while the heartbeat stayed fresh. The worker now attaches those runs, and any ownerless job or application they point at, to the active admin before claiming. The old `owner` session is bound to that admin. The run page states the reason it has not started: no owner, an inactive person, a hold, the emergency stop, or when the worker last checked in. A claim writes "Picked up", and each application step writes one plain line. Full suite 367 passed, ruff clean. Deployed as `lepia/amorehiremepls:cab6c4cf7c67`. The live run was not cancelled, paused, or resumed.
+
 ## Exact next step
 
 Queue item 5 waits for a confirmed employer receipt. Do not draft recruiter Connect notes until one exists. Do not retry the Faire application or mark the BMO job closed; those are owner decisions (handoff questions 4 and 5). The new controls are on the NAS; do not confirm a destructive action on the live Workday job unless the owner asks. Open owner questions are 1, 2, 3, 4, 5, 7, 8, and 9. Question 6 is answered: tracker sync keeps running for an expired member.

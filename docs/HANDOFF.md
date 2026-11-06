@@ -5,11 +5,11 @@ No private values here: field names and counts only. Keep under 120 lines; finis
 
 ## State now
 
-- Deployed: NAS Portainer stack `amorehiremepls`, image `lepia/amorehiremepls:9a3a35ba5962` (commit `9a3a35b`). Web and
+- Deployed: NAS Portainer stack `amorehiremepls`, image `lepia/amorehiremepls:cab6c4cf7c67` (commit `cab6c4c`). Web and
   worker healthy, dashboard `http://192.168.2.49:8790` (`/health` 200, Overview greeting shows the display name, tracker
-  on). Background tasks are split into Still waiting and Already finished. Cancel stops a task that has not started.
-  Hide removes a finished row from that list only. No live task was cancelled or hidden. `amore migrate-users` has been
-  run once (admin created, 222 records stamped).
+  on). A queued application with no owner is attached to the active admin and then claimed. The run page says why a
+  task has not started. Background tasks stay split into Still waiting and Already finished. No live task was cancelled
+  or hidden. `amore migrate-users` has been run once (admin created, 222 records stamped).
 - Live and used for real: profile store, base resume registration, tracker preview/import (nothing pushed), discovery by URL,
   model check through `op run`, deterministic tailoring with a 2 page PDF, review package and approval gates, honest
   application status plus the Updates list on the Overview (built from stored events, no model call), fit check with resume
