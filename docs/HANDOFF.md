@@ -29,9 +29,10 @@ No private values here: field names and counts only. Keep under 120 lines; finis
 - Fixture tested only: Greenhouse, Lever and Ashby form filling including the hidden input upload fix and the pre fill form
   check; the salary skill; Workday posting refresh; owner notifications, the human check hold and the one later try.
 - Not verified: no live employer receipt exists yet for any ATS; nothing has ever been submitted by the app.
-- Location lists try the saved city and region, then the city alone, then the places saved under Profile as "If your city
-  is not offered, try these places". A later place is one line on What is happening. This is not deployed.
-  The live profile does not have those places saved yet.
+- What to do now is the latest saved step. While a form is being filled, the bar shows "Filling out the form" with
+  moving dots and the real step under it. Pages ease in and buttons lift on hover. A location box types the saved
+  city and region, then the city, then the profile's later places. Not deployed. The live profile has no later places
+  yet. The Faire attempt stopped with no suggestions; nothing was sent.
 - Data (live database through `ProfileStore`, values never in the repo): contact and address facts under the mapper keys,
   links, availability, notice period, work arrangements, compensation floor, five self identification facts (sensitive),
   62 answers, 11 skills, 11 education rows. Profile version 7 per the chat record (the previous handoff wrote 8; the Profile

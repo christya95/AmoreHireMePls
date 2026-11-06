@@ -171,10 +171,10 @@ def test_approving_after_the_task_finished_queues_a_send_and_the_page_shows_the_
     queued = rt.store.c("runs").find_one({"params.application_id": app_id, "params.phase": "execute", "status": "queued"})
     assert queued is not None
     page = client.get(f"/applications/{app_id}")
-    assert page.status_code == 200 and "What is happening" in page.text and "Applying starts within a minute" in page.text
+    assert page.status_code == 200 and "What is happening" in page.text and "You approved this package" in page.text
     activity = client.get(f"/applications/{app_id}/activity")
     body = activity.json()
-    assert activity.status_code == 200 and body["live"] is True and "Applying starts within a minute" in body["now"]
+    assert activity.status_code == 200 and body["live"] is True and body["working"] is False and body["now"] == "You approved this package"
 
 
 def test_regenerate_documents_supersedes_artifacts_and_invalidates_approval(client, tmp_path):

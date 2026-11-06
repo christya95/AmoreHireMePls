@@ -271,9 +271,17 @@ class RealServices:
 
             hold = HumanHold(self.rt.store, self.rt.actions, self.rt.settings, application_id, app["job_id"], worker)
 
+        running = self.rt.store.c("runs").find_one({"kind": "application", "params.job_id": app.get("job_id"), "status": "running"}, sort=[("updated_at", -1)])
+        run_id = (running or {}).get("_id")
+
+        def note(message: str) -> None:
+            if run_id and message.strip():
+                self.rt.store.run_event(run_id, message.strip()[:300])
+
         def run(plan):
             # The hold, when a check appears, keeps this same browser page. It does not start a second submit.
-            return self.rt.browser.run_plan(plan, site_key=plan.start_url.split("/")[2], captcha_solver=solver, hold=hold)
+            # Each step is saved as it happens so the application page can show it.
+            return self.rt.browser.run_plan(plan, site_key=plan.start_url.split("/")[2], captcha_solver=solver, hold=hold, progress=note)
 
         out = svc.execute(application_id, worker, run_adapter=run)
         return {"status": out.status, "reason": out.reason, "evidence": out.evidence, "action_id": out.action_id}

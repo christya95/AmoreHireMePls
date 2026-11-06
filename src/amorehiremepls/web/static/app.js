@@ -143,8 +143,12 @@
         .then(function (response) { return response.ok ? response.json() : null; })
         .then(function (data) {
           if (!data) return;
+          var banner = document.getElementById("activity-banner");
+          var phase = document.getElementById("activity-phase");
+          if (banner) banner.classList.toggle("working", !!data.working);
+          if (phase) phase.hidden = !data.working;
           var now = document.getElementById("activity-now");
-          if (now) now.textContent = data.now || "";
+          if (now && data.now) now.textContent = data.now;
           var box = document.getElementById("activity-lines");
           if (box) {
             box.replaceChildren();

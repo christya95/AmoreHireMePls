@@ -541,7 +541,7 @@ def test_execute_passes_a_hold_only_when_the_wait_is_on(store, tmp_path, board):
     rt = _runtime(store, tmp_path, challenge_retry_minutes=0)
     seen: dict = {}
 
-    def run_plan(plan, site_key="default", observe=True, captcha_solver=None, hold=None):
+    def run_plan(plan, site_key="default", observe=True, captcha_solver=None, hold=None, progress=None):
         seen["hold"] = hold
         raise HandoffRequired("Greenhouse asked for a human check", {"challenge": "text_captcha", "url": plan.start_url})
 

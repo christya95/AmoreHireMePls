@@ -60,7 +60,7 @@ def test_a_check_waits_for_one_later_try_before_the_note(store, tmp_path):
     rt.applications = lambda run_id=None, builders=None: svc  # type: ignore[method-assign]
     seen: dict = {}
 
-    def run_plan(plan, site_key="default", observe=True, captcha_solver=None, hold=None, confirm_only=False):
+    def run_plan(plan, site_key="default", observe=True, captcha_solver=None, hold=None, confirm_only=False, progress=None):
         seen.update(confirm_only=confirm_only, hold=hold)
         raise HandoffRequired("the job site asked for a human check", {"challenge": "text_captcha", "url": plan.start_url})
 

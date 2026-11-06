@@ -155,8 +155,8 @@ body {
   background: var(--bg);
   min-height: 100vh;
 }
-a { color: var(--accent-text); text-decoration: none; }
-a:hover { text-decoration: underline; }
+a { color: var(--accent-text); text-decoration: none; transition: color var(--motion) var(--ease); }
+a:hover { color: var(--accent-ui); text-decoration: underline; }
 h1, h2, h3, h4 { margin: 0; line-height: 1.25; letter-spacing: -0.01em; }
 h1 { font-size: 1.7rem; font-weight: 720; letter-spacing: -0.03em; }
 h2 { font-size: 1.2rem; font-weight: 650; }
@@ -303,7 +303,9 @@ td.wrap { min-width: 170px; }
 .card {
   background: var(--surface); border: 1px solid var(--card-border); border-radius: var(--radius);
   padding: 18px 20px; box-shadow: var(--shadow); min-width: 0;
+  transition: border-color var(--motion) var(--ease), box-shadow var(--motion) var(--ease);
 }
+.card:hover { border-color: var(--accent-line); }
 .card.flush { padding: 0; overflow: hidden; }
 .card.flush > .card-h { padding: 16px 20px 0; }
 .card.flush > .table-wrap, .card.flush > form > .table-wrap { margin-top: 10px; }
@@ -328,7 +330,7 @@ td.wrap { min-width: 170px; }
 /* ---------- KPI tiles ---------- */
 .kpis { display: grid; gap: var(--gap); grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); }
 .kpi { position: relative; display: flex; flex-direction: column; gap: 6px; transition: border-color var(--motion) var(--ease), transform var(--motion) var(--ease), box-shadow var(--motion) var(--ease); }
-.kpi:hover { border-color: var(--accent-line); transform: translateY(-1px); }
+.kpi:hover { border-color: var(--accent-line); transform: translateY(-4px); }
 .kpi a.cover { position: absolute; inset: 0; border-radius: inherit; }
 .kpi .kpi-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .kpi .label { color: var(--text-2); font-size: 0.8rem; font-weight: 560; }
@@ -377,7 +379,8 @@ table.kv td { overflow-wrap: anywhere; }
   transition: background var(--motion) var(--ease), color var(--motion) var(--ease), box-shadow var(--motion) var(--ease), transform var(--motion) var(--ease);
   text-decoration: none; white-space: nowrap;
 }
-.btn:hover, button:hover { background: var(--accent-hover); text-decoration: none; transform: translateY(-1px); box-shadow: 0 8px 18px -12px var(--accent-strong); }
+.btn:hover, button:hover { background: var(--accent-hover); text-decoration: none; transform: translateY(-4px); box-shadow: 0 8px 18px -12px var(--accent-strong); }
+.btn:focus-visible, button:focus-visible { transform: translateY(-4px); }
 .btn:active, button:active { transform: translateY(0); box-shadow: none; }
 .btn.secondary, button.secondary { background: var(--surface); color: var(--text); border-color: var(--border-strong); }
 .btn.secondary:hover, button.secondary:hover { background: var(--surface-2); box-shadow: none; }
@@ -726,6 +729,15 @@ html[data-checklist="folded"] .checklist-body { max-height: 0; opacity: 0; margi
 .next-action .body { flex: 1 1 200px; min-width: 200px; margin-right: auto; }
 .next-action .body strong { display: block; font-weight: 650; }
 .next-action .body small { display: block; color: var(--muted); }
+/* Shown only while a form is actually being filled. The dots are the one looping motion; they stop when the work stops. */
+.working-line[hidden] { display: none !important; }
+.working-line .dots { display: inline-flex; gap: 3px; margin-left: 6px; vertical-align: middle; }
+.working-line .dots i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.next-action.working .working-line .dots i { animation: working-dot 1.1s infinite ease-in-out; }
+.next-action.working .working-line .dots i:nth-child(2) { animation-delay: 0.15s; }
+.next-action.working .working-line .dots i:nth-child(3) { animation-delay: 0.3s; }
+.next-action.working { box-shadow: inset 3px 0 0 var(--accent-ui); }
+.next-action.working .step-now { margin-top: 2px; font-weight: 550; color: var(--text-2); }
 /* The menu's containing block is the button (details.pop is position: relative), so it stays
    anchored there on a wrapped phone row. While open, app.js adds margin-bottom for the part
    that would otherwise cover the fit and rules cards. */
@@ -847,7 +859,11 @@ ul.plain li strong { color: var(--text); }
   .fit-body { width: 100%; }
 }
 
-/* Motion: short ease-out, 4–8px, first paint only. No loops. Reduced motion snaps movement and keeps colour fades. */
+/* Motion: short ease-out, 4–8px, first paint only, plus the form-fill dots. Reduced motion snaps movement and keeps colour fades. */
+@keyframes working-dot {
+  0%, 70%, 100% { opacity: 0.25; transform: translateY(0); }
+  35% { opacity: 1; transform: translateY(-3px); }
+}
 @keyframes rise {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }
@@ -870,6 +886,11 @@ ul.plain li strong { color: var(--text); }
 @keyframes bar-in {
   from { transform: scaleX(0); }
 }
+.sidebar,
+.topbar,
+.page-head,
+.empty,
+.main .card,
 .stack > .card,
 .stack > .grid-2 > .card,
 .stack > .grid-main > .card,
@@ -878,6 +899,9 @@ ul.plain li strong { color: var(--text); }
      stacking context, so the job cards painted over the More actions menu. */
   animation: rise var(--motion) var(--ease) backwards;
 }
+.sidebar,
+.main .card:has(details.more),
+.main .card:has(details.pop),
 .stack > .card:has(details.more) { animation-name: rise-fade; }
 .stack > .card:nth-child(2),
 .kpis > .kpi:nth-child(2) { animation-delay: 30ms; }
@@ -887,7 +911,13 @@ ul.plain li strong { color: var(--text); }
 .kpis > .kpi:nth-child(4) { animation-delay: 65ms; }
 .stack > .card:nth-child(n + 5),
 .kpis > .kpi:nth-child(n + 5) { animation-delay: 75ms; }
-.table-wrap tbody tr:nth-child(-n + 6) { animation: row-in 200ms var(--ease) both; }
+.table-wrap tbody tr:nth-child(-n + 6),
+.timeline > .list-item:nth-child(-n + 6) { animation: row-in 200ms var(--ease) both; }
+.timeline > .list-item:nth-child(2) { animation-delay: 20ms; }
+.timeline > .list-item:nth-child(3) { animation-delay: 35ms; }
+.timeline > .list-item:nth-child(4) { animation-delay: 50ms; }
+.timeline > .list-item:nth-child(5) { animation-delay: 65ms; }
+.timeline > .list-item:nth-child(6) { animation-delay: 75ms; }
 .table-wrap tbody tr:nth-child(2) { animation-delay: 20ms; }
 .table-wrap tbody tr:nth-child(3) { animation-delay: 35ms; }
 .table-wrap tbody tr:nth-child(4) { animation-delay: 50ms; }
@@ -904,10 +934,13 @@ details.pop[open] .pop-body { animation: rise 200ms var(--ease); }
     animation-delay: 0ms !important;
     transition-duration: 0.01ms !important;
   }
-  .nav a, .btn, button, .icon-btn, .choice span, .swatch span, .flash, .pill, .switch input {
+  .nav a, a, .btn, button, .icon-btn, .choice span, .swatch span, .flash, .pill, .switch input, .card {
     transition-property: background-color, color, border-color, box-shadow !important;
     transition-duration: 180ms !important;
   }
+  .btn:hover, button:hover, .btn:focus-visible, button:focus-visible,
+  .kpi:hover, a.row-person:hover .avatar { transform: none !important; }
+  .working-line .dots i { animation: none !important; opacity: 0.85; transform: none !important; }
 }
 
 @media print {

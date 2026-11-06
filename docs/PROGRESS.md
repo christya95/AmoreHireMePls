@@ -345,7 +345,7 @@ Approving a package only resumed a task that was still waiting. If that task had
 
 ## Location list order (2026-11-06)
 
-A location suggestion box tries the saved city and region first. A short region code still counts, so a saved region matches a two letter code that starts the same way. If that place is not offered, it tries the city alone, then each place saved in `preferences.location_fallbacks`, in order. The approved answer stays the first choice. When a later place is used, What is happening says the location list did not offer the saved place and names the place the form used. The Profile page field is "If your city is not offered, try these places". `tests/test_location_choice.py`. Full suite 376 passed, ruff clean. Not deployed. The live profile still has no later places saved.
+What to do now shows the latest step already saved, and the page replaces that line while a task is working. While a form is actually being filled, the same bar shows "Filling out the form" with moving dots so it is obvious the app is working; the real step stays underneath. The dots stop when the work stops. There is no fixed sentence for the step itself. Every page eases in, buttons lift slightly on hover, and cards shift colour. A location box types each place, because a pasted value does not open the list. It tries the saved city and region, then the city alone, then each place in `preferences.location_fallbacks`. Each try is saved as it happens, including when a place produces no list and which place was chosen. `tests/test_location_choice.py`. Not deployed. The live profile still has no later places saved. The Faire attempt stopped before this, with no suggestions, and nothing was sent.
 
 ## Exact next step
 

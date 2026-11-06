@@ -12,8 +12,9 @@ from amorehiremepls.web.chrome import (
     ScopeBinding,
     activity_payload,
     application_timeline,
-    authorized_now,
     continue_waiting_runs,
+    form_in_progress,
+    situation_line,
     timedelta,
     utcnow,
 )
@@ -77,8 +78,9 @@ def register(app, rt, require_session, require_csrf, render) -> None:
             site_label=site_adapter.site_label if site_adapter else None,
             hold=active_hold(rt.store, app_id),
             updates=application_timeline(a, runs),
-            now_line=authorized_now(a, runs),
+            now_line=situation_line(a, runs),
             activity_live=activity_payload(a, runs)["live"],
+            filling=form_in_progress(a, runs),
             can_clear=_can_clear(a),
         )
         return render(request, "application.html", session, **ctx)

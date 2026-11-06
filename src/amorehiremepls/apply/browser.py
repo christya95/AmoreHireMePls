@@ -239,6 +239,42 @@ class Plan:
     site: str = ""  # plain site name for messages ("Greenhouse")
 
 
+def step_note(step: Step) -> str:
+    """One line for What to do now, taken from the step itself. A personal answer is never included."""
+    name = (step.label or "").strip()
+    if step.sensitive:
+        return f"Answering {name}" if name else "Answering a personal question"
+    if step.type == "upload":
+        return f"Attaching {name}" if name else "Attaching a file"
+    if step.type == "click" and step.final:
+        return "Sending the application"
+    if step.type == "click":
+        return f"Continuing ({name})" if name else "Continuing"
+    if step.type == "check":
+        return f"Checking {name}" if name else "Checking a box"
+    if name:
+        return f"Filling {name}"
+    return step.type or "Working"
+
+
+def location_attempt_note(label: str, query: str, chosen: str | None = None, missed: bool = False) -> str:
+    """What the location box just did, using the place that was typed."""
+    name = (label or "").strip() or "Location"
+    if chosen:
+        return f"{name}: chose {chosen}"
+    if missed:
+        return f"{name}: no places appeared for {query}"
+    return f"{name}: typing {query}"
+
+
+def location_failure_reason(queries: list[str]) -> str:
+    """Plain reason when none of the typed places produced a suggestion."""
+    places = ", then ".join(query for query in queries if query)
+    if not places:
+        return "The location box did not show a place"
+    return f"The location box did not show a place for {places}"
+
+
 def apply_location_fallbacks(plan: Plan, fallbacks: list[str]) -> None:
     """Attach alternate places to location suggestion steps. The approved answer stays the first query."""
     extras = [item.strip() for item in fallbacks if item and item.strip()]
@@ -328,7 +364,14 @@ class BrowserAdapter:
         return self.config.session_dir / f"{site_key}.storage.json"
 
     def run_plan(
-        self, plan: Plan, site_key: str = "default", observe: bool = True, captcha_solver: Any | None = None, hold: Any | None = None, confirm_only: bool = False
+        self,
+        plan: Plan,
+        site_key: str = "default",
+        observe: bool = True,
+        captcha_solver: Any | None = None,
+        hold: Any | None = None,
+        confirm_only: bool = False,
+        progress: Any | None = None,
     ) -> dict[str, Any]:
         from playwright.sync_api import TimeoutError as PWTimeout
         from playwright.sync_api import sync_playwright
@@ -336,6 +379,7 @@ class BrowserAdapter:
         from amorehiremepls.core.human_check import launch_args
 
         self._check_host(plan.start_url)
+        self._progress = progress
         solver = captcha_solver if captcha_solver is not None else self.captcha_solver
         evidence: dict[str, Any] = {"started_at": utcnow().isoformat(), "steps_done": 0, "final_clicked": False}
         shots = self._shot_target(plan)
@@ -418,6 +462,7 @@ class BrowserAdapter:
             except (AmbiguousOutcome, HandoffRequired):
                 raise
             except ActionFailed as exc:
+                self._say(str(exc))
                 if "steps_done" not in exc.evidence:
                     # a step-level stop (file not confirmed, option not offered, ...): keep the run evidence and the page as it looked
                     if not evidence.get("final_clicked") and not any(s.get("label") in ("failed", "validation") for s in evidence.get("screenshots") or []):
@@ -437,6 +482,18 @@ class BrowserAdapter:
             finally:
                 context.close()
                 browser.close()
+                self._progress = None
+
+    def _say(self, message: str) -> None:
+        """Record one real step so the application page can show it. A note that fails does not stop the form."""
+        note = getattr(self, "_progress", None)
+        text = " ".join((message or "").split())
+        if not note or not text:
+            return
+        try:
+            note(text[:300])
+        except Exception:
+            log.exception("could not record the current step")
 
     def _run_steps(self, scope: _Scope, plan: Plan, evidence: dict, shots: _ShotTarget, solver: Any | None, hold: Any | None) -> None:
         page = scope.page
@@ -447,6 +504,8 @@ class BrowserAdapter:
                 self._snapshot(page, evidence, "summary", shots)
                 evidence["final_clicked"] = True
                 evidence["final_url_before"] = page.url
+            if step.type != "autocomplete":
+                self._say(step_note(step))
             self._do_step(scope, step, plan, evidence)
             evidence["steps_done"] = i + 1
             if step.type in ("click",) and not step.final:
@@ -750,29 +809,60 @@ class BrowserAdapter:
         if self._kind(loc) == "select":
             last: Exception | None = None
             for query in queries:
+                if not step.sensitive:
+                    self._say(location_attempt_note(step.label, query))
                 try:
                     loc.select_option(label=query, timeout=step.timeout_ms)
                 except Exception as exc:
                     last = exc
+                    if not step.sensitive:
+                        self._say(location_attempt_note(step.label, query, missed=True))
                     continue
                 self._note_place(evidence, step, query, query)
+                if not step.sensitive:
+                    self._say(location_attempt_note(step.label, query, chosen=query))
                 return
-            shown = "the chosen personal answer" if step.sensitive else f"'{step.value}'"
-            raise ActionFailed(f"option {shown} is not offered by the site", {} if step.sensitive else {"value": step.value}) from last
+            if step.sensitive:
+                raise ActionFailed("option the chosen personal answer is not offered by the site", {}) from last
+            raise ActionFailed(location_failure_reason(queries), {"value": step.value, "tried": queries}, retryable=True) from last
         offered: list[str] = []
         for query in queries:
+            if not step.sensitive:
+                self._say(location_attempt_note(step.label, query))
             try:
                 chosen = self._type_and_pick(scope, loc, query, step.timeout_ms, step.sensitive)
             except ActionFailed as exc:
                 offered = list(exc.evidence.get("offered") or offered)
+                if not step.sensitive:
+                    self._say(location_attempt_note(step.label, query, missed=True))
                 continue
             self._note_place(evidence, step, query, chosen)
+            if not step.sensitive:
+                self._say(location_attempt_note(step.label, query, chosen=chosen))
             return
-        shown = "the chosen personal answer" if step.sensitive else f"'{step.value}'"
-        detail = {} if step.sensitive else {"value": step.value, "offered": offered[:20]}
+        shown = "the chosen personal answer" if step.sensitive else location_failure_reason(queries)
+        detail = {} if step.sensitive else {"value": step.value, "tried": queries, "offered": offered[:20]}
         if step.sensitive:
             raise ActionFailed(f"option {shown} is not offered by the site", {"offered": offered[:20]})
-        raise ActionFailed(f"option {shown} is not offered; the site offers {offered[:8]}", detail)
+        raise ActionFailed(shown, detail, retryable=True)
+
+    def _suggestion_options(self, scope: _Scope):
+        """Suggestion rows, including a menu drawn on the top page while the form sits in a frame."""
+        selector = '[role="option"]:visible, .select__option:visible, [id*="-option-"]:visible'
+        loc = scope.locator(selector)
+        try:
+            if loc.count():
+                return loc
+        except Exception:
+            pass
+        if scope.frame_selector:
+            top = scope.page.locator(selector)
+            try:
+                if top.count():
+                    return top
+            except Exception:
+                pass
+        return loc
 
     def _note_place(self, evidence: dict | None, step: Step, query: str, chosen: str) -> None:
         if evidence is None or (step.label or "").strip().casefold() != "location" or step.sensitive:
@@ -783,9 +873,11 @@ class BrowserAdapter:
     def _type_and_pick(self, scope: _Scope, loc, query: str, timeout_ms: int, sensitive: bool) -> str:
         shown = "the chosen personal answer" if sensitive else f"'{query}'"
         loc.click(timeout=timeout_ms)
-        loc.fill("", timeout=timeout_ms)
-        loc.fill(query, timeout=timeout_ms)
-        options = scope.locator('[role="option"]:visible, .select__option:visible')
+        # Keystrokes, not a pasted value: the location box only searches as someone types.
+        loc.press("Control+A")
+        loc.press("Backspace")
+        loc.press_sequentially(query, delay=40, timeout=timeout_ms)
+        options = self._suggestion_options(scope)
         try:
             options.first.wait_for(state="visible", timeout=min(timeout_ms, 5000))
         except Exception as exc:

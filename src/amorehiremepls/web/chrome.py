@@ -332,10 +332,12 @@ def continue_waiting_runs(rt: Runtime, app: dict) -> bool:
     inputs = saved_form_inputs(app)
     for run in rt.store.c("runs").find({"params.job_id": app["job_id"], "status": "waiting", "interrupt.type": "needs_input"}):
         rt.store.update_run(run["_id"], requested="resume", resume_payload={"inputs": inputs})
+        rt.store.run_event(run["_id"], "Continuing this application")
         asked = True
     if app.get("status") == "authorized":
         for run in rt.store.c("runs").find({"params.job_id": app["job_id"], "status": "waiting", "interrupt.type": "awaiting_authorization"}):
             rt.store.update_run(run["_id"], requested="resume", resume_payload={"authorized": True})
+            rt.store.run_event(run["_id"], "Continuing this application")
             asked = True
     return asked
 
@@ -405,11 +407,31 @@ def authorized_now(app: dict, runs: list[dict]) -> str | None:
     return "Approved, and nothing is being sent right now. No task is working on this application."
 
 
+# Bookkeeping written when a task changes state. What to do now skips these when a real step is already saved.
+_BOOKKEEPING = {"Task finished", "Task started", "Task queued", "Paused"}
+
+
+def situation_line(app: dict, runs: list[dict]) -> str:
+    """What to do now is the latest thing already saved. No fixed sentence and no model call."""
+    rows = application_timeline(app, runs)
+    for row in rows:
+        if row["text"] not in _BOOKKEEPING:
+            return row["text"]
+    return rows[0]["text"] if rows else ""
+
+
+def form_in_progress(app: dict, runs: list[dict]) -> bool:
+    """True only while this application is being worked on, which is when the form animation runs."""
+    if app.get("status") not in ("authorized", "executing"):
+        return False
+    return any(run.get("status") in ("claimed", "running") for run in runs)
+
+
 def activity_payload(app: dict, runs: list[dict]) -> dict:
     """The lines already saved for this application, for the page to refresh. No model call."""
     lines = [{"at": _local(row["at"], "%Y-%m-%d %H:%M"), "text": row["text"], "count": row["count"]} for row in application_timeline(app, runs)]
     live = app.get("status") in ("authorized", "executing") or any(run.get("status") in ("queued", "claimed", "running", "waiting", "paused") for run in runs)
-    return {"now": authorized_now(app, runs) or "", "live": live, "lines": lines}
+    return {"now": situation_line(app, runs), "live": live, "working": form_in_progress(app, runs), "lines": lines}
 
 
 __all__ = [
@@ -481,6 +503,7 @@ __all__ = [
     "application_timeline",
     "apply_profile_toml",
     "authorized_now",
+    "situation_line",
     "continue_waiting_runs",
     "datetime",
     "donut",

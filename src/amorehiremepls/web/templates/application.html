@@ -41,7 +41,7 @@
     </div>
     <form method="post" action="/applications/{{ a._id }}/continue"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}"><button>Continue</button></form>
   </div>
-  {% elif now_line %}<div class="next-action mt" id="activity-banner"><div class="body"><small class="muted">What to do now</small><strong id="activity-now">{{ now_line }}</strong></div></div>
+  {% elif now_line or filling %}<div class="next-action mt{% if filling %} working{% endif %}" id="activity-banner" aria-live="polite"><div class="body"><small class="muted">What to do now</small><strong class="working-line" id="activity-phase"{% if not filling %} hidden{% endif %}>Filling out the form<span class="dots" aria-hidden="true"><i></i><i></i><i></i></span></strong><strong id="activity-now" class="step-now">{{ now_line }}</strong></div></div>
   {% elif step %}<div class="next-action mt"><div class="body"><small class="muted">What to do now</small><strong>{{ step[0] }}</strong></div>{% if step[1] %}<a class="btn" href="{{ step[1] }}"><svg class="icon"><use href="#i-arrow"/></svg>{{ a.status|verb }}</a>{% endif %}</div>{% endif %}
 </div>
 
