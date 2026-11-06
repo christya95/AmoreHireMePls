@@ -5,9 +5,10 @@ session. No private values: field names and counts only. Keep under 120 lines; f
 
 ## State now
 
-- Deployed 14:35: NAS stack `amorehiremepls`, image `lepia/amorehiremepls:8fad9eac5b91` (commit `8fad9ea`: application page
-  polish, one sentence failure headline, picture placeholder). Local dashboard is DOWN: its relaunch hit two 1Password
-  `authorization timeout`s and a `promptError`; relaunch it with the owner present to approve the prompt.
+- Deployed 14:56: NAS stack `amorehiremepls`, image `lepia/amorehiremepls:719082c5e83f` (commit `719082c`). Local dashboard
+  python pid 21704 (op pid 21691) on the same commit. The 14:45 Faire attempt bound Location ("Chose Milton, Ontario,
+  Canada") then failed on the synthetic Country box, which resolved to the phone code picker ("Canada +1"); an optional
+  suggestion box with no matching row is now cleared and skipped. Owner retries. `8fad9ea` was the page polish.
 - Deployed 13:56: `1b7083e`. Root cause of every Faire Location failure: the place list host
   `api-geocode-earth-proxy.greenhouse.io` was not a Greenhouse resource host, so the gate aborted it and no city ever
   appeared; the DOM fallback then read the phone country code rows. Both fixed (host added, `data-dial-code` rows
