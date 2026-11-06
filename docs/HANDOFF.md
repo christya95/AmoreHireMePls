@@ -11,7 +11,7 @@ session. No private values: field names and counts only. Keep under 120 lines; f
   country code rows ("Afghanistan+93 ..."). Both fixed (host added, `data-dial-code` rows ignored). Web and worker
   healthy, `/health` 200. Local dashboard pid 73119 predates this commit; restart it before a local run. Owner retries
   the Faire application; check its Location field answer first (the 18:32 attempt typed "Yes" from a field answer).
-- Saved locally, uncommitted, not deployed (each verified in `git diff`; full suite 413 passed, ruff clean per the last agent):
+- Committed in `c3d1ec0` and deployed (full suite passed, ruff clean); the working tree is clean:
   - A failed attempt shows Failed in red (`chrome.py` headline); approval is no longer the headline after a failure.
   - A value the person types on the application wins for every field; profile facts fill only untouched fields; typed values
     survive a rebuild (`applications.py: keep_typed_answers`).
@@ -25,10 +25,8 @@ session. No private values: field names and counts only. Keep under 120 lines; f
     `ats/rules.py: pick_years_bucket`). Rebuild keeps each question's `meta.ats` so the site adapter maps it.
   - Application and job pages redesigned: one status block at top (`status_block` macro; single ask and single control only
     when needed, otherwise "Nothing is needed from you right now."). Folds closed by default except Still needed, Proof after
-    an attempt, What would be sent when answers are needed, What is happening while live; both lists scroll at 16rem. Network
-    Tab removed from the page (recording still runs server side); history dump removed. Answers card heading "Answers that
-    will be sent" with a three sentence intro; page title "This application". Tokens `--s-1`..`--s-8`, motion tokens,
-    `rise`/`row-in`/`chip-pulse` keyframes, reduced motion snaps, password discs visible on login, page entrance ease-in.
+    an attempt, What would be sent when answers are needed, What is happening while live. Network Tab and history dump removed
+    from the page (recording still runs server side). Spacing/motion tokens, `rise`/`row-in`/`chip-pulse` keyframes, reduced motion snaps.
 - Live and used for real: profile store, base resume registration, tracker preview/import (nothing pushed), discovery by URL, model check
   through `op run`, deterministic tailoring with a 2 page PDF, review package and approval gates, application status and Updates list from
   stored events, fit check, `candidate/` drop folder (NAS bind mount `/candidate`, `AMORE_CANDIDATE_SUPPLEMENTAL_MAX_CHARS=40000`), self
