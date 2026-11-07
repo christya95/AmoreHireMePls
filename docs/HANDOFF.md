@@ -1,17 +1,17 @@
 # Handoff
 
-Written 2026-11-06 20:30 Toronto. Read this first in every new session. No private values: field names and counts only. Keep under 120 lines; finished items move to `docs/PROGRESS.md`.
+Written 2026-11-06 21:10 Toronto. Read this first in every new session. No private values: field names and counts only. Keep under 120 lines; finished items move to `docs/PROGRESS.md`.
 
 ## State now
 
-- NAS stack `amorehiremepls` is image `lepia/amorehiremepls:7118b15ec582` (commit `7118b15`). Web and worker healthy, `/health` 200. The worker accepts an exact later approval instead of stopping on an older stale denial. Local dashboard is the Mac process; NAS runs the worker. `www.linkedin.com` and `linkedin.com` remain allowed. Nothing was submitted, retried, or approved.
+- NAS stack `amorehiremepls` is image `lepia/amorehiremepls:2a206e5d2a2f` (commit `2a206e5`). Web and worker healthy, `/health` 200. A LinkedIn apply link that leaves the page is followed in the same session. Apply with LinkedIn is preferred on that page. `www.linkedin.com` and `linkedin.com` stayed in `AMORE_BROWSER_ALLOWED_HOSTS`. The company host is allowed from the link for that run, not added to the list. Nothing was submitted, retried, or approved.
 - An approved package with nothing in progress shows Apply with the app in the status block. It posts the existing retry route, which queues that package and does not ask for a new approval. A task already running, and a stale approval, do not show it. The LinkedIn application ending 856733 is removed, so that page has no button. The current package for that job asks to approve again.
-- LinkedIn application forms: a signed-in Easy Apply style page is filled from saved answers and stops before submit unless an approval already matches. Sign-in, a verify-it's-you page, and a step with no saved answer stay a handoff. Nothing was sent. No messages or connection requests. Fixture tested only. The worker needs `www.linkedin.com` and `linkedin.com` on `AMORE_BROWSER_ALLOWED_HOSTS` before a real page can open.
+- LinkedIn application forms: a signed-in Easy Apply style page is filled from saved answers and stops before submit unless an approval already matches. An external apply link is followed; apply-with-LinkedIn is clicked when that page has it. Sign-in, a verify-it's-you page, an unknown required question, and a page with neither control stay a handoff. Nothing was sent. No messages or connection requests. Fixture tested. The live external apply has not been run on this image.
 - Eight one-character boxes under "Security code" are found and filled one character each (`browser.py`: `CODE_MARK`, `_CODE_BOXES_JS`, `_type_code`). The name-based selector missed them, so the 16:13 attempt never showed "Code from your email". Fixture tested. The live prompt is the next check.
 - Also in this image: Remove on a prepared row, Cancel before the final click, 90 s receipt wait, one resubmit after the emailed code, place-list host allowed, phone country rows ignored, typed answers win, exact city row, years buckets.
 - The 16:13 Faire attempt reached the code prompt and was not sent. No employer receipt exists. Nothing has been submitted by the app.
 - Live and used for real: profile store, base resume, tracker preview/import (nothing pushed), discovery by URL, model check through `op run`, deterministic tailoring, review and approval gates, application status, fit check, `candidate/` drop folder, self identification, salary case, timezone and tracker settings, `profile.toml`. `amore migrate-users` ran once (222 stamped).
-- Fixture tested only: Greenhouse, Lever, Ashby and LinkedIn form filling, including the eight-box code field; the salary skill; Workday refresh; notifications; the human check and the one later try. LinkedIn has not been opened live.
+- Fixture tested only: Greenhouse, Lever, Ashby and LinkedIn form filling, including an external apply link and the eight-box code field; the salary skill; Workday refresh; notifications; the human check and the one later try. LinkedIn was opened live on the previous image and stopped before send.
 - Data (counts only, live database): contact and address facts, links, availability, notice, work arrangements, compensation floor, five self identification facts, 62 answers, 11 skills, 11 education rows. Profile city and province are still the defaults; `location_fallbacks` is empty. Faire application `app_6a78e38192928c99` (job `job_d0f65161045baf54`).
 
 ## Decisions
@@ -41,7 +41,7 @@ Written 2026-11-06 20:30 Toronto. Read this first in every new session. No priva
 3. Not done: the two saved later places (question 8). Profile page or `profile.toml`, not code.
 4. After the first confirmed employer receipt: recruiter Connect note drafts (in house, skip RBC and FAANG, under 300 characters, no dashes, no layoff mention, name the role, draft only). Waits for a confirmed receipt.
 
-Next step: the owner records "It was not sent", presses Retry, and pastes the new email code into "Code from your email".
+Next step: on the LinkedIn application that stopped with no form (`app_5cf993fc297f4b3e`), press Retry with the app. The worker follows the company page. Do not approve a new package and do not record a confirmation unless the site shows one. Separately, the owner records "It was not sent" on the Faire attempt, presses Retry, and pastes the new email code into "Code from your email".
 
 ## Operating rules
 
