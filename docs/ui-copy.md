@@ -196,6 +196,7 @@ label and bookkeeping words never appear.
 | applied | "Nothing is needed from you right now. Applied and recorded. Next: short notes to recruiters at this employer." | Contact recruiters (secondary) |
 | a check appeared, one more try queued | "Nothing is needed from you right now. A check appeared. The app tries once more later, then tells you if it still needs you." | none |
 | ready for you to read | "Read the resume and the answers, then approve this exact application. Your approval covers this job, these answers and these exact files only. If anything changes, you will be asked again." | Approve this exact application · Approval options (hours, note) |
+| earlier approval does not cover this version | "Your earlier approval does not cover this version. Approve it again." The saved reason stays in a muted chip. | Approve this exact application (the same approval form) |
 | one answer missing | "[Label] is still needed. Type it here and save. The application is then ready for your approval." | one text box or list, Save this answer |
 | several answers missing | "Some answers are still needed." | link to Answers that will be sent |
 | no resume | "A resume still needs to be selected." | Select a resume (profile page) |

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from amorehiremepls.core.authorization import MATERIAL_CHANGED
 from amorehiremepls.web.chrome import (
     Depends,
     Form,
@@ -57,6 +58,15 @@ def _clear_application(rt, app_id: str, back_to: str | None = None):
     return RedirectResponse(f"{back_to or '/jobs/' + app['job_id']}?ok={flash}", status_code=303)
 
 
+def approval_stale(rt, app: dict) -> bool:
+    """True when a saved approval is for this job but not for the package on the page."""
+    from amorehiremepls.core.runtime import RealServices
+
+    if not app or not app.get("job_id"):
+        return False
+    return RealServices(rt).authorization_decision(app).reason == MATERIAL_CHANGED
+
+
 def _can_cancel(app: dict, runs: list[dict], filling: bool) -> bool:
     """Cancel is offered only while a task is filling the form and the final click has not been noted yet."""
     from amorehiremepls.apply.applications import LIVE_RUN_STATES, final_click_noted
@@ -93,12 +103,16 @@ def application_view(rt, a: dict, job: dict, session: dict, runs: list[dict] | N
     field_hold = {"label": hold.get("field_label") or "", "reason": hold.get("field_reason") or ""} if hold and hold.get("purpose") == "field" else None
     filling = form_filling_now(a, runs, action) and not field_hold
     live = any(run.get("status") in ("queued", "claimed", "running", "waiting", "paused") for run in runs)
-    happening = plain_headline(what_to_do_line(a, runs, saved_reason, action, field_hold), show_status)
+    stale = approval_stale(rt, a)
+    happening = plain_headline(what_to_do_line(a, runs, saved_reason, action, field_hold, stale=stale), show_status)
     can_fill = bool(a.get("status") == "authorized" and answers_differ(a, action) and not filling and not live and RealServices(rt).has_authorization(a))
     can_clear = _can_clear(a)
     can_cancel = _can_cancel(a, runs, filling)
     show_reason = shown_status_reason(a, action, show_status)
-    need = needed_now(a, show_status, hold, can_fill=can_fill, can_retry=can_retry, can_clear=can_clear, working=filling, can_cancel=can_cancel)
+    if not stale and show_reason == MATERIAL_CHANGED:
+        show_reason = ""
+    show_reason = show_reason if reason_adds(happening, show_reason, a, action) else ""
+    need = needed_now(a, show_status, hold, can_fill=can_fill, can_retry=can_retry, can_clear=can_clear, working=filling, can_cancel=can_cancel, stale=stale)
     return dict(
         a=a,
         job=job,
@@ -110,10 +124,11 @@ def application_view(rt, a: dict, job: dict, session: dict, runs: list[dict] | N
         saved_reason=saved_reason,
         happening=happening,
         gap=answer_gap_line(a, action),
-        activity_live=activity_payload(a, runs, saved_reason, action=action)["live"],
+        activity_live=activity_payload(a, runs, saved_reason, action=action, stale=stale)["live"],
         filling=filling,
         show_status=show_status,
-        show_reason=show_reason if reason_adds(happening, show_reason, a, action) else "",
+        show_reason=show_reason,
+        note_raw=show_reason == MATERIAL_CHANGED,
         answers_changed=answers_differ(a, action),
         can_fill=can_fill,
         can_clear=can_clear,
@@ -159,7 +174,7 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         field = None
         if hold and hold.get("purpose") == "field":
             field = {"label": hold.get("field_label") or "", "reason": hold.get("field_reason") or ""}
-        return JSONResponse(activity_payload(a, runs, shown_failure_reason(a, action), field, action=action))
+        return JSONResponse(activity_payload(a, runs, shown_failure_reason(a, action), field, action=action, stale=approval_stale(rt, a)))
 
     @app.post("/applications/{app_id}/inputs")
     async def application_inputs(request: Request, app_id: str, session: dict = Depends(require_session)):
@@ -176,7 +191,12 @@ def register(app, rt, require_session, require_csrf, render) -> None:
     ):
         require_csrf(request, session, csrf)
         a = rt.store.c("applications").find_one({"_id": app_id})
-        if a["status"] != "ready_for_review" or a["material_hash"] != material_hash:
+        from amorehiremepls.core.runtime import RealServices
+
+        # The same approval posts again when the saved one is for an older package. A package that is already covered stays as it is.
+        covered = bool(a) and RealServices(rt).has_authorization(a)
+        ready = bool(a) and a.get("material_hash") == material_hash and (a.get("status") == "ready_for_review" or (a.get("status") == "authorized" and not covered))
+        if not ready:
             raise HTTPException(409, "review package changed or not ready; refresh and review again")
         host = (a["review_package"].get("apply_url") or "").split("/")[2] if "://" in (a["review_package"].get("apply_url") or "") else None
         rt.auth.grant(
@@ -185,7 +205,10 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         now = utcnow()
         rt.store.c("applications").update_one(
             {"_id": app_id},
-            {"$set": {"status": "authorized", "updated_at": now}, "$push": {"history": {"at": now, "status": "authorized", "next_action": "the task applies this package"}}},
+            {
+                "$set": {"status": "authorized", "reason": "", "updated_at": now},
+                "$push": {"history": {"at": now, "status": "authorized", "next_action": "the task applies this package"}},
+            },
         )
         a = rt.store.c("applications").find_one({"_id": app_id})
         if not continue_waiting_runs(rt, a):

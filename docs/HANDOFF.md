@@ -1,10 +1,10 @@
 # Handoff
 
-Written 2026-11-06 17:38 Toronto at commit `1d60045`. Read this first in every new session. No private values: field names and counts only. Keep under 120 lines; finished items move to `docs/PROGRESS.md`.
+Written 2026-11-06 20:30 Toronto. Read this first in every new session. No private values: field names and counts only. Keep under 120 lines; finished items move to `docs/PROGRESS.md`.
 
 ## State now
 
-- Deployed 17:37: NAS stack `amorehiremepls`, image `lepia/amorehiremepls:1d60045c6f80` (commit `1d60045`). Web and worker healthy; NAS `/health` 200. Local dashboard python pid 74353 (op pid 73705), started 17:37, `/health` 200, same commit. NAS runs the worker; local web is display only.
+- NAS stack `amorehiremepls` is still image `lepia/amorehiremepls:1d60045c6f80` (commit `1d60045`). Web and worker healthy there. Local dashboard restarted on this working tree (web pid 56775, op pid 56769), `/health` 200. NAS runs the worker; local web is display only. Do not deploy until the owner wants the already-approved LinkedIn package sent: this tree's checker honours a later exact approval that the NAS worker still skips.
 - LinkedIn application forms: a signed-in Easy Apply style page is filled from saved answers and stops before submit unless an approval already matches. Sign-in, a verify-it's-you page, and a step with no saved answer stay a handoff. Nothing was sent. No messages or connection requests. Fixture tested only. The worker needs `www.linkedin.com` and `linkedin.com` on `AMORE_BROWSER_ALLOWED_HOSTS` before a real page can open.
 - Eight one-character boxes under "Security code" are found and filled one character each (`browser.py`: `CODE_MARK`, `_CODE_BOXES_JS`, `_type_code`). The name-based selector missed them, so the 16:13 attempt never showed "Code from your email". Fixture tested. The live prompt is the next check.
 - Also in this image: Remove on a prepared row, Cancel before the final click, 90 s receipt wait, one resubmit after the emailed code, place-list host allowed, phone country rows ignored, typed answers win, exact city row, years buckets.

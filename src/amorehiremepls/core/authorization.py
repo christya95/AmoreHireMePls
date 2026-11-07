@@ -55,6 +55,10 @@ class Decision(BaseModel):
     scope_id: str | None = None
 
 
+# Shown as a muted chip. The page asks for a new approval in plain language; this string stays the stored reason.
+MATERIAL_CHANGED = "material content changed since authorization; renew it"
+
+
 def material_hash(answers: Any = None, document_hashes: list[str] | None = None, message: str | None = None, recipient: str | None = None, extra: Any = None) -> str:
     return sha256_json({"answers": answers, "documents": sorted(document_hashes or []), "message": message, "recipient": recipient, "extra": extra})
 
@@ -116,6 +120,8 @@ class AuthorizationStore:
         if kind == "owner_notification":
             return Decision(allowed=True, reason="owner alert", scope_id=None)
         now = utcnow()
+        # An older single approval for a different package must not hide a later exact one for this package.
+        mismatched: Decision | None = None
         for scope in self.active(kind):
             if scope.expires_at <= now:
                 continue
@@ -128,7 +134,9 @@ class AuthorizationStore:
                 if b.target_id != target_id:
                     continue
                 if b.material_hash != material:
-                    return Decision(allowed=False, reason="material content changed since authorization; renew it", scope_id=scope.id)
+                    if mismatched is None:
+                        mismatched = Decision(allowed=False, reason=MATERIAL_CHANGED, scope_id=scope.id)
+                    continue
                 return Decision(allowed=True, reason="exact single-action authorization", scope_id=scope.id)
             # batch: only application submissions can be batch-authorized, and only against a concrete job
             # that matches the scope's filters. Without a job there is nothing to match, so deny.
@@ -141,6 +149,8 @@ class AuthorizationStore:
             if b.target_id and b.target_id != target_id:
                 continue
             return Decision(allowed=True, reason="bounded batch authorization", scope_id=scope.id)
+        if mismatched is not None:
+            return mismatched
         return Decision(allowed=False, reason="no matching active authorization")
 
     def consume(self, scope_id: str, outcome: str) -> None:

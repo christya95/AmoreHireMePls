@@ -40,6 +40,18 @@ def test_wrong_target_expired_and_changed_material_fail_closed(store):
     assert out.status == "denied" and "material content changed" in out.reason
 
 
+def test_an_older_different_package_does_not_hide_a_later_exact_approval(store):
+    old = material_hash(answers={"q": "a"}, document_hashes=["abc"])
+    current = material_hash(answers={"q": "b"}, document_hashes=["abc"])
+    _grant(store, "job1", old)
+    exact = _grant(store, "job1", current)
+    decision = AuthorizationStore(store).check("application_submit", "job1", current)
+    assert decision.allowed and decision.scope_id == exact.id
+    other = material_hash(answers={"q": "c"}, document_hashes=["abc"])
+    stale = AuthorizationStore(store).check("application_submit", "job1", other)
+    assert not stale.allowed and "material content changed" in stale.reason
+
+
 def test_success_consumes_scope_and_replay_does_not_rerun_adapter(store):
     acts = ActionStore(store)
     mat = material_hash(answers={"q": "a"})

@@ -7,7 +7,7 @@
 {% set idle_line = 'Nothing is being filled in right now.' %}
 {% set now_line = '' if (happening == idle_line and need.kind) else happening %}
 <div class="stack">
-{% call status_block(show_status, now=now_line, ask=need.title, note=show_reason, working=filling, more=need.text, idle_hidden=(need.kind != ''), ask_id=('field-answer-label' if need.kind == 'field' else '')) %}
+{% call status_block(show_status, now=now_line, ask=need.title, note=show_reason, working=filling, more=need.text, idle_hidden=(need.kind != ''), ask_id=('field-answer-label' if need.kind == 'field' else ''), note_raw=note_raw) %}
   {% if need.kind == 'human_check' %}
   <form method="post" action="/applications/{{ a._id }}/continue" id="human-check"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}"><button><svg class="icon"><use href="#i-check"/></svg>Continue</button></form>
   {% elif need.kind == 'field' %}
@@ -104,10 +104,10 @@
   {% if pkg.unsupported_requirements_note %}{% set note = pkg.unsupported_requirements_note|plain %}{% set bits = note.split('. ') %}<p class="note gap-note">{{ bits[0] }}{% if bits|length > 1 %}.{% endif %}</p>{% endif %}
 {% endcall %}
 
-{% call fold('authorize', 'Your approval', meta=('approved' if scopes else 'not yet'), tone=('ok' if scopes else '')) %}
+{% call fold('authorize', 'Your approval', meta=('approve again' if need.kind == 'approve' and a.status != 'ready_for_review' else ('approved' if scopes else 'not yet')), tone=('warn' if need.kind == 'approve' and a.status != 'ready_for_review' else ('ok' if scopes else ''))) %}
   <div class="sub">{{ glossary.authorization[1] }} {{ hint('authorization') }}</div>
   {% for s in scopes %}<p class="approval-line"><span class="pill ok">{% if s.mode == 'batch' %}Approved for several jobs{% else %}Approved for this job{% endif %}</span> <small>used {{ s.used_count }} of {{ s.max_count }} · ends {{ s.expires_at|local }}</small></p>{% endfor %}
-  {% if a.status == 'ready_for_review' %}<p class="note">The Approve button is at the top of this page. It covers this job, these answers and these exact files only.</p>
+  {% if need.kind == 'approve' %}<p class="note">The Approve button is at the top of this page. It covers this job, these answers and these exact files only.</p>
   {% elif not scopes %}<p class="note">Nothing to approve right now. The Approve button appears at the top of this page when the application is ready.</p>{% endif %}
 {% endcall %}
 

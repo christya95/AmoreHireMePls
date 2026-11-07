@@ -7,7 +7,7 @@
 {% set open_verbs = {'human_check': 'Open the application', 'field': 'Answer on the application page', 'answer': 'Answer the question', 'answers': 'Answer the questions',
                      'approve': 'Read and approve', 'fill': 'Open the application', 'retry': 'Open the application', 'manual': 'Record it on the application page', 'verify': 'Record the result'} %}
 {% set now_line = '' if (view.happening == idle_line and view.need.kind) else view.happening %}
-{% call status_block(view.show_status, now=now_line, ask=view.need.title, note=view.show_reason, working=view.filling, more=view.need.text, idle_hidden=(view.need.kind != '')) %}
+{% call status_block(view.show_status, now=now_line, ask=view.need.title, note=view.show_reason, working=view.filling, more=view.need.text, idle_hidden=(view.need.kind != ''), note_raw=view.note_raw) %}
   {% if view.need.kind == 'resume' %}<a class="btn" href="/profile"><svg class="icon"><use href="#i-profile"/></svg>Select a resume</a>
   {% elif view.need.kind %}<a class="btn" href="{{ app_href }}"><svg class="icon"><use href="#i-arrow"/></svg>{{ open_verbs.get(view.need.kind, 'Open the application') }}</a>
   {% elif next_step.href and next_step.verb and not next_step.href.startswith('/applications') and not next_step.href.startswith('/runs') %}<a class="btn secondary" href="{{ next_step.href }}"><svg class="icon"><use href="#i-arrow"/></svg>{{ next_step.verb }}</a>{% endif %}

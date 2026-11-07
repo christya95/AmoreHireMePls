@@ -761,7 +761,10 @@ def tips_hidden_for(line: str) -> bool:
     return line in (FILLING_LINE, OPENING_LINE, _NOT_OPENED) or "form is waiting" in (line or "")
 
 
-def what_to_do_line(app: dict, runs: list[dict], saved_reason: str = "", action: dict | None = None, field: dict | None = None) -> str:
+STALE_APPROVAL_LINE = "Your earlier approval does not cover this version. Approve it again."
+
+
+def what_to_do_line(app: dict, runs: list[dict], saved_reason: str = "", action: dict | None = None, field: dict | None = None, stale: bool = False) -> str:
     """One or two plain sentences for what is happening now, from the latest saved event. No model call."""
     reason = _field_reason(field)
     held = bool(reason) or (isinstance(field, dict) and (field.get("label") or field.get("field_label")))
@@ -771,6 +774,8 @@ def what_to_do_line(app: dict, runs: list[dict], saved_reason: str = "", action:
             return stalled
     if form_filling_now(app, runs, action) and not held:
         return FILLING_LINE
+    if stale and not held:
+        return STALE_APPROVAL_LINE
     latest = situation_line(app, runs, saved_reason)
     if not held:
         gap = answer_gap_line(app, action)
@@ -823,6 +828,15 @@ def reason_adds(happening: str, reason: str, app: dict | None = None, action: di
     return not _HIDDEN_WORDS.search(text)
 
 
+def _approve_ask() -> dict:
+    return {
+        "kind": "approve",
+        "title": "Read the resume and the answers, then approve this exact application.",
+        "text": "Your approval covers this job, these answers and these exact files only. If anything changes, you will be asked again.",
+        "field": None,
+    }
+
+
 def needed_now(
     app: dict,
     show_status: str,
@@ -832,6 +846,7 @@ def needed_now(
     can_clear: bool = False,
     working: bool = False,
     can_cancel: bool = False,
+    stale: bool = False,
 ) -> dict:
     """The one thing this application asks of the person, with the control it needs.
 
@@ -878,13 +893,8 @@ def needed_now(
             "text": "Fill in the answers marked needed, then save. The application is then ready for your approval.",
             "field": None,
         }
-    if status == "ready_for_review":
-        return {
-            "kind": "approve",
-            "title": "Read the resume and the answers, then approve this exact application.",
-            "text": "Your approval covers this job, these answers and these exact files only. If anything changes, you will be asked again.",
-            "field": None,
-        }
+    if status == "ready_for_review" or (status == "authorized" and stale):
+        return _approve_ask()
     if can_fill:
         text = "The job site is opened with these answers. Nothing else changes."
         return {"kind": "fill", "title": "Fill in the form with the answers on this page.", "text": text, "field": None}
@@ -962,14 +972,16 @@ def network_public(rows: list[dict] | None) -> list[dict]:
     return public
 
 
-def activity_payload(app: dict, runs: list[dict], saved_reason: str = "", field: dict | None = None, network: list[dict] | None = None, action: dict | None = None) -> dict:
+def activity_payload(
+    app: dict, runs: list[dict], saved_reason: str = "", field: dict | None = None, network: list[dict] | None = None, action: dict | None = None, stale: bool = False
+) -> dict:
     """Saved steps plus this job's network rows, for the page to refresh. No model call."""
     rows = application_timeline(app, runs, saved_reason)
     lines = [{"at": _local(row["at"], "%Y-%m-%d %H:%M"), "text": row["text"], "count": row["count"]} for row in rows]
     live = app.get("status") in ("authorized", "executing") or any(run.get("status") in ("queued", "claimed", "running", "waiting", "paused") for run in runs)
     held = bool(field and (field.get("label") or field.get("reason")))
     filling = form_filling_now(app, runs, action) and not held
-    line = what_to_do_line(app, runs, saved_reason, action, field)
+    line = what_to_do_line(app, runs, saved_reason, action, field, stale=stale)
     status = shown_status(app, action, runs)
     payload = {
         "now": "",
@@ -1058,6 +1070,7 @@ __all__ = [
     "application_timeline",
     "event_log",
     "needed_now",
+    "STALE_APPROVAL_LINE",
     "network_public",
     "reason_adds",
     "NOTHING_NEEDED",

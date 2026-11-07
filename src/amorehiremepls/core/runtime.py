@@ -16,7 +16,7 @@ from amorehiremepls.candidate.candidate_docs import CandidateDocs, load_candidat
 from amorehiremepls.candidate.profile import Profile, ProfileStore
 from amorehiremepls.core.actions import ActionFailed, ActionStore
 from amorehiremepls.core.ai import AIRunner, Budget, Pricing, Provider, build_provider
-from amorehiremepls.core.authorization import AuthorizationStore
+from amorehiremepls.core.authorization import AuthorizationStore, Decision
 from amorehiremepls.core.config import Settings
 from amorehiremepls.core.db import Store
 from amorehiremepls.core.orchestration import Runner, build_application_graph, make_checkpointer
@@ -279,13 +279,16 @@ class RealServices:
     def supply_inputs(self, application_id: str, values: dict) -> dict:
         return self.rt.applications().supply_inputs(application_id, values)
 
-    def has_authorization(self, app: dict) -> bool:
+    def authorization_decision(self, app: dict) -> Decision:
         job = self.rt.jobs.get(app["job_id"])
         host = (app.get("review_package") or {}).get("apply_url", "")
         host = host.split("/")[2].lower() if "://" in host else None
         return self.rt.auth.check(
             "application_submit", app["job_id"], app["material_hash"], host=host, job=job, has_material_unknowns=bool((app.get("review_package") or {}).get("outstanding"))
-        ).allowed
+        )
+
+    def has_authorization(self, app: dict) -> bool:
+        return self.authorization_decision(app).allowed
 
     def execute(self, application_id: str, worker: str) -> dict:
         svc = self.rt.applications()
