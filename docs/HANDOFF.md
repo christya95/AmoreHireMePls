@@ -1,10 +1,10 @@
 # Handoff
 
-Written 2026-11-06 21:40 Toronto. Read this first in every new session. No private values: field names and counts only. Keep under 120 lines; finished items move to `docs/PROGRESS.md`.
+Written 2026-11-06 21:41 Toronto. Read this first in every new session. No private values: field names and counts only. Keep under 120 lines; finished items move to `docs/PROGRESS.md`.
 
 ## State now
 
-- The 21:25 retry (`run_2db232e35747dd86`, image `2a206e5`) did follow the external link and click Apply with LinkedIn. Preflight was empty. The company document loaded. Its scripts and styles, served from other hosts, were aborted by the request gate, so no form appeared and the run handed off with nothing sent. The fix allows those sub-resources for that run only. `www.linkedin.com` stays in `AMORE_BROWSER_ALLOWED_HOSTS`. The company host is still not added to the list. Nothing was submitted. The owner presses Retry with the app again after the new image is healthy. Do not press I applied on the site.
+- NAS stack `amorehiremepls` is image `lepia/amorehiremepls:101e5f6d8f58` (commit `101e5f6`). Web and worker healthy, `/health` 200. The 21:25 retry on `2a206e5` followed the external link and clicked Apply with LinkedIn, then handed off because the company page's scripts were aborted. This image allows those sub-resources for that run only. `www.linkedin.com` stays in `AMORE_BROWSER_ALLOWED_HOSTS`. The company host is still not added to the list. Nothing was submitted. The owner presses Retry with the app on `app_5cf993fc297f4b3e`. Do not press I applied on the site.
 - An approved package with nothing in progress shows Apply with the app in the status block. It posts the existing retry route, which queues that package and does not ask for a new approval. A task already running, and a stale approval, do not show it. The LinkedIn application ending 856733 is removed, so that page has no button. The current package for that job asks to approve again.
 - A handoff that sent nothing, and whose approval still covers the package, shows Retry with the app as well as I applied on the site. Same retry route and CSRF. It queues that package and does not create an application or an approval. Hidden while a task is queued, claimed, running, paused, or waiting on something other than this handoff. A stale approval still asks to approve again. The button is on `app_5cf993fc297f4b3e`. No run was queued from this session.
 - LinkedIn application forms: a signed-in Easy Apply style page is filled from saved answers and stops before submit unless an approval already matches. An external apply link is followed, including its redirect, and that page may load scripts from other hosts for the rest of the run. Apply with LinkedIn is clicked when that page has it. Sign-in, a verify-it's-you page, an unknown required question, and a page with neither control stay a handoff. Nothing was sent. No messages or connection requests. Fixture tested, including a redirect whose form is opened by a script on a third loopback name.
@@ -42,7 +42,7 @@ Written 2026-11-06 21:40 Toronto. Read this first in every new session. No priva
 3. Not done: the two saved later places (question 8). Profile page or `profile.toml`, not code.
 4. After the first confirmed employer receipt: recruiter Connect note drafts (in house, skip RBC and FAANG, under 300 characters, no dashes, no layoff mention, name the role, draft only). Waits for a confirmed receipt.
 
-Next step: after the new image is healthy, the owner presses Retry with the app on `app_5cf993fc297f4b3e`. That queues the same approved package. Do not approve a new package, do not press I applied on the site, and do not record a confirmation unless the site shows one. Separately, the owner records "It was not sent" on the Faire attempt, presses Retry, and pastes the new email code into "Code from your email".
+Next step: the owner presses Retry with the app on `app_5cf993fc297f4b3e`. That queues the same approved package on image `101e5f6d8f58`. Do not approve a new package, do not press I applied on the site, and do not record a confirmation unless the site shows one. Separately, the owner records "It was not sent" on the Faire attempt, presses Retry, and pastes the new email code into "Code from your email".
 
 ## Operating rules
 
