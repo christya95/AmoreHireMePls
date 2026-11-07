@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 router = APIRouter()
 LI_SUBMISSIONS: list[dict] = []
 COMPANY_SUBMISSIONS: list[dict] = []
+OAUTH_HITS: list[dict] = []
 
 JOB_ID = "1000000001"
 
@@ -121,6 +122,12 @@ def job_page(job_id: str, request: Request, variant: str = "", company: str = ""
         asset_host = _fixture_host(asset) or "cdn.127.0.0.1.nip.io"
         dest = f"http://{company_host}:{port}/company/{job_id}?kind=assets&asset={asset_host}:{port}"
         return HTMLResponse(_offsite_page(job_id, "/safety/go/?next=" + quote(dest, safe="")))
+    if variant == "popup":
+        port = request.url.port
+        dest = f"http://site.127.0.0.1.nip.io:{port}/company/{job_id}?kind=popup&job_host=127.0.0.1:{port}"
+        return HTMLResponse(_offsite_page(job_id, "/safety/go/?next=" + quote(dest, safe="")))
+    if variant == "blocked":
+        return RedirectResponse("/uas/login", status_code=303)
     return HTMLResponse(_form(job_id))
 
 
@@ -201,8 +208,21 @@ document.getElementById('apply-now').addEventListener('click', () => {{
 </script></body></html>"""
 
 
+def _popup_company_page(job_id: str, job_host: str) -> str:
+    """Apply with LinkedIn opens a popup on the session host. A cross-site open is not the saved session."""
+    host = _fixture_host(job_host)
+    target = f"http://{host}/oauth/web-pkce/authorization?job={job_id}" if host else ""
+    return (
+        "<html><head><title>Example role</title></head><body>"
+        '<button type="button" id="apply-with-linkedin" aria-label="Apply With LinkedIn">Apply With LinkedIn</button>'
+        "<script>document.getElementById('apply-with-linkedin').addEventListener('click', () => {"
+        f"window.open({target!r}, 'awli');"
+        "});</script></body></html>"
+    )
+
+
 @router.get("/company/{job_id}", response_class=HTMLResponse)
-def company_page(job_id: str, kind: str = "", asset: str = ""):
+def company_page(job_id: str, kind: str = "", asset: str = "", job_host: str = ""):
     if kind == "neither":
         return HTMLResponse("<html><head><title>Example role</title></head><body><p>No apply control on this page.</p></body></html>")
     if kind == "own":
@@ -211,6 +231,8 @@ def company_page(job_id: str, kind: str = "", asset: str = ""):
         host = _fixture_host(asset)
         src = f"http://{host}/assets/open-form.js" if host else ""
         return HTMLResponse(_asset_company_page(job_id, src))
+    if kind == "popup":
+        return HTMLResponse(_popup_company_page(job_id, job_host))
     return HTMLResponse(_company_form(job_id))
 
 
@@ -218,6 +240,34 @@ def company_page(job_id: str, kind: str = "", asset: str = ""):
 async def company_submit(job_id: str, email: str = Form(""), internal: str = Form("")):
     COMPANY_SUBMISSIONS.append({"job_id": job_id, "email": email, "internal": internal})
     return RedirectResponse(f"/jobs/view/{job_id}/confirmation", status_code=303)
+
+
+@router.get("/oauth/web-pkce/authorization")
+def oauth_start(request: Request, job: str = ""):
+    """A cross-site popup is signed out. A page the app opens itself keeps the saved session cookie."""
+    site = (request.headers.get("sec-fetch-site") or "").lower()
+    cookie = request.cookies.get("awli") == "1"
+    ok = cookie and site in {"none", "same-origin"}
+    OAUTH_HITS.append({"site": site, "cookie": cookie, "ok": ok})
+    job_id = job if re.fullmatch(r"\d{6,}", job) else JOB_ID
+    if ok:
+        return RedirectResponse(f"/jobs/view/{job_id}/ready", status_code=303)
+    return RedirectResponse("/uas/login", status_code=303)
+
+
+@router.get("/jobs/view/{job_id}/ready", response_class=HTMLResponse)
+def ready_form(job_id: str):
+    return HTMLResponse(_form(job_id).replace('<div id="modal" hidden>', '<div id="modal">', 1))
+
+
+@router.get("/uas/login", response_class=HTMLResponse)
+def blocked_login():
+    return HTMLResponse(
+        "<html><head><title>Sorry, you have been blocked</title></head><body>"
+        "<h1>Sorry, you have been blocked</h1>"
+        "<p>You are unable to access this site. This website is using a security service to protect itself.</p>"
+        "</body></html>"
+    )
 
 
 @router.get("/li/login", response_class=HTMLResponse)

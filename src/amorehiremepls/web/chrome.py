@@ -849,6 +849,7 @@ def needed_now(
     can_cancel: bool = False,
     stale: bool = False,
     can_run: bool = False,
+    can_retry_same: bool = False,
 ) -> dict:
     """The one thing this application asks of the person, with the control it needs.
 
@@ -920,6 +921,20 @@ def needed_now(
             "kind": "manual",
             "title": "The job site asked you to verify it is you.",
             "text": "Finish that check yourself. Nothing was sent. Then record the confirmation here.",
+            "field": None,
+        }
+    if status == "handoff" and wall == "blocked":
+        return {
+            "kind": "manual",
+            "title": "The job site blocked this browser.",
+            "text": "Nothing was sent. Signing in again will not change that.",
+            "field": None,
+        }
+    if can_retry_same and status == "handoff" and wall not in ("login", "checkpoint", "human_check", "blocked"):
+        return {
+            "kind": "retry",
+            "title": "The app can try again.",
+            "text": "Nothing was sent. It opens the job site with these same answers. Your approval already covers them.",
             "field": None,
         }
     if status == "handoff" and wall == "unsupported":

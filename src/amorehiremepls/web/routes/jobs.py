@@ -205,6 +205,9 @@ def register(app, rt, require_session, require_csrf, render) -> None:
             elif st == "handoff" and wall == "checkpoint":
                 note = "The job site asked you to verify it is you. Nothing was sent."
                 nxt = {"label": "Finish the check on the job site, then record the confirmation", "href": app_href, "verb": "Finish on the site", "note": note}
+            elif st == "handoff" and wall == "blocked":
+                note = "The job site blocked this browser. Nothing was sent. Signing in again will not change that."
+                nxt = {"label": "The job site blocked this browser", "href": app_href, "verb": "See why", "note": note}
             elif st == "handoff" and wall == "unsupported":
                 note = "Finish the remaining step on the job site, then record the confirmation."
                 nxt = {"label": "Finish the remaining step, then record the confirmation", "href": app_href, "verb": "Finish on the site", "note": note}

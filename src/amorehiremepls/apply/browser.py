@@ -59,6 +59,9 @@ from amorehiremepls.core.util import redact_free, sha256_file, utcnow
 log = logging.getLogger(__name__)
 
 LOGIN_PATTERNS = re.compile(r"(sign ?in|log ?in|password|verify you are human|captcha|one-time code|two-factor)", re.I)
+_LOGIN_PATH = re.compile(r"/(?:login|uas/login|authwall)(?:/|$|\?)", re.I)
+# A security block uses the login path and has no password box. The URL alone must not ask for a sign-in.
+_BLOCK_TEXT = re.compile(r"you have been blocked|unable to access|security service to protect", re.I)
 SCREENSHOT_LABELS = ("summary", "receipt", "ambiguous", "receipt_mismatch", "failed", "handoff", "validation", "challenge")
 _SAFE_ID = re.compile(r"[^A-Za-z0-9._-]+")
 HUMAN_CHECK_REASON = "the job site asked for a human check"
@@ -624,6 +627,9 @@ class BrowserAdapter:
         evidence: dict[str, Any] = {"started_at": utcnow().isoformat(), "steps_done": 0, "final_clicked": False}
         shots = self._shot_target(plan)
         state = self._state_path(site_key)
+        self._session_ready = bool(state and state.exists())
+        self._session_reopened = False
+        self._click_documents = []
         # Debug port only while a hold may run, and only on localhost. A failed launch drops the port and continues.
         # A confirm-only later try never holds and never clicks.
         cdp_port = int(self.config.cdp_port or 0) if hold is not None and not confirm_only else 0
@@ -1284,9 +1290,35 @@ class BrowserAdapter:
         return None
 
     def _click_control(self, page, loc, timeout_ms: int):
-        """Click in this session. A popup stays in the same browser context so the signed-in session is still there."""
+        """Click in this session. A popup stays in the same browser context so the signed-in session is still there.
+
+        The first top-level document URL is kept. A cross-site widget often opens a login path that never
+        sends the saved session; the apply step can open that first URL itself."""
         from playwright.sync_api import TimeoutError as PWTimeout
 
+        documents: list[str] = []
+
+        def remember(request) -> None:
+            try:
+                kind = request.resource_type or ""
+            except Exception:
+                kind = ""
+            if kind and kind != "document":
+                return
+            try:
+                chain = [request.url or ""]
+                earlier = request.redirected_from
+                while earlier is not None:
+                    chain.append(earlier.url or "")
+                    earlier = earlier.redirected_from
+            except Exception:
+                return
+            for url in reversed(chain):
+                if url.startswith(("http://", "https://")) and url not in documents:
+                    documents.append(url)
+
+        page.context.on("request", remember)
+        popup = None
         self._following_apply = True
         try:
             try:
@@ -1294,15 +1326,68 @@ class BrowserAdapter:
                     loc.click(timeout=timeout_ms)
                 popup = caught.value
             except PWTimeout:
-                return None
-            try:
-                popup.wait_for_load_state("domcontentloaded", timeout=timeout_ms)
-            except Exception:
-                pass
+                popup = None
+            if popup is not None:
+                early = popup.url or ""
+                if early.startswith(("http://", "https://")) and early not in documents:
+                    documents.insert(0, early)
+                try:
+                    popup.wait_for_load_state("domcontentloaded", timeout=timeout_ms)
+                except Exception:
+                    pass
         finally:
             self._following_apply = False
+            try:
+                page.context.remove_listener("request", remember)
+            except Exception:
+                pass
+        self._click_documents = documents
+        if popup is None:
+            return None
         self._allow_host(popup.url or "")
         return popup
+
+    def _login_path(self, url: str) -> bool:
+        return bool(_LOGIN_PATH.search(url or "") or LOGIN_PATTERNS.search(url or ""))
+
+    def _session_start_url(self, landed: str) -> str:
+        """The document this click opened, when it is the same host as the wall and is not itself a login path."""
+        landed_host = (urlsplit(landed or "").hostname or "").lower()
+        if not landed_host:
+            return ""
+        for url in self._click_documents:
+            if self._login_path(url) or self._same_document(url, landed):
+                continue
+            if (urlsplit(url).hostname or "").lower() == landed_host:
+                return url
+        return ""
+
+    def _open_saved_session(self, scope: _Scope) -> _Scope:
+        """Open the click's first URL in a page of our own when a saved session is loaded and the widget landed on a wall.
+
+        One try. The widget's popup is a cross-site navigation and can arrive signed out even though this
+        context already has the session. A page we open sends that session."""
+        if not self._session_ready or self._session_reopened:
+            return scope
+        if self._wall_kind(scope.page) not in ("login", "blocked"):
+            return scope
+        start = self._session_start_url(scope.page.url or "")
+        if not start:
+            return scope
+        self._session_reopened = True
+        fresh = scope.page.context.new_page()
+        self._following_apply = True
+        try:
+            fresh.goto(start, wait_until="domcontentloaded", timeout=15000)
+            self._allow_host(fresh.url or start)
+        finally:
+            self._following_apply = False
+        try:
+            if scope.page != fresh:
+                scope.page.close()
+        except Exception:
+            pass
+        return _Scope(fresh)
 
     def _unsupported(self, scope: _Scope, plan: Plan, evidence: dict, shots: _ShotTarget | None, detail: str | None = None) -> None:
         self._snapshot(scope.page, evidence, "handoff", shots)
@@ -1420,6 +1505,7 @@ class BrowserAdapter:
             popup = self._click_control(scope.page, linked, step.timeout_ms)
             if popup is not None:
                 scope = _Scope(popup)
+            scope = self._open_saved_session(scope)
             evidence["external_apply"]["control"] = "apply_with_linkedin"
             self._detect_login(scope.page, evidence, shots)
             return self._finish_external_form(scope, plan, evidence, shots, step)
@@ -2074,19 +2160,38 @@ class BrowserAdapter:
             raise ActionFailed(f"upload file missing: {path.name}")
         return path
 
-    def _detect_login(self, page, evidence: dict, shots: _ShotTarget | None = None) -> None:
+    def _wall_kind(self, page) -> str | None:
+        """login, checkpoint, blocked, or None. A block page on a login path is not a sign-in form."""
         try:
             has_pw = page.locator("input[type=password]").count() > 0
             title = page.title() or ""
+            url = page.url or ""
         except Exception:
-            return
-        url = page.url or ""
+            return None
+        body = ""
+        try:
+            body = page.locator("body").inner_text(timeout=1000)[:1500]
+        except Exception:
+            body = ""
         checkpoint = bool(re.search(r"/checkpoint(?:/|$|\?)", url, re.I) or re.search(r"verify it.?s you|quick security check", title, re.I))
-        login = bool(has_pw or LOGIN_PATTERNS.search(title) or LOGIN_PATTERNS.search(url) or re.search(r"/(?:login|uas/login|authwall)(?:/|$|\?)", url, re.I))
-        if login or checkpoint:
-            evidence["wall"] = "checkpoint" if checkpoint else "login"
-            self._snapshot(page, evidence, "handoff", shots)
-            raise HandoffRequired("login or human verification challenge detected", {**evidence, "url": url})
+        if checkpoint and not has_pw:
+            return "checkpoint"
+        if has_pw or LOGIN_PATTERNS.search(title):
+            return "login"
+        if _BLOCK_TEXT.search(title) or _BLOCK_TEXT.search(body):
+            return "blocked"
+        if self._login_path(url):
+            return "login"
+        return None
+
+    def _detect_login(self, page, evidence: dict, shots: _ShotTarget | None = None) -> None:
+        kind = self._wall_kind(page)
+        if not kind:
+            return
+        evidence["wall"] = kind
+        self._snapshot(page, evidence, "handoff", shots)
+        message = "the job site blocked this browser" if kind == "blocked" else "login or human verification challenge detected"
+        raise HandoffRequired(message, {**evidence, "url": page.url or ""})
 
     def _validation_errors(self, scope: _Scope) -> list[str]:
         try:

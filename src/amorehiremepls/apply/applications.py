@@ -1158,10 +1158,11 @@ class ApplicationService:
                 else {
                     "checkpoint": "The job site asked you to verify it is you. Finish that yourself. Nothing was sent.",
                     "unsupported": "Finish the remaining step on the job site, then record the confirmation. Nothing was sent.",
+                    "blocked": "The job site blocked this browser. Nothing was sent. Signing in again will not change that.",
                 }.get(str(exc.evidence.get("wall") or ""), "Sign in on the job site in the saved browser session, then try again. Nothing was sent.")
             )
             kind = "human_check" if exc.evidence.get("challenge") else str(exc.evidence.get("wall") or "login")
-            if kind not in ("human_check", "login", "checkpoint", "unsupported"):
+            if kind not in ("human_check", "login", "checkpoint", "unsupported", "blocked"):
                 kind = "login"
             self._set(app_id, "handoff", reason=str(exc), next_action=nxt, evidence=ev, handoff_kind=kind)
             self.store.audit("application_handoff", app_id, host=host, challenge=exc.evidence.get("challenge"), captcha_attempts=len(exc.evidence.get("captcha_attempts") or []))

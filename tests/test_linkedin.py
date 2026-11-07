@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import socket
 from dataclasses import asdict
 from pathlib import Path
@@ -220,3 +221,65 @@ def test_external_apply_redirect_loads_a_script_from_another_host(store, tmp_pat
     assert sub["opened_by"] == "apply-with-linkedin" and sub["job_id"] == JOB_ID
     assert sub["email"] == "alex@example.com" and sub["resume"]["bytes"] > 0
     assert out.evidence.get("final_clicked") is True
+
+
+def _saved_session(tmp_path: Path, host: str) -> None:
+    """A session cookie for the fixture host. The value is a marker, not a credential."""
+    directory = tmp_path / "sessions"
+    directory.mkdir(parents=True, exist_ok=True)
+    state = {
+        "cookies": [
+            {
+                "name": "awli",
+                "value": "1",
+                "domain": "127.0.0.1",
+                "path": "/",
+                "expires": 1893456000,
+                "httpOnly": False,
+                "secure": False,
+                "sameSite": "Lax",
+            }
+        ],
+        "origins": [],
+    }
+    (directory / f"{host}.storage.json").write_text(json.dumps(state))
+
+
+@skip_no_browser
+@pytest.mark.browser
+@pytest.mark.mongo
+def test_apply_with_linkedin_popup_uses_the_saved_session(store, tmp_path, board):
+    """A cross-site Apply with LinkedIn popup is signed out. The saved session is on the context, so the app opens that URL itself."""
+    linkedin_site.OAUTH_HITS.clear()
+    before = len(linkedin_site.LI_SUBMISSIONS)
+    srv, _adapter = board
+    host = f"127.0.0.1:{srv.port}"
+    _saved_session(tmp_path, host)
+    svc, job, app, _adapter = _prepared(store, tmp_path, board, variant="popup")
+    AuthorizationStore(store).grant("application_submit", ScopeBinding(target_id=job["_id"], material_hash=app["material_hash"]))
+    out = svc.execute(app["_id"], "w1", lambda plan: _browser(tmp_path).run_plan(plan, site_key=host))
+    assert out.status == "succeeded", out.reason
+    assert any(hit["site"] == "cross-site" and hit["ok"] is False for hit in linkedin_site.OAUTH_HITS)
+    assert any(hit["ok"] is True for hit in linkedin_site.OAUTH_HITS)
+    assert len(linkedin_site.LI_SUBMISSIONS) == before + 1
+    sub = linkedin_site.LI_SUBMISSIONS[-1]
+    assert sub["job_id"] == JOB_ID and sub["email"] == "alex@example.com" and sub["resume"]["bytes"] > 0
+    assert out.evidence.get("final_clicked") is True
+    assert (out.evidence.get("external_apply") or {}).get("control") == "apply_with_linkedin"
+
+
+@skip_no_browser
+@pytest.mark.browser
+@pytest.mark.mongo
+def test_block_page_on_the_login_path_is_not_a_sign_in(store, tmp_path, board):
+    before = len(linkedin_site.LI_SUBMISSIONS)
+    svc, job, app, _adapter = _prepared(store, tmp_path, board, variant="blocked")
+    AuthorizationStore(store).grant("application_submit", ScopeBinding(target_id=job["_id"], material_hash=app["material_hash"]))
+    out = svc.execute(app["_id"], "w1", lambda plan: _browser(tmp_path).run_plan(plan, site_key="li"))
+    assert out.status == "handoff", out.reason
+    assert out.evidence.get("wall") == "blocked" and out.evidence.get("final_clicked") is False
+    assert len(linkedin_site.LI_SUBMISSIONS) == before
+    saved = svc.apps.find_one({"_id": app["_id"]})
+    assert saved["handoff_kind"] == "blocked"
+    assert "Sign in" not in saved["next_action"]
+    assert "blocked this browser" in saved["next_action"]
