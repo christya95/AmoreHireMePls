@@ -361,6 +361,7 @@ def test_stale_authorization_asks_to_approve_again(client):
     head = page.split("What is happening", 1)[0]
     assert STALE_APPROVAL_LINE in head
     assert NOTHING_NEEDED not in head
+    assert "Apply with the app" not in head
     assert "Approve this exact application" in head
     assert 'action="/applications/app_stale/authorize"' in head
     assert 'name="csrf"' in head and 'name="material_hash" value="pkg-now"' in head
@@ -377,5 +378,86 @@ def test_stale_authorization_asks_to_approve_again(client):
     assert STALE_APPROVAL_LINE not in covered
     assert MATERIAL_CHANGED not in covered
     assert "Approve this exact application" not in covered
-    assert NOTHING_NEEDED in covered
+    assert "Apply with the app" in covered
     assert client.post("/applications/app_covered/authorize", data={"csrf": csrf, "material_hash": "pkg-now", "hours": 1}).status_code == 409
+
+
+def test_an_approved_idle_package_can_be_applied_without_a_new_approval(client):
+    """An approved package with nothing in progress offers one control. It queues the existing action."""
+    from datetime import UTC, datetime, timedelta
+
+    from amorehiremepls.core.authorization import AuthorizationStore, ScopeBinding
+
+    csrf = _login(client)
+    rt = client.app.state.rt
+    now = datetime.now(UTC)
+    app_id, job_id = "app_idle", "job_idle"
+    rt.store.c("jobs").insert_one(
+        {
+            "_id": job_id,
+            "employer": "Northwind",
+            "employer_norm": "northwind",
+            "title": "Account Executive",
+            "status": "qualified",
+            "posting_url": "https://jobs.example/northwind",
+            "apply_url": "https://jobs.example/northwind",
+            "sources": ["manual"],
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+    rt.store.c("applications").insert_one(
+        {
+            "_id": app_id,
+            "job_id": job_id,
+            "status": "authorized",
+            "provenance": {"origin": "local"},
+            "material_hash": "pkg-now",
+            "fill_for": "pkg-now",
+            "send_queued_at": now - timedelta(hours=1),
+            "review_package": {"apply_url": "https://jobs.example/northwind", "posting_url": "https://jobs.example/northwind", "answers": [], "outstanding": [], "gaps": []},
+            "history": [{"at": now - timedelta(hours=2), "status": "authorized"}],
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+    rt.store.c("actions").insert_one(
+        {"_id": "act_idle", "idempotency_key": f"submit:{job_id}", "kind": "application_submit", "target_id": job_id, "status": "failed", "material_hash": "pkg-now"}
+    )
+    AuthorizationStore(rt.store).grant("application_submit", ScopeBinding(target_id=job_id, material_hash="pkg-now"))
+    page = client.get(f"/applications/{app_id}").text.split("What is happening", 1)[0]
+    assert "This application is approved." in page
+    assert "Your approval already covers them." in page
+    assert ">Apply with the app</button>" in page
+    assert f'action="/applications/{app_id}/retry"' in page
+    assert 'name="csrf"' in page
+    assert "Retry with the app" not in page
+    assert "Approve this exact application" not in page
+    approvals = rt.store.c("authorizations").count_documents({"binding.target_id": job_id})
+    posted = client.post(f"/applications/{app_id}/retry", data={"csrf": csrf})
+    assert posted.status_code == 303
+    assert rt.store.c("authorizations").count_documents({"binding.target_id": job_id}) == approvals
+    runs = list(rt.store.c("runs").find({"params.application_id": app_id}))
+    assert len(runs) == 1 and runs[0]["status"] == "queued" and runs[0]["params"]["phase"] == "execute"
+    retired = rt.store.c("actions").find_one({"_id": "act_idle"})
+    assert retired["idempotency_key"] == f"submit:{job_id}:prior:act_idle"
+    assert "Apply with the app" not in client.get(f"/applications/{app_id}").text
+    again = client.post(f"/applications/{app_id}/retry", data={"csrf": csrf})
+    assert again.status_code == 303
+    assert rt.store.c("runs").count_documents({"params.application_id": app_id}) == 1
+    rt.store.c("applications").insert_one(
+        {
+            "_id": "app_removed",
+            "job_id": job_id,
+            "status": "removed",
+            "tombstone": True,
+            "reason": "removed before anything was sent",
+            "provenance": {"origin": "removed"},
+            "history": [{"at": now, "status": "authorized"}],
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+    removed = client.get("/applications/app_removed")
+    assert removed.status_code == 200
+    assert "Apply with the app" not in removed.text

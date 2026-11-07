@@ -324,25 +324,35 @@ def queue_approved_send(store: Store, app: dict, allowed: bool, *, replace_repea
     """Queue one apply task for an approved application that has no task working on it.
 
     Does not read the form again and does not rebuild the resume. The same answers are not opened again
-    after a finished attempt. A different set of answers, once approved, is a new attempt. `replace_repeat`
-    is the explicit button after a finished failure: it queues that new attempt even when an earlier
-    approval already queued a task that only returned the saved result."""
+    on their own after a finished attempt. A different set of answers, once approved, is a new attempt.
+    `replace_repeat` is the explicit button: it queues this approved package when nothing is working on it,
+    even if an earlier task already finished. A failed attempt for these same answers is kept and its key
+    is freed, so the task opens the form instead of repeating that saved result. A sent or unclear attempt
+    is not queued again."""
     if not allowed or app.get("status") != "authorized" or not app.get("_id") or not app.get("job_id"):
         return False
     if store.c("runs").find_one({"params.job_id": app["job_id"], "status": {"$in": list(LIVE_RUN)}}):
         return False
     action = store.c("actions").find_one({"idempotency_key": f"submit:{app['job_id']}"})
-    if _same_finished_answers(action, app):
+    repeat_failed = bool(replace_repeat and action and action.get("status") == "failed" and action.get("material_hash") == app.get("material_hash"))
+    if _same_finished_answers(action, app) and not repeat_failed:
         return False
     now = utcnow()
     params = {"job_id": app["job_id"], "application_id": app["_id"], "phase": "execute", "material_hash": app.get("material_hash")}
     if replace_repeat:
-        taken = store.c("applications").update_one(
-            {"_id": app["_id"], "status": "authorized", "fill_for": {"$ne": app.get("material_hash")}},
-            {"$set": {"send_queued_at": now, "fill_for": app.get("material_hash"), "updated_at": now}},
-        )
+        query: dict = {"_id": app["_id"], "status": "authorized"}
+        marker = app.get("send_queued_at")
+        if marker is None:
+            query["$or"] = [{"send_queued_at": None}, {"send_queued_at": {"$exists": False}}]
+        else:
+            query["send_queued_at"] = marker
+        taken = store.c("applications").update_one(query, {"$set": {"send_queued_at": now, "fill_for": app.get("material_hash"), "updated_at": now}})
         if taken.modified_count != 1:
             return False
+        if repeat_failed:
+            from amorehiremepls.core.actions import ActionStore
+
+            ActionStore(store).retire_failed_attempt(action)
         store.create_run("application", params)
         return True
     approved_at = max((h.get("at") for h in (app.get("history") or []) if h.get("status") == "authorized" and h.get("at")), default=None)

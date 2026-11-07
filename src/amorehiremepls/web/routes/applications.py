@@ -62,7 +62,7 @@ def approval_stale(rt, app: dict) -> bool:
     """True when a saved approval is for this job but not for the package on the page."""
     from amorehiremepls.core.runtime import RealServices
 
-    if not app or not app.get("job_id"):
+    if not app or not app.get("job_id") or not app.get("material_hash"):
         return False
     return RealServices(rt).authorization_decision(app).reason == MATERIAL_CHANGED
 
@@ -105,14 +105,18 @@ def application_view(rt, a: dict, job: dict, session: dict, runs: list[dict] | N
     live = any(run.get("status") in ("queued", "claimed", "running", "waiting", "paused") for run in runs)
     stale = approval_stale(rt, a)
     happening = plain_headline(what_to_do_line(a, runs, saved_reason, action, field_hold, stale=stale), show_status)
-    can_fill = bool(a.get("status") == "authorized" and answers_differ(a, action) and not filling and not live and RealServices(rt).has_authorization(a))
+    allowed = bool(a.get("material_hash")) and RealServices(rt).has_authorization(a)
+    can_fill = bool(a.get("status") == "authorized" and answers_differ(a, action) and not filling and not live and allowed)
+    can_run = bool(
+        a.get("status") == "authorized" and not stale and not filling and not live and allowed and (action or {}).get("status") not in ("succeeded", "needs_verification")
+    )
     can_clear = _can_clear(a)
     can_cancel = _can_cancel(a, runs, filling)
     show_reason = shown_status_reason(a, action, show_status)
     if not stale and show_reason == MATERIAL_CHANGED:
         show_reason = ""
     show_reason = show_reason if reason_adds(happening, show_reason, a, action) else ""
-    need = needed_now(a, show_status, hold, can_fill=can_fill, can_retry=can_retry, can_clear=can_clear, working=filling, can_cancel=can_cancel, stale=stale)
+    need = needed_now(a, show_status, hold, can_fill=can_fill, can_retry=can_retry, can_clear=can_clear, working=filling, can_cancel=can_cancel, stale=stale, can_run=can_run)
     return dict(
         a=a,
         job=job,
@@ -261,6 +265,16 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         so it waits for approval again) and start a fresh background task. The old waiting task is closed."""
         require_csrf(request, session, csrf)
         a = rt.store.c("applications").find_one({"_id": app_id})
+        if a and a.get("status") == "authorized" and a.get("material_hash") and not approval_stale(rt, a):
+            from amorehiremepls.core.orchestration import queue_approved_send
+            from amorehiremepls.core.runtime import RealServices
+
+            if not RealServices(rt).has_authorization(a):
+                raise HTTPException(409, "nothing to retry in this state")
+            if rt.store.c("runs").find_one({"params.job_id": a["job_id"], "status": {"$in": ["queued", "claimed", "running", "waiting", "paused"]}}):
+                return RedirectResponse(f"/applications/{app_id}?err=retry_busy", status_code=303)
+            queue_approved_send(rt.store, a, True, replace_repeat=True)
+            return RedirectResponse(f"/applications/{app_id}?ok=apply_queued", status_code=303)
         if not a or a["status"] not in ("handoff", "failed", "needs_input", "ready_for_review"):
             raise HTTPException(409, "nothing to retry in this state")
         job = rt.jobs.get(a["job_id"])

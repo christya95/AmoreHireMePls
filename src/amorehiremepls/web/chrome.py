@@ -215,6 +215,7 @@ FLASHES = {
     "missing": ("There is no application to change.", "bad"),
     "captcha_on": ("The app will now try to solve simple captchas itself during an approved application. You can turn this off here any time.", "ok"),
     "captcha_off": ("Captchas are left to you again. A human check pauses the application for you to finish.", "ok"),
+    "apply_queued": ("The app will open the job site with these answers. Your approval already covers them.", "ok"),
     "retry_started": ("The app will read the form again and prepare fresh answers. It waits for your approval before applying.", "ok"),
     "retry_unsupported": ("The app has no form filler for this job site yet, so there is nothing to retry. Finish on the site yourself.", "bad"),
     "retry_busy": ("A background task is working on this job right now. Wait for it to pause or finish.", "bad"),
@@ -847,6 +848,7 @@ def needed_now(
     working: bool = False,
     can_cancel: bool = False,
     stale: bool = False,
+    can_run: bool = False,
 ) -> dict:
     """The one thing this application asks of the person, with the control it needs.
 
@@ -898,6 +900,13 @@ def needed_now(
     if can_fill:
         text = "The job site is opened with these answers. Nothing else changes."
         return {"kind": "fill", "title": "Fill in the form with the answers on this page.", "text": text, "field": None}
+    if can_run:
+        return {
+            "kind": "run",
+            "title": "This application is approved.",
+            "text": "The app opens the job site with these answers. Your approval already covers them.",
+            "field": None,
+        }
     wall = str(app.get("handoff_kind") or "")
     if status == "handoff" and wall == "login" and can_retry:
         return {
