@@ -62,7 +62,7 @@ def test_plan_puts_submit_last_and_ties_the_receipt_to_the_job():
     pkg = {"apply_url": "https://www.linkedin.com/jobs/view/1000000001/"}
     answers = [{"field_id": "email", "value": "a@example.com", "label": "Email address"}, {"field_id": "resume", "value": "/tmp/resume.pdf", "label": "Resume"}]
     plan = adapter.build_plan(job, pkg, answers)
-    assert plan.steps[0].label == "Easy Apply" and not plan.steps[0].final and plan.steps[0].missing_is_handoff
+    assert plan.steps[0].type == "open_apply" and plan.steps[0].label == "Easy Apply" and not plan.steps[0].final and plan.steps[0].missing_is_handoff
     assert plan.steps[-1].final and plan.steps[-1].label == "Submit application"
     assert all(not step.final for step in plan.steps[:-1])
     assert plan.receipt_url_must_include == ["1000000001"] and plan.handoff_if_submit_missing
@@ -166,12 +166,33 @@ def test_logged_out_and_verify_pages_hand_back_without_a_submission(store, tmp_p
 @skip_no_browser
 @pytest.mark.browser
 @pytest.mark.mongo
-def test_a_page_without_the_in_site_form_is_a_handoff(store, tmp_path, board):
+def test_external_apply_is_followed_and_a_page_with_neither_control_is_a_handoff(store, tmp_path, board):
     before = len(linkedin_site.LI_SUBMISSIONS)
+    company_before = len(linkedin_site.COMPANY_SUBMISSIONS)
     svc, job, app, _adapter = _prepared(store, tmp_path, board, variant="external")
     AuthorizationStore(store).grant("application_submit", ScopeBinding(target_id=job["_id"], material_hash=app["material_hash"]))
     out = svc.execute(app["_id"], "w1", lambda plan: _browser(tmp_path).run_plan(plan, site_key="li"))
-    assert out.status == "handoff" and out.evidence.get("final_clicked") is False
-    assert len(linkedin_site.LI_SUBMISSIONS) == before
-    saved = svc.apps.find_one({"_id": app["_id"]})
+    assert out.status == "succeeded", out.reason
+    followed = (out.evidence.get("external_apply") or {}).get("followed") or ""
+    assert "/company/" in followed and (out.evidence.get("external_apply") or {}).get("control") == "apply_with_linkedin"
+    sub = linkedin_site.LI_SUBMISSIONS[-1]
+    assert len(linkedin_site.LI_SUBMISSIONS) == before + 1 and sub["opened_by"] == "apply-with-linkedin" and sub["job_id"] == JOB_ID
+    assert sub["email"] == "alex@example.com" and JOB_ID in out.evidence["final_url"] and out.evidence["final_clicked"] is True
+    assert len(linkedin_site.COMPANY_SUBMISSIONS) == company_before
+
+    svc2, job2, app2, _adapter = _prepared(store, tmp_path, board, variant="neither")
+    AuthorizationStore(store).grant("application_submit", ScopeBinding(target_id=job2["_id"], material_hash=app2["material_hash"]))
+    out2 = svc2.execute(app2["_id"], "w1", lambda plan: _browser(tmp_path).run_plan(plan, site_key="li"))
+    assert out2.status == "handoff", out2.reason
+    assert out2.evidence.get("final_clicked") is False and "/company/" in ((out2.evidence.get("external_apply") or {}).get("followed") or "")
+    assert len(linkedin_site.LI_SUBMISSIONS) == before + 1 and len(linkedin_site.COMPANY_SUBMISSIONS) == company_before
+    saved = svc2.apps.find_one({"_id": app2["_id"]})
     assert saved["handoff_kind"] == "unsupported" and "Nothing was sent" in saved["next_action"]
+
+    svc3, job3, app3, _adapter = _prepared(store, tmp_path, board, variant="own")
+    AuthorizationStore(store).grant("application_submit", ScopeBinding(target_id=job3["_id"], material_hash=app3["material_hash"]))
+    out3 = svc3.execute(app3["_id"], "w1", lambda plan: _browser(tmp_path).run_plan(plan, site_key="li"))
+    assert out3.status == "handoff" and out3.evidence.get("final_clicked") is False
+    assert (out3.evidence.get("external_apply") or {}).get("control") == "site_apply"
+    assert len(linkedin_site.LI_SUBMISSIONS) == before + 1 and len(linkedin_site.COMPANY_SUBMISSIONS) == company_before
+    assert "Nothing was sent" in (svc3.apps.find_one({"_id": app3["_id"]})["next_action"])

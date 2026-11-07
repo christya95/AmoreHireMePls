@@ -7,6 +7,9 @@ signed-out page, or a verify-it's-you page stops before the application is sent.
 
 The plan uses the shared browser steps: a button by its accessible name, fills and choices by label, then
 Next, and a final Submit only when that button is already on the page. There is no message or connection step.
+When the apply control is a link off this page, that link is opened in the same session. On the page it
+opens, an apply-with-LinkedIn control is preferred. The page's own apply control is used only when that
+one is absent, and only for fields the shared form rules already know.
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ if TYPE_CHECKING:
     from amorehiremepls.candidate.profile import BandEvidence, Profile
 
 # Scripts and images the job page loads. Never navigation targets.
-RESOURCE_HOSTS = ["*.licdn.com", "licdn.com"]
+RESOURCE_HOSTS = ["*.licdn.com", "licdn.com", "platform.linkedin.com"]
 RECEIPT_PATTERNS = [r"your application was sent", r"application was sent", r"application submitted"]
 EASY_APPLY = 'button[aria-label="Easy Apply" i]:visible, button[aria-label*="Easy Apply" i]:visible'
 NEXT_BUTTON = 'button[aria-label="Continue to next step" i]:visible'
@@ -180,7 +183,7 @@ class LinkedInAdapter:
             else:
                 step = Step("fill", selector, str(answer["value"]), label=label, sensitive=bool(answer.get("sensitive")))
             by_step.setdefault(step_no, []).append(step)
-        steps: list[Step] = [Step("click", EASY_APPLY, label="Easy Apply", missing_is_handoff=True)]
+        steps: list[Step] = [Step("open_apply", EASY_APPLY, label="Easy Apply", missing_is_handoff=True)]
         for step_no in sorted(by_step):
             steps.extend(by_step[step_no])
             steps.append(Step("click", NEXT_BUTTON, label="Next"))

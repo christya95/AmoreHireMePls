@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 router = APIRouter()
 LI_SUBMISSIONS: list[dict] = []
+COMPANY_SUBMISSIONS: list[dict] = []
 
 JOB_ID = "1000000001"
 
@@ -96,8 +97,62 @@ def job_page(job_id: str, variant: str = ""):
     if variant == "checkpoint":
         return RedirectResponse("/li/checkpoint", status_code=303)
     if variant == "external":
-        return HTMLResponse(f'<html><head><title>Example role</title></head><body><p>This posting opens another site.</p><a href="/jobs/view/{job_id}">Apply</a></body></html>')
+        return HTMLResponse(_offsite_page(job_id, f"/company/{job_id}"))
+    if variant == "neither":
+        return HTMLResponse(_offsite_page(job_id, f"/company/{job_id}?kind=neither"))
+    if variant == "own":
+        return HTMLResponse(_offsite_page(job_id, f"/company/{job_id}?kind=own"))
     return HTMLResponse(_form(job_id))
+
+
+def _offsite_page(job_id: str, href: str) -> str:
+    return f'<html><head><title>Example role</title></head><body><p>This posting opens another site.</p><a href="{href}" aria-label="Apply">Apply</a></body></html>'
+
+
+def _company_form(job_id: str) -> str:
+    """The same contact form, opened by an apply-with-LinkedIn control. A second control is the page's own apply."""
+    html = _form(job_id)
+    html = html.replace(
+        '<button type="button" id="easy-apply" aria-label="Easy Apply">Easy Apply</button>',
+        '<button type="button" id="apply-now" aria-label="Apply now">Apply now</button>'
+        '<button type="button" id="apply-with-linkedin" aria-label="Apply With LinkedIn">Apply With LinkedIn</button>',
+    )
+    html = html.replace('enctype="multipart/form-data">', 'enctype="multipart/form-data"><input type="hidden" id="opened-by" name="opened_by" value="">')
+    html = html.replace(
+        "document.getElementById('easy-apply').addEventListener('click', () => {",
+        "document.getElementById('apply-with-linkedin').addEventListener('click', () => {\n  document.getElementById('opened-by').value = 'apply-with-linkedin';",
+    )
+    return html
+
+
+def _own_apply_page(job_id: str) -> str:
+    return f"""<html><head><title>Example role</title></head><body>
+<button type="button" id="apply-now" aria-label="Apply now">Apply now</button>
+<form id="own-form" method="post" action="/company/{job_id}/submit" hidden>
+<label for="email">Email address</label><input id="email" name="email" required>
+<label for="internal">Internal code</label><input id="internal" name="internal" required>
+<button type="submit" aria-label="Submit application">Submit application</button>
+</form>
+<script>
+document.getElementById('apply-now').addEventListener('click', () => {{
+  document.getElementById('own-form').hidden = false;
+}});
+</script></body></html>"""
+
+
+@router.get("/company/{job_id}", response_class=HTMLResponse)
+def company_page(job_id: str, kind: str = ""):
+    if kind == "neither":
+        return HTMLResponse("<html><head><title>Example role</title></head><body><p>No apply control on this page.</p></body></html>")
+    if kind == "own":
+        return HTMLResponse(_own_apply_page(job_id))
+    return HTMLResponse(_company_form(job_id))
+
+
+@router.post("/company/{job_id}/submit")
+async def company_submit(job_id: str, email: str = Form(""), internal: str = Form("")):
+    COMPANY_SUBMISSIONS.append({"job_id": job_id, "email": email, "internal": internal})
+    return RedirectResponse(f"/jobs/view/{job_id}/confirmation", status_code=303)
 
 
 @router.get("/li/login", response_class=HTMLResponse)
@@ -119,6 +174,7 @@ async def submit(
     phone: str = Form(""),
     years: str = Form(""),
     work_auth: str = Form(""),
+    opened_by: str = Form(""),
     resume: UploadFile | None = File(None),
 ):
     data = await resume.read() if resume is not None and resume.filename else b""
@@ -129,6 +185,7 @@ async def submit(
             "phone": phone,
             "years": years,
             "work_auth": work_auth,
+            "opened_by": opened_by,
             "resume": {"filename": resume.filename if resume is not None else "", "bytes": len(data)},
         }
     )

@@ -1,7 +1,7 @@
 """Playwright execution adapter: deterministic plan executor with compact observations.
 
-A `plan` is a list of steps (fill, select, check, upload, click, expect_text, wait_url, assert_value, choose,
-choose_multi, autocomplete). Site adapters produce plans; this module executes them inside an isolated
+A `plan` is a list of steps (fill, select, check, upload, click, open_apply, expect_text, wait_url,
+assert_value, choose, choose_multi, autocomplete). Site adapters produce plans; this module executes them inside an isolated
 browser context:
   * top-level navigation restricted to allowed hosts; sub-resources (scripts, styles, fonts, frames) may
     additionally come from the plan's / config's `resource_hosts`; everything else is aborted
@@ -82,7 +82,35 @@ CODE_LABEL = "Code from your email"
 VALIDATION_SELECTOR = "[role=alert], .error, .field-error, .helper-text--error, .input-wrapper--error [aria-invalid=true], [aria-invalid=true]"
 FILE_WORDS = re.compile(r"resume|résumé|\bcv\b|curriculum", re.I)
 ATTACH_WORDS = re.compile(r"attach|upload|choose file|browse|select file|add file", re.I)
-PREFLIGHT_TYPES = ("fill", "select", "check", "upload", "click", "choose", "choose_multi", "autocomplete")
+PREFLIGHT_TYPES = ("fill", "select", "check", "upload", "click", "open_apply", "choose", "choose_multi", "autocomplete")
+# An apply control whose accessible name starts with "apply". Easy Apply stays on the job page. Apply with
+# LinkedIn is preferred once an external apply link has been followed. Anything else named apply is the page's own control.
+_EXTERNAL_APPLY_NAME = re.compile(r"^apply\b", re.I)
+_EASY_APPLY_NAME = re.compile(r"easy\s+apply", re.I)
+_APPLY_WITH_LINKEDIN = re.compile(r"apply\s+with\s+linkedin", re.I)
+_OWN_APPLY_EXACT = re.compile(r"^apply(?:\s+now)?$", re.I)
+_APPLY_LINKS_JS = """() => {
+  const nameOf = (el) => (el.getAttribute('aria-label') || el.innerText || '').replace(/\\s+/g, ' ').trim();
+  return Array.from(document.querySelectorAll('a[href]')).filter(el => el.getClientRects().length).map(el => ({name: nameOf(el), href: el.href}));
+}"""
+_VISIBLE_FIELDS_JS = """() => {
+  const labelFor = (el) => {
+    if (el.id) { const l = document.querySelector(`label[for="${CSS.escape(el.id)}"]`); if (l && l.innerText.trim()) return l.innerText.trim(); }
+    const p = el.closest('label');
+    if (p && p.innerText.trim()) return p.innerText.trim();
+    return el.getAttribute('aria-label') || el.getAttribute('placeholder') || '';
+  };
+  return Array.from(document.querySelectorAll('input, select, textarea')).filter(el => {
+    if (el.type === 'hidden' || el.type === 'submit' || el.type === 'button') return false;
+    return el.getClientRects().length > 0;
+  }).map(el => ({
+    label: labelFor(el).replace(/\\s+/g, ' ').trim(),
+    type: el.type || el.tagName.toLowerCase(),
+    tag: el.tagName.toLowerCase(),
+    required: !!(el.required || el.getAttribute('aria-required') === 'true'),
+    selector: el.id ? `[id="${el.id.replace(/"/g, '')}"]` : (el.name ? `[name="${el.name.replace(/"/g, '')}"]` : '')
+  }));
+}"""
 # Rows in the field's own menu and in a menu drawn later on the same frame or the top page.
 SUGGESTION_SELECTOR = '[role="option"], .select__option, [id*="-option-"], .pac-item, [role="listbox"] li'
 # A row counts only when it can be seen: its own style, every ancestor (a closed picker keeps its rows in the page
@@ -365,7 +393,7 @@ class HandoffRequired(ActionHandoff):
 
 @dataclass
 class Step:
-    type: str  # fill | select | check | upload | click | expect_text | wait_url | assert_value | choose | choose_multi | autocomplete
+    type: str  # fill | select | check | upload | click | open_apply | expect_text | wait_url | assert_value | choose | choose_multi | autocomplete
     selector: str = ""  # CSS; a comma list of alternatives is allowed (first match wins)
     value: str = ""
     text: str = ""
@@ -429,7 +457,7 @@ def step_note(step: Step) -> str:
         return f"Attaching {name}" if name else "Attaching a file"
     if step.type == "click" and step.final:
         return "Sending the application"
-    if step.type == "click":
+    if step.type in ("click", "open_apply"):
         return f"Continuing ({name})" if name else "Continuing"
     if step.type == "check":
         return f"Checking {name}" if name else "Checking a box"
@@ -614,14 +642,24 @@ class BrowserAdapter:
             if self.network is not None and plan.job_id:
                 watch_network(context, self.network, plan.job_id, sensitive_values(plan))
             context.set_default_timeout(self.config.default_timeout_ms)
-            allowed = self.config.allowed_hosts
+            # Copied so following one apply link can allow that host for this run without changing the saved list.
+            self._nav_hosts = {h.lower() for h in self.config.allowed_hosts}
             resources = {h.lower() for h in [*self.config.resource_hosts, *plan.resource_hosts]}
 
             def gate(route, request):
                 host = urlsplit(request.url).netloc.split(":")[0].lower()
-                if request.url.startswith("data:") or host in allowed:
+                if request.url.startswith("data:") or host in self._nav_hosts:
                     route.continue_()
                     return
+                if getattr(self, "_following_apply", False) and host:
+                    try:  # the apply link's own redirects: allow that host for the rest of this run
+                        top_level = request.is_navigation_request() and request.frame.parent_frame is None
+                    except Exception:
+                        top_level = False
+                    if top_level:
+                        self._nav_hosts.add(host)
+                        route.continue_()
+                        return
                 if host_allowed(host, resources):
                     try:  # resource hosts may serve scripts, styles, fonts and child frames, never the top-level page
                         top_level = request.is_navigation_request() and request.frame.parent_frame is None
@@ -717,6 +755,9 @@ class BrowserAdapter:
         for i, step in enumerate(plan.steps):
             if evidence.get("user_finished"):
                 return
+            if evidence.get("skip_until_final") and not step.final:
+                evidence["steps_done"] = i + 1
+                continue
             if step.final and plan.handoff_if_submit_missing and not self._present(scope, step):
                 site = plan.site or "The job site"
                 self._snapshot(page, evidence, "handoff", shots)
@@ -732,7 +773,8 @@ class BrowserAdapter:
             if step.type != "autocomplete":
                 self._say(step_note(step))
             try:
-                self._do_step(scope, step, plan, evidence)
+                scope = self._do_step(scope, step, plan, evidence, shots)
+                page = scope.page
             except (ActionFailed, PWTimeout) as exc:
                 if not self._should_ask(step, evidence, hold):
                     raise
@@ -745,7 +787,7 @@ class BrowserAdapter:
                     raise ActionFailed(PAGE_NOT_CONTINUED, evidence, retryable=False) from exc
                 self._type_supplied(scope, step, answer, evidence)
             evidence["steps_done"] = i + 1
-            if step.type in ("click",) and not step.final:
+            if step.type in ("click", "open_apply") and not step.final:
                 self._detect_login(page, evidence, shots)
                 if plan.handoff_if_submit_missing and (errs := self._validation_errors(scope)):
                     site = plan.site or "The job site"
@@ -842,16 +884,19 @@ class BrowserAdapter:
         first_page: list[Step] = []
         for s in plan.steps:
             first_page.append(s)
-            if s.type in ("click", "wait_url", "expect_text"):
+            if s.type in ("click", "open_apply", "wait_url", "expect_text"):
                 break
         required = [s for s in first_page if s.type in PREFLIGHT_TYPES and not s.optional and (s.selector or s.label)]
         if not required:
             return
         first = required[0]
-        try:
-            scope.locator(first.selector).first.wait_for(state="attached", timeout=first.timeout_ms) if first.selector else None
-        except Exception:
-            pass  # resolved again below through the label / heading fallbacks; missing controls are reported together
+        if first.type == "open_apply":
+            self._poll_until(scope.page, lambda: self._present(scope, first), first.timeout_ms)
+        else:
+            try:
+                scope.locator(first.selector).first.wait_for(state="attached", timeout=first.timeout_ms) if first.selector else None
+            except Exception:
+                pass  # resolved again below through the label / heading fallbacks; missing controls are reported together
         missing: list[dict[str, str]] = []
         for step in required:
             if not self._present(scope, step):
@@ -873,6 +918,15 @@ class BrowserAdapter:
     def _present(self, scope: _Scope, step: Step) -> bool:
         """Can this step's control be found right now (no waiting)?"""
         try:
+            if step.type == "open_apply":
+                easy = self._find(scope, Step("click", step.selector, label=step.label))
+                if easy is not None:
+                    try:
+                        if easy.is_visible():
+                            return True
+                    except Exception:
+                        return True
+                return self._external_apply_url(scope) is not None
             if step.type == "upload":
                 return self._find_upload(scope, step) is not None or self._attach_button(scope, step) is not None
             if step.type in ("choose", "choose_multi"):
@@ -1128,7 +1182,251 @@ class BrowserAdapter:
             loc.wait_for(state="attached", timeout=step.timeout_ms)
         return loc
 
-    def _do_step(self, scope: _Scope, step: Step, plan: Plan, evidence: dict | None = None) -> None:
+    def _poll_until(self, page, ready, timeout_ms: int) -> bool:
+        deadline = time.monotonic() + max(timeout_ms, 0) / 1000
+        while True:
+            try:
+                if ready():
+                    return True
+            except Exception:
+                pass
+            if time.monotonic() >= deadline:
+                return False
+            try:
+                page.wait_for_timeout(150)
+            except Exception:
+                return False
+
+    def _same_document(self, left: str, right: str) -> bool:
+        a, b = urlsplit(left), urlsplit(right)
+        return (a.netloc.lower(), a.path.rstrip("/"), a.query) == (b.netloc.lower(), b.path.rstrip("/"), b.query)
+
+    def _external_apply_url(self, scope: _Scope) -> str | None:
+        """An apply link that leaves this page. Easy Apply and apply-with-LinkedIn are not followed from here."""
+        try:
+            rows = scope.page.evaluate(_APPLY_LINKS_JS)
+        except Exception:
+            return None
+        current = scope.page.url or ""
+        for row in rows or []:
+            name = " ".join(str(row.get("name") or "").split())
+            href = str(row.get("href") or "")
+            if not _EXTERNAL_APPLY_NAME.match(name) or _EASY_APPLY_NAME.search(name) or _APPLY_WITH_LINKEDIN.search(name):
+                continue
+            if not href.startswith(("http://", "https://")) or self._same_document(current, href):
+                continue
+            return href
+        return None
+
+    def _allow_host(self, url: str) -> str:
+        host = (urlsplit(url).hostname or "").lower()
+        if not host:
+            return ""
+        hosts = getattr(self, "_nav_hosts", None)
+        if hosts is None:
+            hosts = set()
+            self._nav_hosts = hosts
+        hosts.add(host)
+        return host
+
+    def _frames(self, page):
+        try:
+            frames = list(page.frames)
+        except Exception:
+            frames = []
+        return frames or [page]
+
+    def _first_named(self, page, pattern: re.Pattern):
+        for root in self._frames(page):
+            for role in ("button", "link"):
+                try:
+                    loc = root.get_by_role(role, name=pattern)
+                    count = min(loc.count(), 6)
+                except Exception:
+                    continue
+                for index in range(count):
+                    item = loc.nth(index)
+                    try:
+                        if item.is_visible():
+                            return item
+                    except Exception:
+                        continue
+        return None
+
+    def _own_apply_control(self, page):
+        exact = self._first_named(page, _OWN_APPLY_EXACT)
+        if exact is not None:
+            return exact
+        for root in self._frames(page):
+            for role in ("button", "link"):
+                try:
+                    loc = root.get_by_role(role, name=_EXTERNAL_APPLY_NAME)
+                    count = min(loc.count(), 8)
+                except Exception:
+                    continue
+                for index in range(count):
+                    item = loc.nth(index)
+                    try:
+                        if not item.is_visible():
+                            continue
+                        name = " ".join((item.get_attribute("aria-label") or item.inner_text() or "").split())
+                    except Exception:
+                        continue
+                    if _EXTERNAL_APPLY_NAME.match(name) and not _EASY_APPLY_NAME.search(name) and not _APPLY_WITH_LINKEDIN.search(name):
+                        return item
+        return None
+
+    def _click_control(self, page, loc, timeout_ms: int):
+        """Click in this session. A popup stays in the same browser context so the signed-in session is still there."""
+        from playwright.sync_api import TimeoutError as PWTimeout
+
+        self._following_apply = True
+        try:
+            try:
+                with page.expect_popup(timeout=1000) as caught:
+                    loc.click(timeout=timeout_ms)
+                popup = caught.value
+            except PWTimeout:
+                return None
+            try:
+                popup.wait_for_load_state("domcontentloaded", timeout=timeout_ms)
+            except Exception:
+                pass
+        finally:
+            self._following_apply = False
+        self._allow_host(popup.url or "")
+        return popup
+
+    def _unsupported(self, scope: _Scope, plan: Plan, evidence: dict, shots: _ShotTarget | None, detail: str | None = None) -> None:
+        self._snapshot(scope.page, evidence, "handoff", shots)
+        site = plan.site or "The job site"
+        message = detail or f"{site} does not open an application form on this page. Nothing was sent."
+        raise HandoffRequired(message, {**evidence, "wall": "unsupported", "final_clicked": False})
+
+    def _visible_fields(self, scope: _Scope) -> list[dict]:
+        try:
+            return list(scope.page.evaluate(_VISIBLE_FIELDS_JS) or [])
+        except Exception:
+            return []
+
+    def _field_key(self, label: str) -> str | None:
+        from amorehiremepls.apply.applications import FIELD_RULES
+
+        for pattern, key in FIELD_RULES:
+            if pattern.search(label or ""):
+                return key
+        return None
+
+    def _known_answer_steps(self, plan: Plan) -> dict[str, Step]:
+        found: dict[str, Step] = {}
+        for step in plan.steps:
+            if step.type not in ("fill", "select", "choose", "choose_multi", "upload", "autocomplete"):
+                continue
+            if step.type != "upload" and not step.value and not step.options:
+                continue
+            key = self._field_key(step.label or "")
+            if key and key not in found:
+                found[key] = step
+        return found
+
+    def _plan_field_visible(self, scope: _Scope, plan: Plan) -> bool:
+        for step in plan.steps:
+            if step.type not in ("fill", "upload", "select", "choose", "choose_multi"):
+                continue
+            loc = self._find(scope, step)
+            if loc is None:
+                continue
+            try:
+                if loc.is_visible():
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def _fill_known_fields(self, scope: _Scope, evidence: dict, fields: list[dict], answers: dict[str, Step]) -> None:
+        for row in fields:
+            key = self._field_key(str(row.get("label") or ""))
+            source = answers.get(key or "")
+            selector = str(row.get("selector") or "")
+            if source is None or not selector:
+                continue
+            if row.get("tag") == "select" or source.type in ("choose", "select"):
+                self._choose(scope, Step("choose", selector, source.value, label=source.label, sensitive=source.sensitive))
+            elif source.type == "upload" or row.get("type") == "file":
+                self._upload(scope, Step("upload", selector, source.value, label=source.label), evidence)
+            else:
+                scope.locator(selector).first.fill(source.value, timeout=source.timeout_ms)
+
+    def _finish_external_form(self, scope: _Scope, plan: Plan, evidence: dict, shots: _ShotTarget | None, step: Step) -> _Scope:
+        """Use the LinkedIn plan when its fields are on the page. Otherwise fill only known fields, and stop on an unknown required one."""
+        if not self._visible_fields(scope) and not self._plan_field_visible(scope, plan):
+            self._poll_until(scope.page, lambda: bool(self._visible_fields(scope)) or self._plan_field_visible(scope, plan), min(step.timeout_ms, 4000))
+        fields = self._visible_fields(scope)
+        if not fields and not self._plan_field_visible(scope, plan):
+            self._unsupported(scope, plan, evidence, shots)
+        answers = self._known_answer_steps(plan)
+        unknown = [str(row.get("label") or "A required question") for row in fields if row.get("required") and (self._field_key(str(row.get("label") or "")) or "") not in answers]
+        if unknown:
+            site = plan.site or "The job site"
+            self._unsupported(scope, plan, evidence, shots, f"{site} asked for an answer this application does not have ({', '.join(unknown[:3])}). Nothing was sent.")
+        if self._plan_field_visible(scope, plan):
+            return scope
+        self._fill_known_fields(scope, evidence, fields, answers)
+        evidence["skip_until_final"] = True
+        return scope
+
+    def _open_apply(self, scope: _Scope, step: Step, plan: Plan, evidence: dict, shots: _ShotTarget | None) -> _Scope:
+        easy = self._find(scope, Step("click", step.selector, label=step.label or "Easy Apply"))
+        visible = False
+        if easy is not None:
+            try:
+                visible = bool(easy.is_visible())
+            except Exception:
+                visible = True
+        if easy is not None and visible:
+            easy.click(timeout=step.timeout_ms)
+            evidence["external_apply"] = {"control": "easy_apply"}
+            return scope
+        href = self._external_apply_url(scope)
+        if not href:
+            self._unsupported(scope, plan, evidence, shots)
+            return scope
+        host = self._allow_host(href)
+        evidence["external_apply"] = {"control": "external", "followed": href, "host": host}
+        self._following_apply = True
+        try:
+            scope.page.goto(href, wait_until="domcontentloaded", timeout=max(step.timeout_ms, 15000))
+        finally:
+            self._following_apply = False
+        self._detect_login(scope.page, evidence, shots)
+        self._poll_until(
+            scope.page,
+            lambda: self._first_named(scope.page, _APPLY_WITH_LINKEDIN) is not None or self._own_apply_control(scope.page) is not None,
+            min(max(step.timeout_ms, 1000), 8000),
+        )
+        linked = self._first_named(scope.page, _APPLY_WITH_LINKEDIN)
+        if linked is not None:
+            popup = self._click_control(scope.page, linked, step.timeout_ms)
+            if popup is not None:
+                scope = _Scope(popup)
+            evidence["external_apply"]["control"] = "apply_with_linkedin"
+            self._detect_login(scope.page, evidence, shots)
+            return self._finish_external_form(scope, plan, evidence, shots, step)
+        own = self._own_apply_control(scope.page)
+        if own is None:
+            self._unsupported(scope, plan, evidence, shots)
+            return scope
+        popup = self._click_control(scope.page, own, step.timeout_ms)
+        if popup is not None:
+            scope = _Scope(popup)
+        evidence["external_apply"]["control"] = "site_apply"
+        self._detect_login(scope.page, evidence, shots)
+        return self._finish_external_form(scope, plan, evidence, shots, step)
+
+    def _do_step(self, scope: _Scope, step: Step, plan: Plan, evidence: dict | None = None, shots: _ShotTarget | None = None) -> _Scope:
+        evidence = evidence if evidence is not None else {}
+        if step.type == "open_apply":
+            return self._open_apply(scope, step, plan, evidence, shots)
         if step.type == "fill":
             loc = self._require(scope, step)
             if loc is not None:
@@ -1164,6 +1462,7 @@ class BrowserAdapter:
             self._autocomplete(scope, step, evidence)
         else:
             raise ActionFailed(f"unknown step type {step.type}")
+        return scope
 
     def _kind(self, loc) -> str:
         js = (
