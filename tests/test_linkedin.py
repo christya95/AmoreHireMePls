@@ -196,3 +196,27 @@ def test_external_apply_is_followed_and_a_page_with_neither_control_is_a_handoff
     assert (out3.evidence.get("external_apply") or {}).get("control") == "site_apply"
     assert len(linkedin_site.LI_SUBMISSIONS) == before + 1 and len(linkedin_site.COMPANY_SUBMISSIONS) == company_before
     assert "Nothing was sent" in (svc3.apps.find_one({"_id": app3["_id"]})["next_action"])
+
+
+@skip_no_browser
+@pytest.mark.browser
+@pytest.mark.mongo
+def test_external_apply_redirect_loads_a_script_from_another_host(store, tmp_path, board):
+    """The company page is a redirect off the allowed host. Its form is opened by a script on a third host.
+
+    Both names resolve to loopback, and the gate sees the names. The script is not a saved host and not the page
+    host. If the request gate aborts it, the form stays hidden and the run hands back before anything is sent."""
+    before = len(linkedin_site.LI_SUBMISSIONS)
+    svc, job, app, _adapter = _prepared(store, tmp_path, board, variant="assets")
+    AuthorizationStore(store).grant("application_submit", ScopeBinding(target_id=job["_id"], material_hash=app["material_hash"]))
+    out = svc.execute(app["_id"], "w1", lambda plan: _browser(tmp_path).run_plan(plan, site_key="li"))
+    assert out.status == "succeeded", out.reason
+    external = out.evidence.get("external_apply") or {}
+    assert "/safety/go/" in (external.get("followed") or "")
+    assert external.get("landed_host") == "site.127.0.0.1.nip.io"
+    assert external.get("control") == "apply_with_linkedin"
+    assert len(linkedin_site.LI_SUBMISSIONS) == before + 1
+    sub = linkedin_site.LI_SUBMISSIONS[-1]
+    assert sub["opened_by"] == "apply-with-linkedin" and sub["job_id"] == JOB_ID
+    assert sub["email"] == "alex@example.com" and sub["resume"]["bytes"] > 0
+    assert out.evidence.get("final_clicked") is True

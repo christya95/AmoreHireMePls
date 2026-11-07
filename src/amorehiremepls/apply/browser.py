@@ -4,7 +4,9 @@ A `plan` is a list of steps (fill, select, check, upload, click, open_apply, exp
 assert_value, choose, choose_multi, autocomplete). Site adapters produce plans; this module executes them inside an isolated
 browser context:
   * top-level navigation restricted to allowed hosts; sub-resources (scripts, styles, fonts, frames) may
-    additionally come from the plan's / config's `resource_hosts`; everything else is aborted
+    additionally come from the plan's / config's `resource_hosts`; everything else is aborted. While one
+    external apply link is being followed, that navigation and the page's own sub-resources are allowed
+    for the rest of the run. A sub-resource host is not a later navigation target.
   * no downloads, dedicated storage state per site, no access to the host filesystem beyond the
     specific files passed for upload
   * login challenges raise HandoffRequired (never bypassed)
@@ -643,31 +645,36 @@ class BrowserAdapter:
                 watch_network(context, self.network, plan.job_id, sensitive_values(plan))
             context.set_default_timeout(self.config.default_timeout_ms)
             # Copied so following one apply link can allow that host for this run without changing the saved list.
+            # Asset hosts are the scripts and frames that page loads. They stay sub-resources only.
             self._nav_hosts = {h.lower() for h in self.config.allowed_hosts}
+            self._asset_hosts = set()
             resources = {h.lower() for h in [*self.config.resource_hosts, *plan.resource_hosts]}
 
+            def top_level(request, default: bool) -> bool:
+                try:
+                    return bool(request.is_navigation_request() and request.frame is not None and request.frame.parent_frame is None)
+                except Exception:
+                    return default
+
             def gate(route, request):
+                if request.url.startswith("data:"):
+                    route.continue_()
+                    return
                 host = urlsplit(request.url).netloc.split(":")[0].lower()
-                if request.url.startswith("data:") or host in self._nav_hosts:
+                if host and host in self._nav_hosts:
                     route.continue_()
                     return
                 if getattr(self, "_following_apply", False) and host:
-                    try:  # the apply link's own redirects: allow that host for the rest of this run
-                        top_level = request.is_navigation_request() and request.frame.parent_frame is None
-                    except Exception:
-                        top_level = False
-                    if top_level:
+                    # The link, its redirects, and every script or frame that page needs. Remember them after the flag drops.
+                    if top_level(request, False):
                         self._nav_hosts.add(host)
-                        route.continue_()
-                        return
-                if host_allowed(host, resources):
-                    try:  # resource hosts may serve scripts, styles, fonts and child frames, never the top-level page
-                        top_level = request.is_navigation_request() and request.frame.parent_frame is None
-                    except Exception:
-                        top_level = True
-                    if not top_level:
-                        route.continue_()
-                        return
+                    else:
+                        self._asset_hosts.add(host)
+                    route.continue_()
+                    return
+                if host and (host in self._asset_hosts or host_allowed(host, resources)) and not top_level(request, True):
+                    route.continue_()
+                    return
                 route.abort()
 
             context.route("**/*", gate)
@@ -1394,10 +1401,14 @@ class BrowserAdapter:
         host = self._allow_host(href)
         evidence["external_apply"] = {"control": "external", "followed": href, "host": host}
         self._following_apply = True
+        landed = ""
         try:
             scope.page.goto(href, wait_until="domcontentloaded", timeout=max(step.timeout_ms, 15000))
+            landed = self._allow_host(scope.page.url or href)
         finally:
             self._following_apply = False
+        if landed:
+            evidence["external_apply"]["landed_host"] = landed
         self._detect_login(scope.page, evidence, shots)
         self._poll_until(
             scope.page,

@@ -6,8 +6,11 @@ A signed-out page and a verify-it's-you page have no form and record nothing.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, File, Form, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+import re
+from urllib.parse import quote, urlsplit
+
+from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 router = APIRouter()
 LI_SUBMISSIONS: list[dict] = []
@@ -90,8 +93,18 @@ resume.addEventListener('change', () => {{
 </script></body></html>"""
 
 
+_LOOPBACK = re.compile(r"^127(?:\.\d{1,3}){3}(?::\d{2,5})?$")
+# Names that resolve to loopback. The gate sees the name, not 127.0.0.1, so a script here is a different host.
+_NIP = re.compile(r"^(?:[a-z0-9-]+\.)*127\.0\.0\.1\.nip\.io(?::\d{2,5})?$")
+
+
+def _fixture_host(value: str) -> str:
+    text = (value or "").strip().lower()
+    return text if _LOOPBACK.fullmatch(text) or _NIP.fullmatch(text) else ""
+
+
 @router.get("/jobs/view/{job_id}", response_class=HTMLResponse)
-def job_page(job_id: str, variant: str = ""):
+def job_page(job_id: str, request: Request, variant: str = "", company: str = "", asset: str = ""):
     if variant == "login":
         return RedirectResponse("/li/login", status_code=303)
     if variant == "checkpoint":
@@ -102,7 +115,22 @@ def job_page(job_id: str, variant: str = ""):
         return HTMLResponse(_offsite_page(job_id, f"/company/{job_id}?kind=neither"))
     if variant == "own":
         return HTMLResponse(_offsite_page(job_id, f"/company/{job_id}?kind=own"))
+    if variant == "assets":
+        port = request.url.port
+        company_host = _fixture_host(company) or "site.127.0.0.1.nip.io"
+        asset_host = _fixture_host(asset) or "cdn.127.0.0.1.nip.io"
+        dest = f"http://{company_host}:{port}/company/{job_id}?kind=assets&asset={asset_host}:{port}"
+        return HTMLResponse(_offsite_page(job_id, "/safety/go/?next=" + quote(dest, safe="")))
     return HTMLResponse(_form(job_id))
+
+
+@router.get("/safety/go/")
+def safety_go(next: str = ""):
+    """The apply link leaves this host the way a job site redirects off the posting. Loopback only."""
+    parts = urlsplit(next)
+    if parts.scheme != "http" or not _fixture_host(parts.hostname or ""):
+        return HTMLResponse("no", status_code=400)
+    return RedirectResponse(next, status_code=303)
 
 
 def _offsite_page(job_id: str, href: str) -> str:
@@ -125,6 +153,39 @@ def _company_form(job_id: str) -> str:
     return html
 
 
+def _asset_company_page(job_id: str, script_src: str) -> str:
+    """Both apply controls are on the page. The form stays hidden until a script from another host opens it."""
+    html = _form(job_id)
+    html = html.replace(
+        '<button type="button" id="easy-apply" aria-label="Easy Apply">Easy Apply</button>',
+        '<button type="button" id="apply-now" aria-label="Apply now">Apply now</button>'
+        '<button type="button" id="apply-with-linkedin" aria-label="Apply With LinkedIn">Apply With LinkedIn</button>',
+    )
+    html = html.replace('enctype="multipart/form-data">', 'enctype="multipart/form-data"><input type="hidden" id="opened-by" name="opened_by" value="">')
+    html = html.replace(
+        "document.getElementById('easy-apply').addEventListener('click', () => {\n  document.getElementById('modal').hidden = false;\n  show('1');\n});\n",
+        "",
+    )
+    if script_src:
+        html = html.replace("</body>", f'<script src="{script_src}"></script></body>')
+    return html
+
+
+_OPEN_FORM_JS = """
+document.getElementById('apply-with-linkedin').addEventListener('click', () => {
+  const opened = document.getElementById('opened-by');
+  if (opened) opened.value = 'apply-with-linkedin';
+  document.getElementById('modal').hidden = false;
+  show('1');
+});
+"""
+
+
+@router.get("/assets/open-form.js")
+def open_form_js():
+    return Response(_OPEN_FORM_JS, media_type="application/javascript")
+
+
 def _own_apply_page(job_id: str) -> str:
     return f"""<html><head><title>Example role</title></head><body>
 <button type="button" id="apply-now" aria-label="Apply now">Apply now</button>
@@ -141,11 +202,15 @@ document.getElementById('apply-now').addEventListener('click', () => {{
 
 
 @router.get("/company/{job_id}", response_class=HTMLResponse)
-def company_page(job_id: str, kind: str = ""):
+def company_page(job_id: str, kind: str = "", asset: str = ""):
     if kind == "neither":
         return HTMLResponse("<html><head><title>Example role</title></head><body><p>No apply control on this page.</p></body></html>")
     if kind == "own":
         return HTMLResponse(_own_apply_page(job_id))
+    if kind == "assets":
+        host = _fixture_host(asset)
+        src = f"http://{host}/assets/open-form.js" if host else ""
+        return HTMLResponse(_asset_company_page(job_id, src))
     return HTMLResponse(_company_form(job_id))
 
 
