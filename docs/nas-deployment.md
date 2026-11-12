@@ -17,6 +17,7 @@ original operator's and are the defaults of `scripts/deploy_nas.sh` and `deploy/
 | Bind mount root on the NAS | `AMORE_DATA_ROOT` (first deploy) or `--set AMORE_DATA_ROOT=/your/path`; create it and point the `init` chown at it by redeploying |
 | Timezone | `--set AMORE_TIMEZONE=Europe/London` (also sets `TZ` in the containers) |
 | Tracker | `--set AMORE_TRACKER_ENABLED=false`, or `true` plus `--set AMORE_TRACKER_REMOTE_URL=https://github.com/<you>/<records>.git` |
+| Sign in with saved logins | `--set AMORE_SITE_SIGNIN=false` turns it off for the stack (default `true` here; the Settings switch overrides either). The containers need nothing else: no 1Password tool, no token. The owner presses Allow 1Password on a dashboard that runs where 1Password and `op` are installed, and it must share this database and `AMORE_APP_SECRET`. |
 | Database network and name | the compose file joins the existing `mongodb_default` network and database `amorehiremepls`; change those two lines if yours differ |
 
 ## 0. What was observed

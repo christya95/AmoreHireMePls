@@ -53,6 +53,9 @@ def register(app, rt, ui_store, require_session, require_csrf, set_ui_cookie, sa
             captcha_autosolve=rt.captcha_autosolve_enabled(),
             captcha_attempts=rt.settings.captcha_max_attempts,
             captcha_env_default=rt.settings.captcha_autosolve,
+            site_signin=rt.site_signin_enabled(),
+            site_signin_env_default=rt.settings.site_signin,
+            site_signin_reader=rt.credential_source().available(),
             notify_email=rt.notifier().email_ready(),
             notify_webhook=rt.notifier().webhook_ready(),
         )
@@ -65,6 +68,15 @@ def register(app, rt, ui_store, require_session, require_csrf, set_ui_cookie, sa
         rt.store.set_control("captcha_autosolve", enabled)
         rt.store.audit("captcha_autosolve_changed", None, enabled=enabled)
         return RedirectResponse(f"/settings?ok={'captcha_on' if enabled else 'captcha_off'}", status_code=303)
+
+    @app.post("/settings/signin")
+    def settings_signin(request: Request, session: dict = Depends(require_session), csrf: str = Form(...), signin: str = Form("")):
+        """Opt-in sign-in with saved logins. Off by default; the choice is kept in `controls`."""
+        require_csrf(request, session, csrf)
+        enabled = signin in ("on", "1", "true")
+        rt.store.set_control("site_signin", enabled)
+        rt.store.audit("site_signin_changed", None, enabled=enabled)
+        return RedirectResponse(f"/settings?ok={'signin_on' if enabled else 'signin_off'}", status_code=303)
 
     @app.post("/settings/notify-test")
     def settings_notify_test(request: Request, session: dict = Depends(require_session), csrf: str = Form(...)):

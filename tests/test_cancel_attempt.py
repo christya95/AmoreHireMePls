@@ -65,15 +65,17 @@ def _adapter(store: _Store, plan: Plan, on_step=None) -> tuple[BrowserAdapter, l
     notes: list[str] = []
     done: list[Step] = []
 
-    def do_step(scope, step, plan_, evidence=None):
+    def do_step(scope, step, plan_, evidence=None, shots=None):
         done.append(step)
         if on_step:
             on_step(step)
+        return scope
 
     adapter._do_step = do_step  # type: ignore[method-assign]
     adapter._preflight = lambda *a, **k: None  # type: ignore[method-assign]
     adapter._snapshot = lambda *a, **k: None  # type: ignore[method-assign]
     adapter._detect_login = lambda *a, **k: None  # type: ignore[method-assign]
+    adapter._pass_wall = lambda *a, **k: None  # type: ignore[method-assign]
     adapter._detect_validation_errors = lambda *a, **k: None  # type: ignore[method-assign]
     adapter._await_receipt = lambda *a, **k: adapter._say("Waiting for the confirmation")  # type: ignore[method-assign]
     adapter._progress = CancelWatch(store, "run_x", plan, notes.append)

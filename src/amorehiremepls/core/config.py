@@ -76,6 +76,19 @@ class Settings(BaseSettings):
     human_check_hold_minutes: int = Field(default=30, ge=0, le=180)
     # Localhost-only Chromium debug port while a hold is active. 0 disables it. Not reachable on the NAS.
     human_check_cdp_port: int = Field(default=9222, ge=0, le=65535)
+    # Sign in on a job site with a login the owner saved in 1Password. Off by default: a sign-in page stops the
+    # application for the owner. On: the application page asks the owner to allow 1Password each time, the dashboard
+    # that received the press reads the login (1Password shows its own Touch ID or password window there), and the
+    # login reaches the browser task sealed to a one-time key. A refused password is never typed twice, no account is
+    # ever created, and nothing is submitted without a matching approval. Overridable from Settings (control `site_signin`).
+    site_signin: bool = False
+    # Optional: the 1Password account (sign-in address or id) and vault to search. Empty searches everything readable.
+    site_signin_account: str = ""
+    site_signin_vault: str = ""
+    # Ceilings. Page work for one sign-in, the wait after the password or code is sent, and how many codes may be typed.
+    site_signin_max_seconds: int = Field(default=240, ge=30, le=900)
+    site_signin_settle_seconds: int = Field(default=30, ge=5, le=120)
+    site_signin_code_attempts: int = Field(default=3, ge=1, le=5)
     # One fresh-session try after a human check, before the owner is notified. 0 sends the note immediately.
     # Skipped while a hold is still open. The later try never clicks submit if the first try already did.
     challenge_retry_minutes: int = Field(default=180, ge=0, le=1440)

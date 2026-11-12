@@ -227,7 +227,8 @@ class NetworkLog:
 
 def watch_network(context: Any, recorder: NetworkLog, job_id: str, sensitive: list[str] | None = None) -> None:
     """Attach to this browser context. Each request is written before the callback returns."""
-    secrets = list(sensitive or [])
+    # The caller's own list is kept, so a value it adds during the run (a sign-in secret) is left out from then on.
+    secrets = sensitive if isinstance(sensitive, list) else list(sensitive or [])
     ids: dict[int, str] = {}
 
     def on_request(request: Any) -> None:

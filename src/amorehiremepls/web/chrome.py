@@ -28,6 +28,7 @@ from amorehiremepls.candidate.profile import ExcludedEmployer, Provenance, Recip
 from amorehiremepls.core.actions import REPLAY_LABEL
 from amorehiremepls.core.authorization import ScopeBinding, StopConditions
 from amorehiremepls.core.runtime import Runtime
+from amorehiremepls.core.site_signin import stop_for
 from amorehiremepls.core.util import redact_free, sha256_file, to_local, utcnow, zone_label
 from amorehiremepls.core.worker import next_slot_description, worker_healthy
 from amorehiremepls.jobs.discovery import SOURCES
@@ -232,6 +233,29 @@ FLASHES = {
     "field_missing": ("That field is no longer waiting.", "bad"),
     "field_empty": ("Type an answer first. Nothing was entered on the form.", "bad"),
     "field_changed": ("The answers or the resume changed, so that answer was refused.", "bad"),
+    "signin_allowed": ("1Password was approved. The saved login is being used on the sign-in page now.", "ok"),
+    "signin_code_sent": ("The one-time code from 1Password is being typed now.", "ok"),
+    "signin_not_approved": ("1Password was not approved in time. Press Allow 1Password again when you are ready. Nothing failed and nothing was sent.", "bad"),
+    "signin_lookup_failed": ("1Password did not answer just now. Press Allow 1Password again. Nothing was sent.", "bad"),
+    "signin_gave_up": ("1Password was not approved after several tries, so this attempt stopped. Nothing was sent. Retry with the app is safe.", "bad"),
+    "signin_not_here": ("This dashboard cannot open 1Password. Open this page from the dashboard on the computer where 1Password is installed, then press Allow there.", "bad"),
+    "signin_missing": ("That sign-in step is no longer waiting.", "bad"),
+    "signin_changed": ("The saved login changed while the page was waiting. Retry with the app.", "bad"),
+    "signin_no_code": ("The saved login has no one-time code in 1Password. Type the code here instead.", "bad"),
+    "signin_declined": ("The app will not sign in this time. Nothing was read from 1Password and nothing was sent.", "ok"),
+    "signin_resend": ("The app is asking the job site to send a new code. Type it here when it arrives.", "ok"),
+    "signin_unchanged": ("The saved login in 1Password has not changed since the site refused it, so it was not sent. Nothing was sent.", "bad"),
+    "signin_cycle_cap": ("The site refused the saved login too many times, so the app stopped trying for now. Nothing was sent.", "bad"),
+    "signin_no_login": ("1Password was approved, but it has no saved login for this site. Nothing was sent.", "bad"),
+    "signin_several": ("1Password has more than one saved login for this site, so none was used. Nothing was sent.", "bad"),
+    "signin_locked": ("The site said this account is locked or needs a wait, so the app did not sign in. Nothing was sent.", "bad"),
+    "signin_mismatch": ("The sign-in request could not be checked, so no login was sent to it. Retry with the app.", "bad"),
+    "signin_reader_not_installed": ("The 1Password command line tool was not found on this computer. Nothing was sent.", "bad"),
+    "signin_reader_not_signed_in": ("1Password is not signed in on this computer. Sign in to the 1Password app, then retry.", "bad"),
+    "signin_reader_integration_off": ("The 1Password app did not answer. Turn on Integrate with 1Password CLI in its Developer settings, then retry.", "bad"),
+    "signin_reader_failed": ("1Password could not be read. Nothing was sent. Retry with the app is safe.", "bad"),
+    "signin_on": ("The app may now sign in with logins you saved in 1Password. It asks you on the application page each time.", "ok"),
+    "signin_off": ("Sign-in pages are left to you again.", "ok"),
     "notify_sent": ("Test notification sent.", "ok"),
     "notify_failed": ("The test notification could not be sent. Check the mail server settings and try again.", "bad"),
     "notify_off": ("Nothing is set up to send a notification yet.", "bad"),
@@ -252,6 +276,7 @@ FLASHES = {
     "person_deleted": ("That person was deleted. A backup was saved first.", "ok"),
     "person_refused": ("That change was not made.", "bad"),
 }
+FIX_BUTTON = "I changed the password, try again"
 HOSTS_ENV_EXAMPLE = "AMORE_BROWSER_ALLOWED_HOSTS=boards.greenhouse.io,jobs.lever.co"
 
 
@@ -838,6 +863,23 @@ def _approve_ask() -> dict:
     }
 
 
+def _fix_view(site: str, fix: dict | None) -> dict:
+    """What a refused sign-in adds to the status block: the site's own words, the two links, and which saved login to edit.
+
+    The words and the links came from a web page. They are plain text and checked addresses here; the template escapes them."""
+    if not fix:
+        return {}
+    links = []
+    if fix.get("reset_url"):
+        links.append({"label": f"Reset the password on {site}", "href": fix["reset_url"], "note": "Opens the job site in a new tab. The app never changes a password."})
+    else:
+        links.append({"label": "The reset link could not be found on the sign-in page. Use the site's own forgot password option.", "href": "", "note": ""})
+    if fix.get("signin_url"):
+        links.append({"label": "Open the sign-in page for this job", "href": fix["signin_url"], "note": "The same address the app opened."})
+    title = f', named "{fix["item_title"]}",' if fix.get("item_title") else ""
+    return {"quote": str(fix.get("said") or ""), "links": links, "aside": f"Save the new password in the same 1Password item{title} so the app can read it."}
+
+
 def needed_now(
     app: dict,
     show_status: str,
@@ -850,6 +892,7 @@ def needed_now(
     stale: bool = False,
     can_run: bool = False,
     can_retry_same: bool = False,
+    signin_fix: dict | None = None,
 ) -> dict:
     """The one thing this application asks of the person, with the control it needs.
 
@@ -858,7 +901,7 @@ def needed_now(
     pkg = app.get("review_package") or {}
     status = str(app.get("status") or "")
     none = {"kind": "", "title": NOTHING_NEEDED, "text": "", "field": None}
-    if hold and hold.get("purpose") != "field":
+    if hold and hold.get("purpose") not in ("field", "signin"):
         where = f" on this computer at 127.0.0.1:{hold['cdp_port']}" if hold.get("cdp_port") else ""
         return {
             "kind": "human_check",
@@ -867,9 +910,33 @@ def needed_now(
             "If you cannot open the page, wait. When the time is up you will be asked to finish on the site yourself.",
             "field": None,
         }
+    if hold and hold.get("purpose") == "signin":
+        ask = hold.get("signin") or {}
+        site = str(ask.get("host") or "The job site")
+        fix = signin_fix if signin_fix and signin_fix.get("status") == "rejected" else None
+        base = {"kind": "signin", "field": None, "site": site, "label": "Allow 1Password", **_fix_view(site, fix)}
+        if hold.get("signin_unchanged"):
+            text = f"{site} already refused this password, and the login saved in 1Password is still the same. Sending it again can lock the account. Change the password first."
+            if hold.get("signin_unchanged") == "unclear_limit":
+                text = f"The last sign-ins on {site} never showed a result, and the login saved in 1Password is still the same. Check the account on the job site first."
+            return {**base, "title": "The saved login has not changed.", "text": f"{text} Nothing was sent.", "label": FIX_BUTTON, "confirm_same": True}
+        if ask.get("fix") or fix:
+            text = "Nothing was sent. Change the password on the job site and save it in the same 1Password item. Then press the button, and 1Password asks you to approve again."
+            return {**base, "title": f"{site} did not accept the saved login.", "text": text, "label": FIX_BUTTON if ask.get("fix") else "Allow 1Password"}
+        text = (
+            "The app can sign in with the login you saved in 1Password. Press Allow 1Password. A 1Password window then asks for Touch ID or your "
+            "account password on the computer where this dashboard runs. The app never sees that password."
+        )
+        if hold.get("signin_missed"):
+            text = "1Password was not approved in time. Nothing failed. Press Allow 1Password again when you are ready, and watch for the 1Password window."
+        return {**base, "title": f"{site} asks you to sign in.", "text": text}
     if hold and hold.get("purpose") == "field" and hold.get("field_label"):
         label = str(hold["field_label"])
         text = "The same page is still open. Type the answer here and it is entered on that form. The form is not started over."
+        ask = hold.get("signin") if isinstance(hold.get("signin"), dict) else None
+        if ask:
+            text = str(hold.get("field_reason") or "") or "Type the code here and it is entered on the sign-in page."
+            return {"kind": "field", "title": label, "text": text, "field": None, "code": True, "offer_code": bool(ask.get("offer_code")), "resend": bool(ask.get("resend"))}
         if re.search(r"\bcode\b", label, re.I) and re.search(r"email", str(hold.get("field_reason") or ""), re.I):
             text = "The job site emailed you a code after the final click. Open that email, type the code here, and the same page finishes sending. Nothing is clicked twice."
         return {"kind": "field", "title": label, "text": text, "field": None}
@@ -909,13 +976,35 @@ def needed_now(
             "field": None,
         }
     wall = str(app.get("handoff_kind") or "")
-    if status == "handoff" and wall == "login" and can_retry:
-        return {
-            "kind": "retry",
-            "title": "Sign in on the job site first.",
-            "text": "Nothing was sent. The app will not sign in for you. After you are signed in, it can fill the form.",
-            "field": None,
-        }
+    if status == "handoff" and wall in ("login", "code"):
+        signin = (app.get("evidence") or {}).get("signin") if isinstance((app.get("evidence") or {}).get("signin"), dict) else {}
+        outcome = str(signin.get("outcome") or "")
+        stop = stop_for(outcome) if outcome else None
+        site = str(signin.get("host") or "The job site")
+        # A refusal that is still open is the thing to fix, also when the last attempt ended on a missed approval.
+        fix = signin_fix if outcome in ("rejected", "remembered", "locked", "cycle_cap", "not_approved", "declined") else None
+        if fix:
+            view = _fix_view(site, fix)
+            if fix.get("wait_until"):
+                how = "as the site said" if fix.get("wait_said") else "because the site did not say how long"
+                text = f"Nothing was sent. The app waits until {_local(fix['wait_until'], '%H:%M')}, {how}, before it offers another try. You can unlock the account on the site."
+                return {"kind": "", "title": f"{site} says the account is locked or has had too many attempts.", "text": text, "field": None, **view}
+            if fix.get("capped"):
+                text = f"Nothing was sent. More tries could lock the account. Another try is offered after {_local(fix.get('cap_until'), '%Y-%m-%d %H:%M')}. The links stay here."
+                return {"kind": "", "title": f"{site} refused the saved login {fix.get('count')} times, so the app stopped for now.", "text": text, "field": None, **view}
+            if can_retry and fix.get("status") == "locked":
+                text = "Nothing was sent. The wait has passed. If the account is unlocked, the app can try once more."
+                return {"kind": "retry", "title": f"{site} said the account was locked.", "text": text, "field": None, "label": "The account is unlocked, try again", **view}
+            if can_retry:
+                text = (
+                    "Nothing was sent. The app will not send that password again by itself. Change it on the job site, save it in the same 1Password item, then press the button."
+                )
+                return {"kind": "retry", "title": f"{site} did not accept the saved login.", "text": text, "field": None, "label": FIX_BUTTON, **view}
+        if can_retry and stop is not None:
+            return {"kind": "retry", "title": stop.title, "text": stop.text, "field": None}
+        if can_retry:
+            text = "Nothing was sent. Retry with the app opens the site again. If it asks you to sign in and saved logins are on under Settings, this page asks you first."
+            return {"kind": "retry", "title": "The job site asked you to sign in.", "text": text, "field": None}
     if status == "handoff" and wall == "checkpoint":
         return {
             "kind": "manual",
@@ -996,8 +1085,23 @@ def network_public(rows: list[dict] | None) -> list[dict]:
     return public
 
 
+def hold_key(hold: dict | None) -> str:
+    """What the page is waiting on right now, as a short key. The page reloads its one control when it changes."""
+    if not hold:
+        return ""
+    ask = hold.get("signin") if isinstance(hold.get("signin"), dict) else {}
+    return f"{hold.get('purpose') or 'check'}:{ask.get('ask_id') or hold.get('_id') or ''}:{int(hold.get('signin_missed') or 0)}:{hold.get('signin_unchanged') or ''}"
+
+
 def activity_payload(
-    app: dict, runs: list[dict], saved_reason: str = "", field: dict | None = None, network: list[dict] | None = None, action: dict | None = None, stale: bool = False
+    app: dict,
+    runs: list[dict],
+    saved_reason: str = "",
+    field: dict | None = None,
+    network: list[dict] | None = None,
+    action: dict | None = None,
+    stale: bool = False,
+    hold: dict | None = None,
 ) -> dict:
     """Saved steps plus this job's network rows, for the page to refresh. No model call."""
     rows = application_timeline(app, runs, saved_reason)
@@ -1018,6 +1122,7 @@ def activity_payload(
         "network_open": network_streaming(app, runs, action),
         "lines": lines,
         "network": network_public(network),
+        "hold": hold_key(hold),
     }
     if field:
         raw_reason = str(field.get("reason") or "")

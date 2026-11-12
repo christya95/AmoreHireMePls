@@ -9,7 +9,9 @@ browser context:
     for the rest of the run. A sub-resource host is not a later navigation target.
   * no downloads, dedicated storage state per site, no access to the host filesystem beyond the
     specific files passed for upload
-  * login challenges raise HandoffRequired (never bypassed)
+  * a sign-in page, a verification code page, a verify-it's-you page and a block page each raise HandoffRequired
+    with their own sentence (never bypassed). When the owner switched sign-in on, a sign-in form is handed to the
+    one generic step in `apply/signin.py` first, and the run carries on if that signs in
   * a CAPTCHA / human check raises HandoffRequired too, unless an opt-in `CaptchaSolver` is attached and
     the challenge is one of the simple kinds it supports (text image, image grid); every attempt is
     recorded on the evidence and the attempt count is capped
@@ -53,7 +55,10 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from amorehiremepls.apply.network_log import sensitive_values, watch_network
+from amorehiremepls.apply.signin import SignInStop, SignInTools
 from amorehiremepls.core.actions import ActionFailed, ActionHandoff, AmbiguousOutcome
+from amorehiremepls.core.credentials import same_site, site_host
+from amorehiremepls.core.site_signin import stop_for, stop_reason
 from amorehiremepls.core.util import redact_free, sha256_file, utcnow
 
 log = logging.getLogger(__name__)
@@ -84,6 +89,12 @@ CODE_PROMPT_WORDS = re.compile(
 )
 CODE_BUTTON_WORDS = re.compile(r"verify|confirm|submit|continue|done|finish", re.I)
 CODE_LABEL = "Code from your email"
+# After a password, a site may ask for a code from an authenticator app, a text message or an email.
+SIGNIN_CODE_WORDS = re.compile(
+    r"(verification|security|authentication|authenticator|confirmation|one[ -]time|two[ -]factor|2fa|\d[ -]digit|access|login|sign[ -]?in) code|passcode|"
+    r"code (we |was |has been )?(sent|emailed|texted)|sent (you )?(a|the) code|enter (the|your) code|two[ -]step verification",
+    re.I,
+)
 VALIDATION_SELECTOR = "[role=alert], .error, .field-error, .helper-text--error, .input-wrapper--error [aria-invalid=true], [aria-invalid=true]"
 FILE_WORDS = re.compile(r"resume|résumé|\bcv\b|curriculum", re.I)
 ATTACH_WORDS = re.compile(r"attach|upload|choose file|browse|select file|add file", re.I)
@@ -166,7 +177,7 @@ _CODE_BOXES_JS = """() => {
   };
   const codey = (el) => {
     const attrs = [el.name, el.id, el.getAttribute('aria-label'), el.placeholder, el.autocomplete].join(' ').toLowerCase();
-    return /code/.test(attrs) || /code/i.test(labelOf(el));
+    return /code|\\botp\\b|one-time/.test(attrs) || /code/i.test(labelOf(el));
   };
   // a split field: four or more one character boxes that share a parent
   for (let i = 0; i < inputs.length; i++) {
@@ -615,6 +626,7 @@ class BrowserAdapter:
         hold: Any | None = None,
         confirm_only: bool = False,
         progress: Any | None = None,
+        signin: Any | None = None,
     ) -> dict[str, Any]:
         from playwright.sync_api import TimeoutError as PWTimeout
         from playwright.sync_api import sync_playwright
@@ -630,6 +642,12 @@ class BrowserAdapter:
         self._session_ready = bool(state and state.exists())
         self._session_reopened = False
         self._click_documents = []
+        # The opt-in sign-in step and the hold it waits in. A confirm-only later try never signs in.
+        self._signin = signin if not confirm_only else None
+        self._hold = hold if not confirm_only else None
+        self._net_secrets = sensitive_values(plan)
+        self._signin_site = ""
+        self._save_session = lambda: False
         # Debug port only while a hold may run, and only on localhost. A failed launch drops the port and continues.
         # A confirm-only later try never holds and never clicks.
         cdp_port = int(self.config.cdp_port or 0) if hold is not None and not confirm_only else 0
@@ -648,7 +666,7 @@ class BrowserAdapter:
             context = browser.new_context(**ctx_kwargs)
             # Record every request from this moment, before the first page load and before any form step.
             if self.network is not None and plan.job_id:
-                watch_network(context, self.network, plan.job_id, sensitive_values(plan))
+                watch_network(context, self.network, plan.job_id, self._net_secrets)
             context.set_default_timeout(self.config.default_timeout_ms)
             # Copied so following one apply link can allow that host for this run without changing the saved list.
             # Asset hosts are the scripts and frames that page loads. They stay sub-resources only.
@@ -670,6 +688,11 @@ class BrowserAdapter:
                 if host and host in self._nav_hosts:
                     route.continue_()
                     return
+                if host and same_site(host, getattr(self, "_signin_site", "")):
+                    # A sign-in may pass through other hosts of the same site. Another site is never opened for it.
+                    (self._nav_hosts if top_level(request, False) else self._asset_hosts).add(host)
+                    route.continue_()
+                    return
                 if getattr(self, "_following_apply", False) and host:
                     # The link, its redirects, and every script or frame that page needs. Remember them after the flag drops.
                     if top_level(request, False):
@@ -684,11 +707,21 @@ class BrowserAdapter:
                 route.abort()
 
             context.route("**/*", gate)
+
+            def save_session() -> bool:
+                if not state:
+                    return False
+                state.parent.mkdir(parents=True, exist_ok=True)
+                context.storage_state(path=str(state))
+                state.chmod(0o600)
+                return True
+
+            self._save_session = save_session
             page = context.new_page()
             scope = _Scope(page)
             try:
                 page.goto(plan.start_url, wait_until="domcontentloaded")
-                self._detect_login(page, evidence, shots)
+                self._pass_wall(page, evidence, shots, resume_url=plan.start_url)
                 scope = self._scope_for(page, plan)
                 if confirm_only:
                     # The first try already clicked. Look for a confirmation and do not click again.
@@ -801,7 +834,7 @@ class BrowserAdapter:
                 self._type_supplied(scope, step, answer, evidence)
             evidence["steps_done"] = i + 1
             if step.type in ("click", "open_apply") and not step.final:
-                self._detect_login(page, evidence, shots)
+                self._pass_wall(page, evidence, shots)
                 if plan.handoff_if_submit_missing and (errs := self._validation_errors(scope)):
                     site = plan.site or "The job site"
                     self._snapshot(page, evidence, "handoff", shots)
@@ -1494,7 +1527,7 @@ class BrowserAdapter:
             self._following_apply = False
         if landed:
             evidence["external_apply"]["landed_host"] = landed
-        self._detect_login(scope.page, evidence, shots)
+        self._pass_wall(scope.page, evidence, shots, resume_url=href, same_host_only=True)
         self._poll_until(
             scope.page,
             lambda: self._first_named(scope.page, _APPLY_WITH_LINKEDIN) is not None or self._own_apply_control(scope.page) is not None,
@@ -1507,7 +1540,7 @@ class BrowserAdapter:
                 scope = _Scope(popup)
             scope = self._open_saved_session(scope)
             evidence["external_apply"]["control"] = "apply_with_linkedin"
-            self._detect_login(scope.page, evidence, shots)
+            self._pass_wall(scope.page, evidence, shots)
             return self._finish_external_form(scope, plan, evidence, shots, step)
         own = self._own_apply_control(scope.page)
         if own is None:
@@ -1517,7 +1550,7 @@ class BrowserAdapter:
         if popup is not None:
             scope = _Scope(popup)
         evidence["external_apply"]["control"] = "site_apply"
-        self._detect_login(scope.page, evidence, shots)
+        self._pass_wall(scope.page, evidence, shots)
         return self._finish_external_form(scope, plan, evidence, shots, step)
 
     def _do_step(self, scope: _Scope, step: Step, plan: Plan, evidence: dict | None = None, shots: _ShotTarget | None = None) -> _Scope:
@@ -2161,7 +2194,9 @@ class BrowserAdapter:
         return path
 
     def _wall_kind(self, page) -> str | None:
-        """login, checkpoint, blocked, or None. A block page on a login path is not a sign-in form."""
+        """login, code, checkpoint, blocked, or None. A block page on a login path is not a sign-in form.
+
+        `code` is a sign-in or verify page with no password box and a box for a verification code."""
         try:
             has_pw = page.locator("input[type=password]").count() > 0
             title = page.title() or ""
@@ -2175,23 +2210,82 @@ class BrowserAdapter:
             body = ""
         checkpoint = bool(re.search(r"/checkpoint(?:/|$|\?)", url, re.I) or re.search(r"verify it.?s you|quick security check", title, re.I))
         if checkpoint and not has_pw:
-            return "checkpoint"
-        if has_pw or LOGIN_PATTERNS.search(title):
+            return "code" if self._signin_code_boxes(page) is not None else "checkpoint"
+        if has_pw:
             return "login"
+        if LOGIN_PATTERNS.search(title):
+            return "code" if self._signin_code_boxes(page) is not None else "login"
         if _BLOCK_TEXT.search(title) or _BLOCK_TEXT.search(body):
             return "blocked"
         if self._login_path(url):
-            return "login"
+            return "code" if self._signin_code_boxes(page) is not None else "login"
         return None
 
+    def _signin_code_boxes(self, page):
+        """The verification code box(es) on a sign-in page: a locator over the marked boxes, or None."""
+        try:
+            if not SIGNIN_CODE_WORDS.search(page.locator("body").inner_text(timeout=1000)):
+                return None
+            return page.locator(f"[{CODE_MARK}]") if int(page.evaluate(_CODE_BOXES_JS) or 0) else None
+        except Exception:
+            return None
+
+    def _wall_stop(self, page, evidence: dict, shots: _ShotTarget | None, code: str) -> None:
+        """Stop for a person with the sentence for this exact kind of page. Nothing was sent."""
+        stop = stop_for(code)
+        evidence["wall"] = stop.wall
+        record = evidence.setdefault("signin", {})
+        record.setdefault("host", site_host(page.url or ""))
+        record.update(outcome=code, retry_safe=stop.retry_safe)
+        self._snapshot(page, evidence, "handoff", shots)
+        raise HandoffRequired(stop_reason(code, record["host"]), {**evidence, "url": page.url or "", "final_clicked": False})
+
     def _detect_login(self, page, evidence: dict, shots: _ShotTarget | None = None) -> None:
+        """Read-only check: any wall stops here. The sign-in step is not offered."""
+        kind = self._wall_kind(page)
+        if kind:
+            self._wall_stop(page, evidence, shots, "off" if kind == "login" else kind)
+
+    def _pass_wall(self, page, evidence: dict, shots: _ShotTarget | None = None, resume_url: str = "", same_host_only: bool = False) -> None:
+        """A sign-in or code page is handed to the sign-in step when the owner switched it on. Every other wall stops.
+
+        After a sign-in the page the run wanted is opened once more when the site did not return there by itself."""
         kind = self._wall_kind(page)
         if not kind:
             return
-        evidence["wall"] = kind
-        self._snapshot(page, evidence, "handoff", shots)
-        message = "the job site blocked this browser" if kind == "blocked" else "login or human verification challenge detected"
-        raise HandoffRequired(message, {**evidence, "url": page.url or ""})
+        signin, hold = getattr(self, "_signin", None), getattr(self, "_hold", None)
+        if kind not in ("login", "code") or signin is None:
+            self._wall_stop(page, evidence, shots, "off" if kind == "login" else kind)
+        if hold is None:
+            self._wall_stop(page, evidence, shots, "no_wait" if kind == "login" else kind)
+        wall_host = site_host(page.url or "")
+        tools = SignInTools(
+            say=self._say,
+            wall_kind=self._wall_kind,
+            challenge=lambda target: self._detect_challenge(_Scope(target)),
+            code_boxes=self._signin_code_boxes,
+            type_code=self._type_code,
+            save_session=lambda: self._save_session(),
+            hide=lambda value: self._net_secrets.append(value) if value and value not in self._net_secrets else None,
+            cdp_port=evidence.get("cdp_port"),
+        )
+        self._signin_site = wall_host
+        try:
+            signin.run(page, hold, tools, evidence, start=kind, came_from=resume_url)
+        except SignInStop as stop:
+            self._wall_stop(page, evidence, shots, stop.code)
+        finally:
+            self._signin_site = ""
+        if resume_url and not self._same_document(page.url or "", resume_url) and (not same_host_only or site_host(page.url or "") == wall_host):
+            self._following_apply = True
+            try:
+                page.goto(resume_url, wait_until="domcontentloaded", timeout=15000)
+                self._allow_host(page.url or resume_url)
+            finally:
+                self._following_apply = False
+        left = self._wall_kind(page)
+        if left:
+            self._wall_stop(page, evidence, shots, "again" if left in ("login", "code") else left)
 
     def _validation_errors(self, scope: _Scope) -> list[str]:
         try:

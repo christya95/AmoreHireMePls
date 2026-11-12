@@ -1,6 +1,6 @@
 # Handoff
 
-Written 2026-11-06 22:45 Toronto. Read this first in every new session. No private values: field names and counts only. Keep under 120 lines; finished items move to `docs/PROGRESS.md`.
+Written 2026-11-12 Toronto. Read this first in every new session. No private values: field names and counts only. Keep under 120 lines; finished items move to `docs/PROGRESS.md`.
 
 ## State now
 
@@ -14,6 +14,15 @@ Written 2026-11-06 22:45 Toronto. Read this first in every new session. No priva
 - Live and used for real: profile store, base resume, tracker preview/import (nothing pushed), discovery by URL, model check through `op run`, deterministic tailoring, review and approval gates, application status, fit check, `candidate/` drop folder, self identification, salary case, timezone and tracker settings, `profile.toml`. `amore migrate-users` ran once (222 stamped).
 - Fixture tested only: Greenhouse, Lever, Ashby and LinkedIn form filling, including an external apply link and the eight-box code field; the salary skill; Workday refresh; notifications; the human check and the one later try. LinkedIn was opened live on the previous image and stopped before send.
 - Data (counts only, live database): contact and address facts, links, availability, notice, work arrangements, compensation floor, five self identification facts, 62 answers, 11 skills, 11 education rows. Profile city and province are still the defaults; `location_fallbacks` is empty. Faire application `app_6a78e38192928c99` (job `job_d0f65161045baf54`).
+
+- Sign in with saved logins (2026-11-12, `AMORE_SITE_SIGNIN`, Settings switch, on for this stack): at a sign-in page an approved run holds and the application page shows Allow 1Password. The press must happen on the Mac dashboard (`op` and the 1Password app live there); the login reaches the NAS worker sealed to a one-time key and is not stored. Codes are typed on the application page. A refused password holds with the site's reset link and "I changed the password, try again"; the app never resends it by itself (3 refusals per site in 24 h, lock wait 30 min or what the site says). Fixture tested only; no real 1Password read and no real site yet. Guide for agents: `.cursor/skills/site-sign-in/SKILL.md`.
+
+## Owner-only steps for site sign-in
+
+1. 1Password app, Settings, Developer: Integrate with 1Password CLI is on (it already is if `op run` works without typing a password).
+2. For each job site that needs an account: create the account on the site yourself, and save one Login item whose website is that site's address.
+3. Use the Mac dashboard (`http://127.0.0.1:8790`) for the application page when a run asks to sign in. The NAS dashboard cannot open 1Password and says so.
+4. Press Allow 1Password when the page asks, approve the 1Password window, and type the code if the site sends one.
 
 ## Decisions
 
@@ -58,5 +67,6 @@ Next step: the owner presses Retry with the app once on `app_5cf993fc297f4b3e`. 
 - `docs/PROGRESS.md`, `docs/architecture.md`, `docs/ui-copy.md`.
 - `apply/browser.py` runs the plans (`_CODE_BOXES_JS`, `_type_code`). `apply/applications.py` and `apply/ats/rules.py` hold the field rules.
 - `web/chrome.py`, `web/routes/applications.py`, `web/templates/_macros.html`.
+- Sign-in: `apply/signin.py`, `core/site_signin.py`, `core/credentials.py`, `core/sealed.py`, `web/routes/signin.py`, `tests/fixtures/signin_site.py`.
 - `candidate/candidate_profile.py` and `candidate/profile.example.toml`.
 - `scripts/deploy_nas.sh`, `deploy/nas/compose.yaml`, `docs/nas-deployment.md`.

@@ -156,6 +156,28 @@ class Runtime:
 
         return ModelCaptchaSolver(ai)
 
+    def site_signin_enabled(self) -> bool:
+        """Settings toggle (control `site_signin`) wins over the environment default; both default to off."""
+        value = self.store.get_control("site_signin")
+        return bool(self.settings.site_signin if value is None else value)
+
+    def credential_source(self):
+        """Where saved logins are read. Only the dashboard that receives the owner's press calls it."""
+        from amorehiremepls.core.credentials import OpCliSource
+
+        return OpCliSource(account=self.settings.site_signin_account, vault=self.settings.site_signin_vault)
+
+    def site_signin(self, job_id: str = ""):
+        """The opt-in sign-in step for one attempt, or None (a sign-in page stops for the owner)."""
+        if not self.site_signin_enabled():
+            return None
+        from amorehiremepls.apply.signin import SignInLimits, SiteSignIn
+        from amorehiremepls.core.site_signin import SignInMemory
+
+        s = self.settings
+        limits = SignInLimits(settle_ms=s.site_signin_settle_seconds * 1000, max_seconds=s.site_signin_max_seconds, code_attempts=s.site_signin_code_attempts)
+        return SiteSignIn(s.app_secret.get_secret_value(), SignInMemory(self.store), limits, job_id=job_id)
+
     def candidate_docs(self) -> CandidateDocs:
         """Fresh read of the drop folder (base DOCX + extra notes). Cheap, so every tailor/rank sees the current files."""
         return load_candidate_docs(self.settings.candidate_dir, self.settings.candidate_supplemental_max_chars)
@@ -294,6 +316,7 @@ class RealServices:
         svc = self.rt.applications()
         solver = self.rt.captcha_solver()  # None unless the owner switched the automatic captcha step on
         app = self.rt.store.c("applications").find_one({"_id": application_id}) or {}
+        signin = self.rt.site_signin(str(app.get("job_id") or ""))  # None unless the owner switched sign-in on
         hold = None
         if self.rt.settings.human_check_hold_minutes > 0 and app.get("job_id"):
             from amorehiremepls.core.human_check import HumanHold
@@ -313,7 +336,8 @@ class RealServices:
             # dashboard's Cancel before each step and stops the page while nothing has been sent.
             watch = CancelWatch(self.rt.store, run_id, plan, note)
             try:
-                return self.rt.browser.run_plan(plan, site_key=plan.start_url.split("/")[2], captcha_solver=solver, hold=hold, progress=watch)
+                extra = {"signin": signin} if signin is not None else {}
+                return self.rt.browser.run_plan(plan, site_key=plan.start_url.split("/")[2], captcha_solver=solver, hold=hold, progress=watch, **extra)
             except AttemptCancelled:
                 raise ActionFailed(CANCEL_REASON, {"cancelled": True, "final_clicked": False}, retryable=True) from None
 

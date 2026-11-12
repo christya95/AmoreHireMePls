@@ -200,8 +200,11 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         elif current == "submit":
             wall = (app_doc or {}).get("handoff_kind")
             if st == "handoff" and wall == "login":
-                note = "Sign in on the job site first. Nothing was sent."
-                nxt = {"label": "Sign in on the job site, then try again", "href": app_href, "verb": "Open it", "note": note}
+                note = "The job site asked you to sign in. Nothing was sent."
+                nxt = {"label": "The job site asked you to sign in", "href": app_href, "verb": "Open it", "note": note}
+            elif st == "handoff" and wall == "code":
+                note = "The job site asked for a verification code. Nothing was sent."
+                nxt = {"label": "Retry when you can read the code", "href": app_href, "verb": "Open it", "note": note}
             elif st == "handoff" and wall == "checkpoint":
                 note = "The job site asked you to verify it is you. Nothing was sent."
                 nxt = {"label": "Finish the check on the job site, then record the confirmation", "href": app_href, "verb": "Finish on the site", "note": note}

@@ -77,6 +77,10 @@
     <label class="switch"><span class="body"><strong>Try to solve captchas automatically</strong><small>Off by default. Uses the AI model; some job sites forbid this and may discard flagged applications. When it is off, or when a check is not a simple picture, the application pauses for you to finish the check on the site. At most {{ captcha_attempts }} tries per application, every try is recorded, and nothing is marked as applied without the site's confirmation page.</small></span><input type="checkbox" name="autosolve" value="on" {{ 'checked' if captcha_autosolve }}></label>
     <div class="flex between"><small class="muted">Start up default from the environment: {{ 'on' if captcha_env_default else 'off' }}. This switch wins.</small><button class="secondary sm">Save</button></div>
   </form>
+  <form method="post" action="/settings/signin" class="stack gap-s mt" id="signin-switch"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <label class="switch"><span class="body"><strong>Sign in with saved logins</strong><small>Off by default. When a job site asks you to sign in, the application page asks you first. You press Allow 1Password, and 1Password shows its own window for Touch ID or your account password on the computer where this dashboard runs. The app never sees that password and never asks for it. A password the site refuses is not tried again, the app never creates an account, and nothing is sent without your approval of the application.</small></span><input type="checkbox" name="signin" value="on" {{ 'checked' if site_signin }}></label>
+    <div class="flex between"><small class="muted">Start up default from the environment: {{ 'on' if site_signin_env_default else 'off' }}. This switch wins. 1Password {{ 'can' if site_signin_reader else 'cannot' }} be read from this dashboard.</small><button class="secondary sm">Save</button></div>
+  </form>
 </div>
 
 <div class="card">
@@ -105,6 +109,7 @@
     <table class="kv compact">
       <tr><td>Theme, accent, tint, name, avatar details, hidden tips</td><td>In the app database: <code>controls</code> collection, key <code>ui_settings</code>.</td></tr>
       <tr><td>Captcha switch</td><td>In the app database: <code>controls</code> collection, key <code>captcha_autosolve</code>. Environment default <code>AMORE_CAPTCHA_AUTOSOLVE</code>.</td></tr>
+      <tr><td>Sign-in switch</td><td>In the app database: <code>controls</code> collection, key <code>site_signin</code>. Environment default <code>AMORE_SITE_SIGNIN</code>. Saved logins stay in 1Password. Only the site, a fingerprint of the saved login and the result of each sign-in are kept, in <code>site_signins</code>.</td></tr>
       <tr><td>Notifications</td><td>Email and webhook come from the environment. Each note is remembered in <code>notifications</code> so the same event is not sent twice.</td></tr>
       <tr><td>Avatar file</td><td><code>AMORE_PRIVATE_DIR/avatar/</code>, shown through <code>/settings/avatar/image</code> after sign in. Never part of the code repository.</td></tr>
       <tr><td>Browser cookie</td><td><code>amore_ui</code> remembers theme, accent and tint so the first page and the sign in page look right. It holds nothing else.</td></tr>

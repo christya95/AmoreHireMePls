@@ -111,13 +111,23 @@ def _can_cancel(app: dict, runs: list[dict], filling: bool) -> bool:
     return bool(live) and not any(final_click_noted(run) for run in live)
 
 
+def _signin_fix(rt, a: dict, hold: dict | None) -> dict | None:
+    """After a job site refused the saved login: its words, the links to fix it, and when another try is allowed."""
+    from amorehiremepls.core.site_signin import SignInMemory
+
+    ask = (hold or {}).get("signin") if isinstance((hold or {}).get("signin"), dict) else {}
+    seen = (a.get("evidence") or {}).get("signin") if isinstance((a.get("evidence") or {}).get("signin"), dict) else {}
+    host = str(ask.get("host") or seen.get("host") or "")
+    return SignInMemory(rt.store).fix_facts(host) if host else None
+
+
 def application_view(rt, a: dict, job: dict, session: dict, runs: list[dict] | None = None) -> dict:
     """Everything the status block needs for one application: the headline status, the one or two sentences from the
     latest saved event, and the one thing the page asks of the person. The job page reuses it so the two pages agree."""
     from amorehiremepls.apply.ats import adapter_for
     from amorehiremepls.core.human_check import active_hold
     from amorehiremepls.core.runtime import RealServices
-    from amorehiremepls.web.chrome import answer_gap_line, needed_now, plain_headline, reason_adds, without_costs
+    from amorehiremepls.web.chrome import answer_gap_line, hold_key, needed_now, plain_headline, reason_adds, without_costs
 
     app_id = a["_id"]
     action = rt.actions.by_key(f"submit:{a['job_id']}")
@@ -163,6 +173,7 @@ def application_view(rt, a: dict, job: dict, session: dict, runs: list[dict] | N
         stale=stale,
         can_run=can_run,
         can_retry_same=can_retry_same,
+        signin_fix=_signin_fix(rt, a, hold),
     )
     return dict(
         a=a,
@@ -172,6 +183,7 @@ def application_view(rt, a: dict, job: dict, session: dict, runs: list[dict] | N
         can_retry=can_retry,
         site_label=site_adapter.site_label if site_adapter else None,
         hold=hold,
+        hold_key=hold_key(hold),
         saved_reason=saved_reason,
         happening=happening,
         gap=answer_gap_line(a, action),
@@ -225,7 +237,7 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         field = None
         if hold and hold.get("purpose") == "field":
             field = {"label": hold.get("field_label") or "", "reason": hold.get("field_reason") or ""}
-        return JSONResponse(activity_payload(a, runs, shown_failure_reason(a, action), field, action=action, stale=approval_stale(rt, a)))
+        return JSONResponse(activity_payload(a, runs, shown_failure_reason(a, action), field, action=action, stale=approval_stale(rt, a), hold=hold))
 
     @app.post("/applications/{app_id}/inputs")
     async def application_inputs(request: Request, app_id: str, session: dict = Depends(require_session)):

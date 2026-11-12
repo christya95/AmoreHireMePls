@@ -24,6 +24,7 @@ from amorehiremepls.candidate.profile import BandEvidence, Fact, Profile, comput
 from amorehiremepls.core.actions import REPLAY_LABEL, ActionHandoff, ActionStore, Outcome
 from amorehiremepls.core.authorization import material_hash
 from amorehiremepls.core.db import Store
+from amorehiremepls.core.site_signin import stop_for
 from amorehiremepls.core.util import local_zone, new_id, sha256_file, to_local, utcnow
 from amorehiremepls.jobs.jobs import JobStore
 
@@ -1152,17 +1153,18 @@ class ApplicationService:
             ev = self._with_screenshots(job["_id"], app_id, exc.evidence)  # the challenge / login page capture becomes evidence too
             if self._schedule_challenge_retry(app, job, ev):
                 return Outcome("retry_scheduled", "one later try is waiting", ev, action["_id"])
+            stop = stop_for(str((exc.evidence.get("signin") or {}).get("outcome") or "")) if isinstance(exc.evidence.get("signin"), dict) else None
             nxt = (
                 "finish the human check and the submit on the site yourself, then record the confirmation"
                 if exc.evidence.get("challenge")
-                else {
-                    "checkpoint": "The job site asked you to verify it is you. Finish that yourself. Nothing was sent.",
-                    "unsupported": "Finish the remaining step on the job site, then record the confirmation. Nothing was sent.",
-                    "blocked": "The job site blocked this browser. Nothing was sent. Signing in again will not change that.",
-                }.get(str(exc.evidence.get("wall") or ""), "Sign in on the job site in the saved browser session, then try again. Nothing was sent.")
+                else "Finish the remaining step on the job site, then record the confirmation. Nothing was sent."
+                if exc.evidence.get("wall") == "unsupported"
+                else f"{stop.title} {stop.text}"
+                if stop is not None
+                else "Sign in on the job site in the saved browser session, then try again. Nothing was sent."
             )
             kind = "human_check" if exc.evidence.get("challenge") else str(exc.evidence.get("wall") or "login")
-            if kind not in ("human_check", "login", "checkpoint", "unsupported", "blocked"):
+            if kind not in ("human_check", "login", "code", "checkpoint", "unsupported", "blocked"):
                 kind = "login"
             self._set(app_id, "handoff", reason=str(exc), next_action=nxt, evidence=ev, handoff_kind=kind)
             self.store.audit("application_handoff", app_id, host=host, challenge=exc.evidence.get("challenge"), captcha_attempts=len(exc.evidence.get("captcha_attempts") or []))

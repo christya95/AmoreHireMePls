@@ -407,6 +407,9 @@ table.kv td { overflow-wrap: anywhere; }
 .btn .icon, button .icon { margin-left: -2px; position: relative; top: -0.5px; }
 .btn.secondary, button.secondary { background: var(--surface); color: var(--text); border-color: var(--border-strong); }
 .btn.secondary:hover, button.secondary:hover { background: var(--surface-2); border-color: var(--accent-line); box-shadow: none; }
+/* The one control a held page waits on (allow a sign-in, type a code): a larger target. */
+.btn.lg, button.lg { padding: 12px 20px; font-size: 0.95rem; min-height: 44px; }
+.next-action .act label input.code-input { min-height: 44px; font-size: 1.15rem; font-variant-numeric: tabular-nums; letter-spacing: 0.14em; }
 .btn.ghost, button.ghost { background: transparent; color: var(--text-2); }
 .btn.ghost:hover, button.ghost:hover { background: var(--accent-softer); color: var(--text); box-shadow: none; }
 .btn.danger, button.danger { background: var(--bad-ui); color: #fff; }
@@ -795,6 +798,11 @@ html[data-checklist="folded"] .checklist-body { max-height: 0; opacity: 0; margi
 .next-action .now-sub { margin: 0; color: var(--text-2); overflow-wrap: anywhere; }
 .next-action .ask { margin: 0; color: var(--text-2); overflow-wrap: anywhere; }
 .next-action .ask strong { color: var(--text); font-weight: 640; }
+.next-action .site-said { margin: 0; padding: var(--s-2) var(--s-3); border-left: 2px solid var(--border-strong); color: var(--text-2); font-size: 0.9rem; overflow-wrap: anywhere; }
+.next-action .site-said small { display: block; color: var(--text-3, var(--text-2)); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: var(--s-1); }
+.next-action .fix-links { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--s-1); }
+.next-action .fix-links a { font-weight: 600; }
+.next-action .fix-links small, .next-action .fix-links span { color: var(--text-2); }
 .next-action .act { display: flex; flex-direction: column; align-items: flex-end; gap: var(--s-2); max-width: 100%; min-width: 0; }
 .next-action .act form { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: flex-end; gap: var(--s-2); margin: 0; }
 .next-action .act form.ask-form { flex-direction: column; align-items: stretch; width: min(420px, 100%); }

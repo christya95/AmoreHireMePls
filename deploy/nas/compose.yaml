@@ -15,6 +15,10 @@
 #                              0.0.0.0 also answers on the Tailscale address, see docs/nas-deployment.md)
 #   AMORE_MODEL                model name (default gpt-5.4-mini)
 #   AMORE_BROWSER_ALLOWED_HOSTS  comma-separated ATS hosts the worker may open (default empty = no live navigation)
+#   AMORE_SITE_SIGNIN          "true" lets an approved application sign in on a job site with a login saved in 1Password
+#                              (default true here; the code default is false). The containers hold no 1Password tool and no
+#                              token: the owner presses Allow 1Password on a dashboard running where 1Password is installed,
+#                              and the login reaches this worker sealed to a one-time key. The Settings switch overrides it.
 #   AMORE_CANDIDATE_DIR        drop folder for the candidate's own resume DOCX and career notes (default /candidate,
 #                              bind mount of /volume1/docker/amorehiremepls/candidate; web writes it through the Profile
 #                              page upload form, the worker only reads it)
@@ -71,6 +75,7 @@ x-app: &app
     AMORE_BROWSER_SESSION_DIR: /runtime/private/sessions
     AMORE_BROWSER_HEADLESS: "true"
     AMORE_BROWSER_ALLOWED_HOSTS: ${AMORE_BROWSER_ALLOWED_HOSTS:-}
+    AMORE_SITE_SIGNIN: "${AMORE_SITE_SIGNIN:-true}"
     AMORE_TRACKER_ENABLED: "${AMORE_TRACKER_ENABLED:-true}"
     AMORE_TRACKER_REMOTE_URL: ${AMORE_TRACKER_REMOTE_URL:-https://github.com/christya95/job-application-records.git}
     AMORE_TRACKER_CLONE_DIR: /runtime/private/job-application-records

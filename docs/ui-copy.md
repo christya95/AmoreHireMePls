@@ -251,6 +251,45 @@ and read well when it is "professional"; where a name is needed they use `displa
 Dates use the `local` and `local_day` filters (`AMORE_TIMEZONE`) and `tz_label()` for the zone name; the old `toronto`
 filter names remain only as aliases.
 
+## Signing in on a job site (2026-11-12)
+
+The old combined sentence "login or human verification challenge detected" is gone. Each kind of page has its own timeline sentence, and each stop has a title (what to do) and a second sentence that ends or starts with "Nothing was sent." The table of record is `core/site_signin.py: STOPS` and `WALLS`; `{site}` is the page's host.
+
+| Page or result | Timeline sentence | Status block title | Control |
+|---|---|---|---|
+| sign-in page, switch off | "{site} asked you to sign in." | "Sign in on the job site first." Says the switch is off under Settings. | Retry with the app |
+| sign-in page, switch on | "{site} asks you to sign in. Waiting for you to allow 1Password." | "{site} asks you to sign in." | Allow 1Password, and a quiet "Do not sign in this time" |
+| verification code | "{site} asked for a verification code. Waiting for you to type it." | "Verification code" with the reason under it | code box and Use this code; "Use the code from 1Password" when the saved login has one; "Send a new code" when the page has a resend control |
+| refused code | "The last code was not accepted. Asking again (2 of 3)." | same box, the reason says which try this is | same |
+| verify-it's-you page with no code box | "{site} asked you to verify it is you, with no code box to fill." | "The job site asked you to verify it is you." | I applied on the site (existing) |
+| block page | "{site} blocked the app from opening the page." | "The job site blocked this browser." | none |
+| no saved login | "No saved login for {site} was found in 1Password." | "Save a login for this site in 1Password, then retry." Says the app never creates accounts. | Retry with the app |
+| several saved logins | "1Password has more than one saved login for {site}." | "Keep one saved login for this site, then retry." | Retry with the app |
+| passkey only / sign up only / captcha at sign-in / not a secure page | one sentence each | "Sign in on the job site yourself." or "Create the account on the job site yourself." | none from the app |
+| no clear result | "{site} did not finish signing in before the wait ended." | "Retry with the app." | Retry with the app |
+| signed in | "Signed in to {site}. The session is saved for next time." | the run continues | none |
+
+Approval rules, as the owner sees them:
+
+- The app asks before 1Password does. The status block names the site and says a 1Password window will ask for Touch ID or the account password on the computer where this dashboard runs, and that the app never sees that password. Only the button opens that window.
+- While the request waits for 1Password the button reads "Waiting for 1Password".
+- Approval may be needed again: after 1Password locks, for the one-time code (its own button), on a second site, on a later run. The page asks each time with the same button.
+- A missed prompt: "1Password was not approved in time. Nothing failed. Press Allow 1Password again when you are ready, and watch for the 1Password window." The run keeps waiting until the hold time runs out or six prompts were missed; then the stop reads "1Password was not approved in time." with Retry with the app.
+- Approved but unusable: "1Password was approved, but it has no saved login for this site." · "1Password has more than one saved login for this site, so none was used." · "1Password is not signed in on this computer." · "The 1Password app did not answer. Turn on Integrate with 1Password CLI in its Developer settings, then retry." · "This dashboard cannot open 1Password. Open this page from the dashboard on the computer where 1Password is installed, then press Allow there."
+
+A refused password (owner, 2026-11-12). The app never sends it again by itself.
+
+| State | Status block | Control |
+|---|---|---|
+| refused, the same attempt is still holding | "{site} did not accept the saved login." "Nothing was sent. Change the password on the job site and save it in the same 1Password item. Then press the button, and 1Password asks you to approve again." Under it, muted: "The job site said" and the site's own words; "Reset the password on {site}" (new tab; "The app never changes a password."); "Open the sign-in page for this job" ("The same address the app opened."); "Save the new password in the same 1Password item, named "…", so the app can read it." | I changed the password, try again; quiet Not now |
+| reset link missing, not https, or on another site | the link line reads "The reset link could not be found on the sign-in page. Use the site's own forgot password option." | same |
+| pressed, but the saved login has not changed | "The saved login has not changed." "{site} already refused this password, and the login saved in 1Password is still the same. Sending it again can lock the account. Change the password first. Nothing was sent." | I changed the password, try again; secondary "Send the same login once more" |
+| the hold ran out | "{site} did not accept the saved login." "Nothing was sent. The app will not send that password again by itself. Change it on the job site, save it in the same 1Password item, then press the button." Links stay. | I changed the password, try again (starts a new attempt, which asks to allow 1Password) |
+| three refusals in 24 hours | "{site} refused the saved login 3 times, so the app stopped for now." "Nothing was sent. More tries could lock the account. Another try is offered after <time>. The links stay here." | none until then |
+| locked or throttled | "{site} says the account is locked or has had too many attempts." "Nothing was sent. The app waits until <time>, as the site said, before it offers another try. You can unlock the account on the site." ("because the site did not say how long" when it named none; the wait is then 30 minutes.) | none until then, then "The account is unlocked, try again" |
+
+The site's words, the item title and both links are untrusted. They are shown as escaped text; a link is shown only when it is https and, for the reset link, on the same registrable domain as the sign-in page or the run's site. Links open in a new tab with `rel="noopener noreferrer"`.
+
 ## Rules applied everywhere
 
 - Short everyday sentences, one idea per sentence. Verbs on buttons ("Check fit", "Read and approve", "I applied on

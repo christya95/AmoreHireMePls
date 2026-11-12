@@ -61,10 +61,12 @@ class HumanHold:
         self.minutes = float(settings.human_check_hold_minutes)
         self.poll_seconds = poll_seconds
         self.hold_id: str | None = None
+        self._closed = False
 
     def heartbeat(self, evidence: dict | None = None) -> None:
         evidence = evidence or {}
-        if self.hold_id is None:
+        if self.hold_id is None or self._closed:
+            # A finished hold is over. The next wait in the same attempt (a second approval, a code) is its own record.
             self._begin(evidence)
         now = utcnow()
         until = now + timedelta(seconds=180)
@@ -91,10 +93,24 @@ class HumanHold:
         doc = self.store.c("human_holds").find_one({"_id": self.hold_id}, {"continue_requested": 1})
         return bool(doc and doc.get("continue_requested"))
 
+    def reply(self) -> dict | None:
+        """The dashboard's answer to a sign-in ask, taken out of the database as it is read. None when there is none."""
+        if not self.hold_id:
+            return None
+        doc = self.store.c("human_holds").find_one_and_update({"_id": self.hold_id, "signin_reply": {"$exists": True}}, {"$unset": {"signin_reply": ""}})
+        got = (doc or {}).get("signin_reply")
+        return got if isinstance(got, dict) else None
+
+    def forget_answer(self) -> None:
+        """Remove a typed verification code from the record once the page has it."""
+        if self.hold_id:
+            self.store.c("human_holds").update_one({"_id": self.hold_id}, {"$unset": {"answer": ""}})
+
     def finish(self, status: str) -> None:
         if not self.hold_id:
             return
-        self.store.c("human_holds").update_one({"_id": self.hold_id, "status": "holding"}, {"$set": {"status": status, "finished_at": utcnow()}})
+        self._closed = True
+        self.store.c("human_holds").update_one({"_id": self.hold_id, "status": "holding"}, {"$set": {"status": status, "finished_at": utcnow()}, "$unset": {"signin_reply": ""}})
 
     def _begin(self, evidence: dict) -> None:
         action = self.actions.by_key(f"submit:{self.job_id}") or {}
@@ -121,10 +137,27 @@ class HumanHold:
         }
         self.store.c("human_holds").insert_one(doc)
         self.hold_id = doc["_id"]
+        self._closed = False
+
+
+_ASK_TEXT = ("ask_id", "host", "step", "key", "key_sig", "fingerprint")
+_ASK_FLAGS = ("offer_code", "resend", "fix")
+
+
+def _signin_ask(evidence: dict) -> dict:
+    """The sign-in ask shown on the application page: the site, the step, and the task's one-time public key. No secret."""
+    ask = evidence.get("signin")
+    if not isinstance(ask, dict):
+        return {}
+    kept = {name: str(ask.get(name) or "")[:200] for name in _ASK_TEXT}
+    kept.update({name: bool(ask.get(name)) for name in _ASK_FLAGS})
+    return {"signin": kept}
 
 
 def _field_hold_fields(evidence: dict) -> dict:
     """Label and difficulty for a field wait. The typed answer is not stored here."""
+    if evidence.get("purpose") == "signin":
+        return {"purpose": "signin", **_signin_ask(evidence)}
     if evidence.get("purpose") != "field":
         return {}
     return {
@@ -132,6 +165,7 @@ def _field_hold_fields(evidence: dict) -> dict:
         "field_label": str(evidence.get("field_label") or "")[:120],
         "field_reason": str(evidence.get("field_reason") or "")[:300],
         "sensitive": bool(evidence.get("sensitive")),
+        **_signin_ask(evidence),
     }
 
 
@@ -151,7 +185,7 @@ def request_continue(store: Store, application: dict) -> str:
     Returns `ok`, `missing`, or `changed`.
     """
     hold = active_hold(store, application["_id"])
-    if hold is None or hold.get("purpose") == "field":
+    if hold is None or hold.get("purpose") in ("field", "signin"):
         return "missing"
     if hold.get("material_hash") != application.get("material_hash"):
         return "changed"
@@ -185,6 +219,39 @@ def submit_field_answer(store: Store, application: dict, answer: str) -> str:
         {"$set": {"answer": text, "continue_requested": True, "continue_at": utcnow()}},
     )
     return "ok"
+
+
+def signin_hold(store: Store, application: dict) -> tuple[dict | None, str]:
+    """The open hold that carries a sign-in ask for this application, checked like every other answer. `ok`, `missing` or `changed`."""
+    hold = active_hold(store, application["_id"])
+    if hold is None or not isinstance(hold.get("signin"), dict) or not hold["signin"].get("ask_id"):
+        return None, "missing"
+    if hold.get("material_hash") != application.get("material_hash"):
+        return None, "changed"
+    action = store.c("actions").find_one({"idempotency_key": hold.get("idempotency_key")})
+    if action is None or action.get("material_hash") != application.get("material_hash") or action.get("_id") != hold.get("action_id"):
+        return None, "changed"
+    return hold, "ok"
+
+
+def reply_to_signin(store: Store, hold: dict, reply: dict) -> bool:
+    """Hand one answer to the waiting task. Only the first answer to an ask is kept."""
+    done = store.c("human_holds").update_one(
+        {"_id": hold["_id"], "status": "holding", "continue_requested": {"$ne": True}, "signin.ask_id": hold["signin"]["ask_id"]},
+        {"$set": {"signin_reply": reply, "continue_requested": True, "continue_at": utcnow()}},
+    )
+    return done.modified_count == 1
+
+
+def note_unchanged_login(store: Store, hold: dict, why: str) -> None:
+    """The saved login is the one the site refused. The page asks the owner a second question before it is sent again."""
+    store.c("human_holds").update_one({"_id": hold["_id"], "status": "holding"}, {"$set": {"signin_unchanged": str(why)[:40]}})
+
+
+def note_missed_approval(store: Store, hold: dict) -> int:
+    """Count one missed approval window on this ask. Returns how many there have been."""
+    doc = store.c("human_holds").find_one_and_update({"_id": hold["_id"], "status": "holding"}, {"$inc": {"signin_missed": 1}}, return_document=True)
+    return int((doc or {}).get("signin_missed") or 0)
 
 
 def launch_args(cdp_port: int) -> list[str]:

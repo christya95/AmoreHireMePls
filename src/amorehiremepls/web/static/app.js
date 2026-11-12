@@ -180,6 +180,8 @@
     var flash = document.querySelector(".main > .flash");
     var settled = data.state && /was typed as|No list of places appeared|so the form is waiting/.test(data.state);
     if (flash && settled && /will be typed/.test(flash.textContent || "")) flash.remove();
+    // What the page waits on changed (a sign-in ask, a code box, a held check): show its control.
+    if (typeof data.hold === "string" && (banner.getAttribute("data-hold") || "") !== data.hold) { reloadSoon(0); return; }
     var fieldBox = document.getElementById("field-answer");
     if (data.field && data.field.label) {
       if (!fieldBox) { reloadSoon(0); return; }
@@ -291,7 +293,11 @@
     form.addEventListener("submit", function () {
       if (form.classList.contains("theme-form")) return;
       var btn = form.querySelector("button[type='submit'], button:not([type])");
-      if (btn) setTimeout(function () { btn.disabled = true; }, 0);
+      if (btn) setTimeout(function () {
+        btn.disabled = true;
+        // A press that waits on something outside the page (1Password's own window) says so while it waits.
+        if (form.getAttribute("data-busy")) btn.textContent = form.getAttribute("data-busy");
+      }, 0);
     });
   });
 

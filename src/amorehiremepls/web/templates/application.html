@@ -7,9 +7,19 @@
 {% set idle_line = 'Nothing is being filled in right now.' %}
 {% set now_line = '' if (happening == idle_line and need.kind) else happening %}
 <div class="stack">
-{% call status_block(show_status, now=now_line, ask=need.title, note=show_reason, working=filling, more=need.text, idle_hidden=(need.kind != ''), ask_id=('field-answer-label' if need.kind == 'field' else ''), note_raw=note_raw) %}
+{% call status_block(show_status, now=now_line, ask=need.title, note=show_reason, working=filling, more=need.text, idle_hidden=(need.kind != ''), ask_id=('field-answer-label' if need.kind == 'field' else ''), note_raw=note_raw, hold_key=hold_key, quote=need.quote, links=need.links, aside=need.aside) %}
   {% if need.kind == 'human_check' %}
   <form method="post" action="/applications/{{ a._id }}/continue" id="human-check"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}"><button><svg class="icon"><use href="#i-check"/></svg>Continue</button></form>
+  {% elif need.kind == 'signin' %}
+  <form method="post" action="/applications/{{ a._id }}/signin/allow" id="signin-allow" data-busy="Waiting for 1Password"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}"><button class="lg"><svg class="icon"><use href="#i-check"/></svg>{{ need.label }}</button></form>
+  {% if need.confirm_same %}<form method="post" action="/applications/{{ a._id }}/signin/allow" id="signin-same" data-busy="Waiting for 1Password"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}"><input type="hidden" name="same" value="yes"><button class="secondary sm" title="Sends the login the site already refused, once">Send the same login once more</button></form>{% endif %}
+  <form method="post" action="/applications/{{ a._id }}/signin/decline" id="signin-decline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}"><button class="ghost sm">{{ 'Not now' if need.links else 'Do not sign in this time' }}</button></form>
+  {% elif need.kind == 'field' and need.code %}
+  <form method="post" action="/applications/{{ a._id }}/field-answer" id="field-answer"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}">
+    <label>{{ hold.field_label }} <input class="code-input" name="answer" autocomplete="one-time-code" inputmode="numeric" autofocus required></label>
+    <button class="lg">Use this code</button></form>
+  {% if need.offer_code %}<form method="post" action="/applications/{{ a._id }}/signin/allow" id="signin-code" data-busy="Waiting for 1Password"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}"><button class="secondary sm">Use the code from 1Password</button></form>{% endif %}
+  {% if need.resend %}<form method="post" action="/applications/{{ a._id }}/signin/resend" id="signin-resend"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}"><button class="ghost sm">Send a new code</button></form>{% endif %}
   {% elif need.kind == 'field' %}
   <form method="post" action="/applications/{{ a._id }}/field-answer" id="field-answer"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}">
     <label>{{ hold.field_label }} <input name="answer" autocomplete="off" required></label>
@@ -35,7 +45,7 @@
   {% elif need.kind == 'cancel' %}
   <form method="post" action="/applications/{{ a._id }}/cancel" id="cancel-attempt"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary" title="{{ glossary.cancel_attempt[1] }}"><svg class="icon"><use href="#i-stop"/></svg>Cancel this attempt</button></form>
   {% elif need.kind == 'retry' %}
-  <form method="post" action="/applications/{{ a._id }}/retry"><input type="hidden" name="csrf" value="{{ csrf }}"><button><svg class="icon"><use href="#i-arrow"/></svg>Retry with the app</button></form>
+  <form method="post" action="/applications/{{ a._id }}/retry"><input type="hidden" name="csrf" value="{{ csrf }}"><button><svg class="icon"><use href="#i-arrow"/></svg>{{ need.label or 'Retry with the app' }}</button></form>
   {% elif need.kind == 'manual' %}
   <form method="post" action="/applications/{{ a._id }}/manual" class="ask-form"><input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="field"><label>The exact confirmation text you saw</label><input name="confirmation" required></div>
