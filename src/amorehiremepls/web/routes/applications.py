@@ -26,11 +26,45 @@ from amorehiremepls.web.chrome import (
 )
 from amorehiremepls.web.shots import evidence_shots
 
+_OWN_ASK = frozenset({"login", "checkpoint", "human_check", "blocked"})
+_BUSY_RUNS = frozenset({"queued", "claimed", "running", "paused"})
+
 
 def _can_clear(app: dict | None) -> bool:
     from amorehiremepls.apply.applications import submission_lock_reason
 
     return bool(app) and submission_lock_reason(app) is None
+
+
+def _sent_already(app: dict) -> bool:
+    """True once the final click or an employer receipt is on record. A handoff before that sent nothing."""
+    evidence = app.get("evidence") or {}
+    if evidence.get("final_clicked"):
+        return True
+    return bool(evidence.get("receipt_text") or evidence.get("confirmation") or evidence.get("receipt_path") or evidence.get("basis") == "receipt_observed")
+
+
+def _same_package_retry(app: dict | None) -> bool:
+    """A handoff that never sent, and that does not already have its own ask, can run the same approved package."""
+    if not app or app.get("status") != "handoff" or not app.get("material_hash"):
+        return False
+    if str(app.get("handoff_kind") or "") in _OWN_ASK:
+        return False
+    return not _sent_already(app)
+
+
+def _retry_same_blocked(runs: list[dict]) -> bool:
+    """Hide the same-package retry while another task is in progress.
+
+    A waiting run whose interrupt is this handoff is the attempt the button replaces, so it does not count.
+    """
+    for run in runs:
+        status = run.get("status")
+        if status in _BUSY_RUNS:
+            return True
+        if status == "waiting" and (run.get("interrupt") or {}).get("type") != "handoff":
+            return True
+    return False
 
 
 def _clear_block(app: dict | None) -> str:
@@ -116,7 +150,20 @@ def application_view(rt, a: dict, job: dict, session: dict, runs: list[dict] | N
     if not stale and show_reason == MATERIAL_CHANGED:
         show_reason = ""
     show_reason = show_reason if reason_adds(happening, show_reason, a, action) else ""
-    need = needed_now(a, show_status, hold, can_fill=can_fill, can_retry=can_retry, can_clear=can_clear, working=filling, can_cancel=can_cancel, stale=stale, can_run=can_run)
+    can_retry_same = bool(can_retry and _same_package_retry(a) and not stale and not _retry_same_blocked(runs) and allowed)
+    need = needed_now(
+        a,
+        show_status,
+        hold,
+        can_fill=can_fill,
+        can_retry=can_retry,
+        can_clear=can_clear,
+        working=filling,
+        can_cancel=can_cancel,
+        stale=stale,
+        can_run=can_run,
+        can_retry_same=can_retry_same,
+    )
     return dict(
         a=a,
         job=job,
@@ -261,8 +308,11 @@ def register(app, rt, require_session, require_csrf, render) -> None:
 
     @app.post("/applications/{app_id}/retry")
     def application_retry(request: Request, app_id: str, session: dict = Depends(require_session), csrf: str = Form(...)):
-        """After a handoff or failure: read the form again through the site adapter, rebuild the package (new fingerprint,
-        so it waits for approval again) and start a fresh background task. The old waiting task is closed."""
+        """After a handoff or failure, either queue the same approved package or read the form again.
+
+        A handoff that sent nothing, and whose approval still covers this package, queues that package. It does not
+        create an application or an approval. Anything else reads the form again, so a changed package waits for approval.
+        The old waiting task is closed."""
         require_csrf(request, session, csrf)
         a = rt.store.c("applications").find_one({"_id": app_id})
         if a and a.get("status") == "authorized" and a.get("material_hash") and not approval_stale(rt, a):
@@ -275,6 +325,29 @@ def register(app, rt, require_session, require_csrf, render) -> None:
                 return RedirectResponse(f"/applications/{app_id}?err=retry_busy", status_code=303)
             queue_approved_send(rt.store, a, True, replace_repeat=True)
             return RedirectResponse(f"/applications/{app_id}?ok=apply_queued", status_code=303)
+        if a and _same_package_retry(a) and not approval_stale(rt, a):
+            from amorehiremepls.apply.ats import adapter_for
+            from amorehiremepls.core.orchestration import queue_approved_send
+            from amorehiremepls.core.runtime import RealServices
+
+            job = rt.jobs.get(a["job_id"]) or {}
+            apply_url = (a.get("review_package") or {}).get("apply_url") or job.get("apply_url") or job.get("posting_url")
+            if adapter_for(apply_url) is not None and RealServices(rt).has_authorization(a):
+                runs = list(rt.store.c("runs").find({"params.job_id": a["job_id"]}))
+                if _retry_same_blocked(runs):
+                    return RedirectResponse(f"/applications/{app_id}?err=retry_busy", status_code=303)
+                for run in runs:
+                    if run.get("status") == "waiting" and (run.get("interrupt") or {}).get("type") == "handoff":
+                        rt.store.update_run(run["_id"], status="cancelled", requested=None, interrupt=None, finished_at=utcnow(), note="replaced by a retry with the app")
+                        rt.store.run_event(run["_id"], "cancelled: replaced by a retry with the app")
+                now = utcnow()
+                taken = rt.store.c("applications").update_one({"_id": app_id, "status": "handoff"}, {"$set": {"status": "authorized", "updated_at": now}})
+                fresh = rt.store.c("applications").find_one({"_id": app_id})
+                if taken.modified_count != 1 or not queue_approved_send(rt.store, fresh, True, replace_repeat=True):
+                    if fresh and fresh.get("status") == "authorized":
+                        rt.store.c("applications").update_one({"_id": app_id, "status": "authorized"}, {"$set": {"status": "handoff", "updated_at": utcnow()}})
+                    return RedirectResponse(f"/applications/{app_id}?err=retry_busy", status_code=303)
+                return RedirectResponse(f"/applications/{app_id}?ok=apply_queued", status_code=303)
         if not a or a["status"] not in ("handoff", "failed", "needs_input", "ready_for_review"):
             raise HTTPException(409, "nothing to retry in this state")
         job = rt.jobs.get(a["job_id"])

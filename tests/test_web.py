@@ -461,3 +461,137 @@ def test_an_approved_idle_package_can_be_applied_without_a_new_approval(client):
     removed = client.get("/applications/app_removed")
     assert removed.status_code == 200
     assert "Apply with the app" not in removed.text
+
+
+def test_an_unsent_handoff_retries_the_same_package(client):
+    """A handoff that never sent offers Retry with the app and still records a confirmation.
+
+    The retry posts the existing route. It queues this package and does not open another application or approval.
+    A task already queued, claimed, running, paused, or waiting for something else hides it. An older approval asks
+    to approve again instead."""
+    from datetime import UTC, datetime, timedelta
+
+    from amorehiremepls.core.authorization import AuthorizationStore, ScopeBinding
+
+    csrf = _login(client)
+    rt = client.app.state.rt
+    now = datetime.now(UTC)
+    app_id, job_id = "app_unsent", "job_unsent"
+    apply_url = "https://boards.greenhouse.io/northwind/jobs/1"
+    rt.store.c("jobs").insert_one(
+        {
+            "_id": job_id,
+            "employer": "Northwind",
+            "employer_norm": "northwind",
+            "title": "Account Executive",
+            "status": "qualified",
+            "posting_url": apply_url,
+            "apply_url": apply_url,
+            "sources": ["manual"],
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+    rt.store.c("applications").insert_one(
+        {
+            "_id": app_id,
+            "job_id": job_id,
+            "status": "handoff",
+            "handoff_kind": "unsupported",
+            "provenance": {"origin": "local"},
+            "material_hash": "pkg-now",
+            "send_queued_at": now - timedelta(hours=1),
+            "evidence": {"steps_done": 0, "final_clicked": False, "wall": "unsupported"},
+            "review_package": {"apply_url": apply_url, "posting_url": apply_url, "answers": [], "outstanding": [], "gaps": []},
+            "history": [{"at": now - timedelta(hours=2), "status": "authorized"}],
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+    rt.store.c("actions").insert_one(
+        {"_id": "act_unsent", "idempotency_key": f"submit:{job_id}", "kind": "application_submit", "target_id": job_id, "status": "ready", "material_hash": "pkg-now"}
+    )
+    run = rt.store.create_run("application", {"job_id": job_id, "application_id": app_id})
+    rt.store.update_run(run["_id"], status="waiting", interrupt={"type": "handoff", "application_id": app_id})
+    AuthorizationStore(rt.store).grant("application_submit", ScopeBinding(target_id=job_id, material_hash="pkg-now"))
+
+    def page() -> str:
+        return client.get(f"/applications/{app_id}").text
+
+    head = page().split("What is happening", 1)[0]
+    assert "The app can try again." in head and "Nothing was sent." in head and "Your approval already covers them." in head
+    assert ">Retry with the app</button>" in head
+    assert f'action="/applications/{app_id}/retry"' in head and 'name="csrf"' in head
+    assert "I applied on the site" not in head
+    assert "I applied on the site" in page() and f'action="/applications/{app_id}/manual"' in page()
+    assert "Approve this exact application" not in head
+
+    for status, interrupt in (
+        ("queued", None),
+        ("claimed", None),
+        ("running", None),
+        ("paused", {"type": "handoff"}),
+        ("waiting", {"type": "needs_input"}),
+    ):
+        rt.store.update_run(run["_id"], status=status, interrupt=interrupt)
+        assert "Retry with the app" not in page()
+        assert "I applied on the site" in page()
+    rt.store.update_run(run["_id"], status="waiting", interrupt={"type": "handoff", "application_id": app_id})
+    assert ">Retry with the app</button>" in page()
+
+    rt.store.c("applications").update_one({"_id": app_id}, {"$set": {"evidence.final_clicked": True}})
+    assert "Retry with the app" not in page() and "I applied on the site" in page()
+    rt.store.c("applications").update_one({"_id": app_id}, {"$set": {"evidence.final_clicked": False, "evidence.receipt_text": "saved"}})
+    assert "Retry with the app" not in page()
+    rt.store.c("applications").update_one({"_id": app_id}, {"$unset": {"evidence.receipt_text": ""}})
+    assert ">Retry with the app</button>" in page()
+
+    stale_id, stale_job = "app_unsent_old", "job_unsent_old"
+    rt.store.c("jobs").insert_one(
+        {
+            "_id": stale_job,
+            "employer": "Northwind",
+            "employer_norm": "northwind",
+            "title": "Account Executive",
+            "status": "qualified",
+            "posting_url": apply_url,
+            "apply_url": apply_url,
+            "sources": ["manual"],
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+    rt.store.c("applications").insert_one(
+        {
+            "_id": stale_id,
+            "job_id": stale_job,
+            "status": "authorized",
+            "reason": "material content changed since authorization; renew it",
+            "provenance": {"origin": "local"},
+            "material_hash": "pkg-now",
+            "evidence": {"final_clicked": False, "wall": "unsupported"},
+            "review_package": {"apply_url": apply_url, "posting_url": apply_url, "answers": [], "outstanding": [], "gaps": []},
+            "history": [{"at": now, "status": "authorized"}],
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+    AuthorizationStore(rt.store).grant("application_submit", ScopeBinding(target_id=stale_job, material_hash="pkg-old"))
+    stale_page = client.get(f"/applications/{stale_id}").text.split("What is happening", 1)[0]
+    assert "Approve this exact application" in stale_page and "Retry with the app" not in stale_page and "Apply with the app" not in stale_page
+
+    apps = rt.store.c("applications").count_documents({"job_id": job_id})
+    approvals = rt.store.c("authorizations").count_documents({"binding.target_id": job_id})
+    posted = client.post(f"/applications/{app_id}/retry", data={"csrf": csrf})
+    assert posted.status_code == 303 and posted.headers["location"].endswith("ok=apply_queued")
+    assert rt.store.c("applications").count_documents({"job_id": job_id}) == apps
+    assert rt.store.c("authorizations").count_documents({"binding.target_id": job_id}) == approvals
+    saved = rt.store.c("applications").find_one({"_id": app_id})
+    assert saved["status"] == "authorized" and saved["material_hash"] == "pkg-now"
+    assert rt.store.c("runs").find_one({"_id": run["_id"]})["status"] == "cancelled"
+    queued = list(rt.store.c("runs").find({"params.application_id": app_id, "params.phase": "execute"}))
+    assert len(queued) == 1 and queued[0]["status"] == "queued" and queued[0]["params"]["material_hash"] == "pkg-now"
+    assert "Retry with the app" not in page() and "Apply with the app" not in page()
+    again = client.post(f"/applications/{app_id}/retry", data={"csrf": csrf})
+    assert again.status_code == 303 and "retry_busy" in again.headers["location"]
+    assert rt.store.c("runs").count_documents({"params.application_id": app_id, "params.phase": "execute"}) == 1

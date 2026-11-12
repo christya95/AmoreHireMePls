@@ -205,6 +205,7 @@ label and bookkeeping words never appear.
 | answers changed since the last fill | "Fill in the form with the answers on this page. The job site is opened with these answers. Nothing else changes." | Fill in the form |
 | approved, and nothing is in progress | "This application is approved. The app opens the job site with these answers. Your approval already covers them." | Apply with the app |
 | failed or human check, retry possible | "The site asked for a human check last time." or "The app can try again. It reads the form again and prepares the answers afresh. If your approval still covers these exact answers and files, it applies right away; if anything changed, you are asked again before anything is sent." | Retry with the app |
+| stopped before sending, and the approval still covers this package | "The app can try again. Nothing was sent. It opens the job site with these same answers. Your approval already covers them." The record form stays under What happened last time. Hidden while a task is queued, claimed, running, or paused, or waiting for anything other than this handoff. An approval for an older package asks you to approve again instead. | Retry with the app, and I applied on the site |
 | finish on the site yourself | "Apply on the job site yourself, then record the confirmation here." | I applied on the site |
 | result unclear | "Check the job site, then record whether it went through." | Save the result |
 
