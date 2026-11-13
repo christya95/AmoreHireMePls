@@ -25,6 +25,7 @@ from amorehiremepls.core.credentials import registrable_domain, site_host
 
 NOTHING_NEEDED = "Nothing is needed from you right now."
 OPEN_SITE = "Open the job site"
+STOPPED_UNSENT = "Stopped before sending"  # the headline label of a stop the app can still act on; the list pages keep the status label
 MANUAL_NOTE = "If you apply there yourself, record it under More, I applied on the site."
 # Kinds whose control waits on the person. `site` opens the job site; `cancel` and an empty kind do not wait on them.
 KIND_LABEL = {
@@ -129,6 +130,8 @@ def finish_need(
     if not out.get("label"):
         out["label"] = ("Use this code" if out.get("code") else "Use this answer") if out.get("kind") == "field" else KIND_LABEL.get(str(out.get("kind") or ""), "")
     out["waits_on_you"] = out.get("kind") in WAITS_ON_YOU
+    # "Finish on the site yourself" is true only when the main button opens the job site.
+    out["status_label"] = STOPPED_UNSENT if status == "handoff" and out.get("kind") not in ("site", "manual") and not _sent(app) else ""
     return out
 
 

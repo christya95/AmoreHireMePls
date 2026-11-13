@@ -7,7 +7,7 @@
 {% set idle_line = 'Nothing is being filled in right now.' %}
 {% set now_line = '' if (happening == idle_line and need.kind) else happening %}
 <div class="stack">
-{% call status_block(show_status, now=now_line, ask=need.title, note=show_reason, working=filling, more=need.text, idle_hidden=(need.kind != ''), ask_id=('field-answer-label' if need.kind == 'field' else ''), note_raw=note_raw, hold_key=hold_key, quote=need.quote, links=need.links, aside=need.aside, steps=flow, attempt=attempt, limit=hold_limit, flow_key=flow_key, waits=need.waits_on_you) %}
+{% call status_block(show_status, now=now_line, ask=need.title, note=show_reason, working=filling, more=('' if need.text and need.text in now_line else need.text), state_label=need.status_label, idle_hidden=(need.kind != ''), ask_id=('field-answer-label' if need.kind == 'field' else ''), note_raw=note_raw, hold_key=hold_key, quote=need.quote, links=need.links, aside=need.aside, steps=flow, attempt=attempt, limit=hold_limit, flow_key=flow_key, waits=need.waits_on_you) %}
   {% if need.kind == 'human_check' %}
   <form method="post" action="/applications/{{ a._id }}/continue" id="human-check"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}"><button class="lg"><svg class="icon"><use href="#i-check"/></svg>{{ need.label }}</button></form>
   {% elif need.kind == 'signin' %}

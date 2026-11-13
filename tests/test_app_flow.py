@@ -43,6 +43,9 @@ def test_every_state_names_one_next_action(state):
     if state.waits:
         # Stopped and waiting on the person: the page says what to do, with a control, never "nothing is needed".
         assert need["title"] != NOTHING_NEEDED and need["label"]
+    if state.app["status"] == "handoff":
+        # The headline label never tells the person to finish on the site while the button offers to try again.
+        assert bool(need["status_label"]) == (need["kind"] not in ("site", "manual")), state.name
     if state.app["status"] in ("handoff", "failed", "needs_verification"):
         assert need["title"] != NOTHING_NEEDED and need["text"], "a stop always says what happened and what is next"
     # One step carries the marker, and it says whose turn it is.
@@ -191,7 +194,7 @@ def test_a_blocked_stop_opens_the_job_site_and_keeps_the_manual_record_apart(cli
     assert "The job site blocked this browser." in block and "Nothing was sent." in block and NOTHING_NEEDED not in block
     assert 'id="open-site"' in block and 'href="https://boards.greenhouse.io/northwind/jobs/7"' in block and 'rel="noopener noreferrer"' in block
     assert "I applied on the site</button>" not in block and f'action="/applications/{app_id}/manual"' not in block
-    assert 'class="is-stopped" data-step="opening"' in block and "stopped here" in block
+    assert 'class="is-stopped" data-step="opening"' in block and "stopped here" in block and "Finish on the site yourself" in block
     # The record form is under More, behind a tick, and the server refuses a request without it.
     more = page.split('id="app-more"', 1)[1].split("</nav>", 1)[0]
     assert "I applied on the site" in more and 'name="sent_myself" value="yes" required' in more and "It marks this application as sent." in more

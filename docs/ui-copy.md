@@ -323,6 +323,9 @@ Rules:
   without the tick records nothing. Only after the final click, when no confirmation was seen, is recording it the
   main step, labelled "Record the confirmation".
 - Start over and Remove unused resumes sit under the same More, each closed until opened.
+- The label of a `handoff` reads "Stopped before sending" on the application and job pages while the app can still
+  act (retry, a wait that has to pass). It reads "Finish on the site yourself" only when the main button opens the
+  job site. The list pages keep the status label.
 - A wait in the block (1Password, a code, a human check) shows its time limit: "The app waits for you until HH:MM.
   After that this attempt stops with nothing sent, and you can start it again here."
 - A new attempt shows "Attempt N · started YYYY-MM-DD HH:MM" beside the status, so its lines are not read as the

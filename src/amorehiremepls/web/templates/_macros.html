@@ -19,12 +19,12 @@
     second sentence. The caller body holds the single control; it may be empty. `more` is a second sentence shown muted
     after the control (for example where to go next once nothing is needed). The id and the data attributes are what
     app.js refreshes while a task is live. -#}
-{% macro status_block(state, now='', ask='', note='', working=False, live=False, more='', idle_hidden=False, ask_id='', note_raw=False, hold_key='', quote='', links=None, aside='', steps=None, attempt='', limit='', flow_key='', waits=False) -%}
+{% macro status_block(state, now='', ask='', note='', working=False, live=False, more='', idle_hidden=False, ask_id='', note_raw=False, hold_key='', quote='', links=None, aside='', steps=None, attempt='', limit='', flow_key='', waits=False, state_label='') -%}
 <section class="next-action{% if working %} working{% endif %}" id="activity-banner" data-tone="{{ state|tone }}" data-hold="{{ hold_key }}" data-flow="{{ flow_key }}"{% if waits %} data-waits="1"{% endif %}{% if idle_hidden %} data-idle-hidden="1"{% endif %} aria-live="polite" aria-label="Where this stands">
   {#- Where the application is. One step is marked: happening now, waiting on the person, or where it stopped. -#}
   {% if steps %}<ol class="flow" id="flow-steps" aria-label="Steps of this application">{% for s in steps %}<li class="is-{{ s.state }}" data-step="{{ s.key }}"{% if s.state in ('current', 'you', 'stopped') %} aria-current="step"{% endif %}><i aria-hidden="true"></i><span>{{ s.label }}</span>{% if s.note and s.state != 'done' %}<small>{{ s.note }}</small>{% endif %}</li>{% endfor %}</ol>{% endif %}
   <div class="body">
-    <div class="now-row">{{ status(state) }}<span class="working-line" id="activity-phase"><span class="dots" id="activity-dots" aria-hidden="true"{% if not working %} hidden{% endif %}><i></i><i></i><i></i></span></span>{% if attempt %}<span class="attempt" id="flow-attempt">{{ attempt }}</span>{% endif %}</div>
+    <div class="now-row">{% if state_label %}<span class="status"><span class="pill {{ state|tone }}">{{ state_label }}</span><code class="raw" title="internal state">{{ state }}</code></span>{% else %}{{ status(state) }}{% endif %}<span class="working-line" id="activity-phase"><span class="dots" id="activity-dots" aria-hidden="true"{% if not working %} hidden{% endif %}><i></i><i></i><i></i></span></span>{% if attempt %}<span class="attempt" id="flow-attempt">{{ attempt }}</span>{% endif %}</div>
     <p class="now" id="activity-state"{% if not now %} hidden{% endif %}>{{ now }}</p>
     {% if note %}<p class="now-sub">{% if note_raw %}<code class="raw">{{ note }}</code>{% else %}{{ note }}{% endif %}</p>{% endif %}
     {% if ask %}<p class="ask"><strong{% if ask_id %} id="{{ ask_id }}"{% endif %}>{{ ask }}</strong>{% if more %} <span>{{ more }}</span>{% endif %}</p>{% endif %}
