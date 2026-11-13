@@ -430,3 +430,20 @@ is missing). "none" means the page shows no button because the app is working or
 - DOCX and PDF stay as they are. Site names, file paths and IDs stay in `<code>`.
 - Each stepper step has a one line `title` tooltip from `STEP_HELP`; `job_steps()` compares on the technical key, so a
   renamed label never changes behaviour.
+
+## Jobs page: several links at once, and checks at set times (2026-11-13)
+
+Appended block. The sentences live in `web/jobs_paste.py` (`banner`) and `web/jobs_refresh.py` (`automatic`).
+
+- Add a job. Label "Links to job ads", help "One link per line, or separated by spaces or commas. A link you already added is not added twice." The other fields carry "For one link only: fill in what you know, and paste the text of the ad if the site blocks the app." Button "Add and check fit", "Adding…" while it posts.
+- One clean link opens that job, as before. Anything else returns to the list with one banner, built from these sentences:
+  - "3 jobs were added and checked against your rules. They are marked New in the list." (one: "1 job was added … It is marked New in the list.")
+  - "2 were already in your list." Alone: "That job was already in your list. Nothing was added." or "All 4 jobs were already in your list. Nothing was added."
+  - "1 link could not be read: files.example/role.pdf. A link starts with https://." Alone: "That link could not be read: …" or "None of the 5 links could be read: a, b, c and 2 more. … Nothing was added." Names are cut to 48 characters; three are shown.
+  - Nothing pasted: "No link was found in what you pasted. Paste one or more links that start with https://. Nothing was added."
+  - Over the limit: "Only the first 50 links were read. 12 more were left out, so paste those again." Too much text: "That was too much text to read as links. Paste up to 50 links at a time. Nothing was added."
+  - Several links with the one-link fields filled: "The employer, title, job ID, location and ad text were not used, because they fit one link only."
+- Tone: green when everything pasted was added or already known, amber when some were added or known and something needs a look, red when nothing could be used.
+- New mark: the jobs the latest paste added carry the same "New" mark as jobs a check found. It goes when the next check for new jobs ends, or after a day. A job known only by its link shows the link, shortened, after "Unknown title".
+- The check strip, second line, only when times of day are set: "Next automatic check today at 16:30. The last one ran today at 08:00." Before the first one: "… None has run yet." After one that stopped: "… The last one, yesterday at 16:32, stopped before it finished." With background tasks off: "Automatic checks are on hold because background tasks are not running." Days read today, tomorrow, yesterday, else "on Nov 9". No times set: the line is absent.
+- Activity entry: "Job links pasted".

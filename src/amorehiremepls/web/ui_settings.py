@@ -379,6 +379,7 @@ STATUS_LABELS: dict[str, str] = {
     "document_path_refused": "File outside the allowed folder, not served",
     "documents_regenerated": "Resume rebuilt",
     "inputs_supplied": "Answers saved",
+    "job_links_added": "Job links pasted",
     "outreach_manual_send_recorded": "Message recorded as sent",
     "profile_saved": "Profile saved",
     "rank_failed": "Fit score failed",
@@ -549,7 +550,7 @@ PAGE_INTROS: dict[str, tuple[str, str]] = {
     ),
     "jobs.html": (
         "Every job the app knows about, with how well it fits your rules.",
-        "Paste a link to add a job. Open a job to tailor a resume and prepare an application.",
+        "Paste one link or several to add jobs. Open a job to tailor a resume and prepare an application.",
     ),
     "job.html": (
         "One job from start to finish. The block at the top says what is happening and what, if anything, it needs from you.",

@@ -157,7 +157,7 @@ def queued_reason(run: dict, *, now: datetime, worker_at: datetime | None, owner
     seen = _worker_seen(now, worker_at)
     if emergency:
         return f"It has not started. The emergency stop is on, so nothing is being picked up. It has been waiting {waited}. The worker {seen}."
-    if run.get("kind") not in ("application", "discovery_request"):
+    if run.get("kind") not in ("application", "discovery_request", "discovery"):
         return f"It has not started. The worker only picks up application tasks. It has been waiting {waited}. The worker {seen}."
     if owner_state == "missing":
         return f"It has not started. This task has no owner, so the worker cannot pick it up. It has been waiting {waited}. The worker {seen}."

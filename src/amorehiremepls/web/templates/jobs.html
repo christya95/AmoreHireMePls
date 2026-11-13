@@ -1,14 +1,16 @@
 {% extends "base.html" %}{% block content %}
 {% from "_macros.html" import status, hint, company with context %}
 <div class="stack">
-<div class="page-head"><div><h1>Jobs</h1><p>Paste a job link, or let the app watch job boards for you. Open a job to see its steps and the next thing to do.</p></div></div>
+<div class="page-head"><div><h1>Jobs</h1><p>Paste job links, or let the app watch job boards for you. Open a job to see its steps and the next thing to do.</p></div></div>
 
 <div class="grid-main">
   <div class="card">
-    <div class="card-h"><h3>Add a job</h3><span class="sub">Only the link is required. Paste the text of the ad if the site blocks the app. The job is checked against your rules right away.</span></div>
-    <form method="post" action="/jobs/import"><input type="hidden" name="csrf" value="{{ csrf }}">
-      <div class="field"><label for="url">Link to the job ad</label><input id="url" name="url" placeholder="https://… (LinkedIn, a job site, a careers page)" required></div>
-      <div class="form-grid mt">
+    <div class="card-h"><h3>Add a job</h3><span class="sub">Only a link is required. Paste one link, or up to {{ max_links }} at once. Each job is checked against your rules right away.</span></div>
+    <form method="post" action="/jobs/import" data-busy="Adding…"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="field"><label for="url">Links to job ads</label><textarea id="url" name="url" rows="3" placeholder="https://… (LinkedIn, a job site, a careers page)" required aria-describedby="url-help"></textarea>
+        <small id="url-help">One link per line, or separated by spaces or commas. A link you already added is not added twice.</small></div>
+      <p class="note mt">For one link only: fill in what you know, and paste the text of the ad if the site blocks the app.</p>
+      <div class="form-grid">
         <div class="field"><label>Employer</label><input name="employer" placeholder="employer"></div>
         <div class="field"><label>Title</label><input name="title" placeholder="title"></div>
         <div class="field"><label>Job ID</label><input name="requisition_id" placeholder="R12345"></div>
@@ -60,6 +62,8 @@
     <span class="jr-icon" aria-hidden="true"><svg class="icon"><use id="jr-icon" href="#i-{{ tone_icon[refresh.tone] }}"/></svg></span>
     <p class="jr-text" role="status" aria-live="polite"><strong id="jr-line">{{ refresh.line }}</strong> <span id="jr-detail">{{ refresh.detail }}</span>
       <span class="jr-when" id="jr-when"{% if not refresh.checked_at %} hidden{% endif %}><span id="jr-when-label">{{ refresh.when_label }}</span> <time id="jr-time" datetime="{{ refresh.checked_at }}" title="{{ refresh.checked_title }}">{{ refresh.checked_ago }}</time>.</span>
+      {#- Checks the app starts by itself at the scheduled times of day. Absent when no time is set. -#}
+      <span id="jr-auto-wrap"{% if not refresh.auto %} hidden{% endif %}><br><small id="jr-auto">{{ refresh.auto }}</small></span>
       {% if refresh.checking %}<noscript>Reload this page in a moment to see what it found.</noscript>{% endif %}</p>
     <form method="post" action="/jobs/discover" class="inline" data-jobs-check><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="status_filter" value="{{ status_filter }}">
       <button class="secondary sm"{% if refresh.checking %} disabled{% endif %}><svg class="icon"><use href="#i-sync"/></svg><span class="jr-label" data-idle="Check for new jobs" data-busy="Checking…">{{ 'Checking…' if refresh.checking else 'Check for new jobs' }}</span></button></form>

@@ -7,9 +7,10 @@ Nothing here reads the database or the network, so every sentence can be tested 
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from typing import Any
 
+from amorehiremepls.core.schedule import next_time
 from amorehiremepls.core.util import to_local, zone_label
 from amorehiremepls.web.ui_settings import status_label
 
@@ -70,6 +71,32 @@ def relative(at: Any, now: datetime) -> str:
         return f"{_plural(hours, 'hour')} ago"
     days = round(hours / 24)
     return "yesterday" if days == 1 else f"{days} days ago"
+
+
+def day_time(at: datetime | None, now: datetime) -> str:
+    """'today at 16:30', 'tomorrow at 08:00', 'yesterday at 16:30', 'on Nov 11 at 16:30', in the dashboard's zone."""
+    local, today = to_local(at), to_local(now)
+    if local is None or today is None:
+        return ""
+    day = {0: "today", 1: "tomorrow", -1: "yesterday"}.get((local.date() - today.date()).days) or f"on {local.strftime('%b')} {local.day}"
+    return f"{day} at {local.strftime('%H:%M')}"
+
+
+def automatic(times: list[tuple[int, int]], zone: tzinfo, last: dict | None, *, now: datetime, worker_ok: bool) -> str:
+    """What the strip says about the checks the app starts by itself: when the next one is due and when the last
+    one ran. `times` are the scheduled times of day in `zone`; `last` is the latest scheduled check that ended.
+    Empty when no time of day is set, so the strip then says nothing about it."""
+    if not times:
+        return ""
+    if not worker_ok:
+        return "Automatic checks are on hold because background tasks are not running."
+    due = f"Next automatic check {day_time(next_time(times, now.astimezone(zone)), now)}."
+    ran = ended_at(last)
+    if ran is None:
+        return f"{due} None has run yet."
+    if (last or {}).get("status") == "failed":
+        return f"{due} The last one, {day_time(ran, now)}, stopped before it finished."
+    return f"{due} The last one ran {day_time(ran, now)}."
 
 
 def is_active(run: dict | None, now: datetime) -> bool:
@@ -174,9 +201,9 @@ def progress(run: dict, now: datetime, worker_ok: bool) -> dict:
     return {"tone": "info", "line": "Checking your job boards.", "detail": "", "stalled": False}
 
 
-def refresh_state(runs: list[dict], watched: int, *, now: datetime, worker_ok: bool) -> dict:
+def refresh_state(runs: list[dict], watched: int, *, now: datetime, worker_ok: bool, auto: str = "") -> dict:
     """Everything the Jobs page strip shows, as plain values. `checking` turning false is how an open page knows
-    the check ended and the rows are worth loading again."""
+    the check ended and the rows are worth loading again. `auto` is the sentence from automatic()."""
     active, last = pick(runs, now)
     when = ended_at(last)
     body = progress(active, now, worker_ok) if active else {**outcome(last, watched), "stalled": False}
@@ -193,4 +220,5 @@ def refresh_state(runs: list[dict], watched: int, *, now: datetime, worker_ok: b
         "checked_at": when.isoformat() if when else "",
         "checked_ago": relative(when, now),
         "checked_title": f"{local.strftime('%Y-%m-%d %H:%M')} {zone_label()}" if local else "",
+        "auto": auto,
     }

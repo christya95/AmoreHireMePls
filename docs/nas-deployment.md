@@ -16,6 +16,7 @@ original operator's and are the defaults of `scripts/deploy_nas.sh` and `deploy/
 | NAS address the dashboard listens on | `AMORE_PUBLISH_HOST` (first deploy) or `--set AMORE_PUBLISH_HOST=…`; `HEALTH_URL` follows it |
 | Bind mount root on the NAS | `AMORE_DATA_ROOT` (first deploy) or `--set AMORE_DATA_ROOT=/your/path`; create it and point the `init` chown at it by redeploying |
 | Timezone | `--set AMORE_TIMEZONE=Europe/London` (also sets `TZ` in the containers) |
+| Checking the watched job boards by itself | `--set AMORE_DISCOVERY_SCHEDULE=08:00,16:30`: comma separated 24 hour `HH:MM` times of day in `AMORE_TIMEZONE`. Empty (the default, in the code and in the compose file) means the boards are read only when someone presses "Check for new jobs". See section 4a. |
 | Tracker | `--set AMORE_TRACKER_ENABLED=false`, or `true` plus `--set AMORE_TRACKER_REMOTE_URL=https://github.com/<you>/<records>.git` |
 | Sign in with saved logins | `--set AMORE_SITE_SIGNIN=false` turns it off for the stack (default `true` here; the Settings switch overrides either). The containers need nothing else: no 1Password tool, no token. The owner presses Allow 1Password on a dashboard that runs where 1Password and `op` are installed, and it must share this database and `AMORE_APP_SECRET`. |
 | Database network and name | the compose file joins the existing `mongodb_default` network and database `amorehiremepls`; change those two lines if yours differ |
@@ -66,7 +67,8 @@ tokens could be created through the Hub API without touching the password again.
 - Image `docker.io/lepia/amorehiremepls:${AMORE_IMAGE_TAG}`; the tag is the 12-character git sha of the commit built; `:latest`
   is pushed too. Portainer stack environment variables carry the tag and the five secrets (names only in the file):
   `AMORE_APP_PASSWORD`, `AMORE_APP_SECRET`, `AMORE_MONGODB_USERNAME`, `AMORE_MONGODB_PASSWORD`, `OPENAI_API_KEY`, plus optional
-  `AMORE_PUBLISH_HOST`, `AMORE_MODEL`, `AMORE_BROWSER_ALLOWED_HOSTS`, `AMORE_CANDIDATE_DIR` (default `/candidate`).
+  `AMORE_PUBLISH_HOST`, `AMORE_MODEL`, `AMORE_BROWSER_ALLOWED_HOSTS`, `AMORE_CANDIDATE_DIR` (default `/candidate`),
+  `AMORE_DISCOVERY_SCHEDULE` (default empty, section 4a).
 - **Candidate folder.** `/volume1/docker/amorehiremepls/candidate` is mounted at `/candidate` (writable on `web`, read-only on
   `worker`); `init` creates it and gives it to uid 10001 like the other data directories. Because the NAS has no SSH, the
   Profile page has an upload form ("Add a resume or career notes": `.docx`, `.md`, `.txt`, 5 MB cap, sanitized basename) that
@@ -116,6 +118,31 @@ dirty), reads every secret through `op` at run time (`docker login --password-st
 memory), creates the stack with `POST /api/stacks/create/standalone/string` or updates it with `PUT /api/stacks/{id}`
 (`pullImage: true, prune: true`), then waits until `web` and `worker` are recreated after the request and healthy, and finally checks
 `http://192.168.2.49:8790/health`. It is idempotent; running it twice with the same HEAD is a no-op redeploy.
+
+### 4a. Checking the job boards on a schedule (`AMORE_DISCOVERY_SCHEDULE`)
+
+The worker reads the setting; the compose file passes the same stack variable to `web` and `worker`. The value is a list of times of
+day, not a cron line: `08:00,16:30` means every day at 08:00 and at 16:30 in `AMORE_TIMEZONE`. The original operator's stack is set
+to exactly that (twice a day, morning and late afternoon, `America/Toronto`), applied on 2026-11-13 with
+
+```bash
+scripts/deploy_nas.sh --set AMORE_DISCOVERY_SCHEDULE=08:00,16:30     # sticks across later deploys like every other --set value
+scripts/deploy_nas.sh --skip-build --tag <running sha> --set AMORE_DISCOVERY_SCHEDULE=      # turn it off again
+```
+
+The script refuses an entry that is not `HH:MM`. What a time of day does when it comes due:
+
+- It queues one check, the same kind "Check for new jobs" queues, and the same single pass reads the boards. A button pressed around
+  the same minute and the scheduled check are one read, not two. If a check is already waiting or running, nothing is queued.
+- Each time of day on each date is claimed once in the database (`scheduler_slots`), so a restart, a redeploy or a second worker
+  never repeats it. A worker that was off when the time passed makes up for it within 6 hours, and only for the latest time it
+  missed: being off through several times of day costs one check, not one for each.
+- A posting the app already knows is not sent to the model again, so a check that finds nothing new costs no model call. A posting
+  whose text did not change keeps its place in All jobs; a new or changed one moves to the top.
+- At its first pass the worker logs `discovery schedule: 08:00, 16:30 (America/Toronto)` and saves the same in the database
+  (`controls.discovery_schedule`). The Jobs page reads that record, so a dashboard on another computer (the Mac one, whose own `.env`
+  has no schedule) still says "Next automatic check today at 16:30. The last one ran today at 08:00." With no time set the page says
+  nothing about it and Overview says "disabled".
 
 First deploy on 2026-11-05: stack 7 created in about 90 s (image pull included), `init` exited 0, web and worker healthy,
 `/health` 200, the sign-in page renders, `/status` (authenticated) reports Mongo 8.0.34 and the worker heartbeat.

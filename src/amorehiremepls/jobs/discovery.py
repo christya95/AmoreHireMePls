@@ -901,6 +901,10 @@ def _drop_supported(lines: list, evidence: str, terms: FitTerms | None) -> tuple
     return kept, dropped
 
 
+# What a job pasted as a bare link is called until its ad is read. The Jobs page shows the link beside it.
+UNKNOWN_TITLE = "Unknown title"
+
+
 class Discovery:
     def __init__(self, store: Store, profile: Profile, ai: AIRunner | None = None, supplemental_text: str = "") -> None:
         self.store = store
@@ -929,11 +933,18 @@ class Discovery:
     def import_url(
         self, url: str, employer: str | None = None, title: str | None = None, posting_text: str | None = None, requisition_id: str | None = None, location: str | None = None
     ) -> dict:
+        return self.import_link(url, employer, title, posting_text, requisition_id, location)[0]
+
+    def import_link(
+        self, url: str, employer: str | None = None, title: str | None = None, posting_text: str | None = None, requisition_id: str | None = None, location: str | None = None
+    ) -> tuple[dict, bool]:
+        """Save one pasted link as a job. Returns (job, whether it was new to the list). Nothing is fetched: a
+        LinkedIn link keeps its job id and LinkedIn is not contacted."""
         li = extract_linkedin_job_id(url)
         employer = employer or ("Unknown employer" if not li else "Unknown employer (LinkedIn)")
-        title = title or "Unknown title"
+        title = title or UNKNOWN_TITLE
         snapshot = make_snapshot(url, posting_text or "", source="linkedin_import" if li else "url_import") if posting_text else None
-        job, _ = self.jobs.upsert(
+        job, created = self.jobs.upsert(
             employer=employer,
             title=title,
             posting_url=url,
@@ -943,9 +954,9 @@ class Discovery:
             source="linkedin_import" if li else "url_import",
             snapshot=snapshot,
         )
-        if li:
+        if li and job.get("apply_route") != "linkedin":
             self.jobs.set_status(job["_id"], job.get("status", "new"), apply_route="linkedin")
-        return self.jobs.get(job["_id"])
+        return self.jobs.get(job["_id"]), created
 
     def refresh_posting(self, job_id: str, client: httpx.Client | None = None) -> dict:
         """Re-read the posting text behind a job's URL (GET only) and store a fresh snapshot. Nothing is re-ranked.

@@ -1,10 +1,11 @@
 {#- The job rows of the Jobs page. jobs.html includes it; GET /jobs/list returns it alone so jobs.js can swap the
-    rows in after a check for new jobs ends. A job the latest check found carries is-new and a New mark. -#}
+    rows in after a check for new jobs ends. A job the latest check found, or the latest paste of links added,
+    carries is-new and a New mark. A job known only by its link shows the link, shortened, so rows can be told apart. -#}
 {% from "_macros.html" import status, hint, company with context %}
 <div class="table-wrap"><table>
   <thead><tr><th>Employer and role</th><th>Status</th><th>Fit {{ hint('fit_rank') }}</th><th>Why</th><th>Application</th><th class="right">Updated</th></tr></thead>
   <tbody>{% for j in jobs %}{% set app_hot = apps.get(j._id) and apps[j._id].status in ['ready_for_review', 'needs_input', 'handoff', 'needs_verification'] %}{% set is_new = j._id in new_ids %}<tr class="{{ 'hot' if (j.status == 'needs_review' or j.needs_reconciliation or app_hot) }}{{ ' bad' if j.needs_reconciliation }}{{ ' is-new' if is_new }}">
-    <td><a class="row-person" href="/jobs/{{ j._id }}">{{ company(j.employer, j) }}<span><strong>{{ j.employer }}{% if is_new %} <span class="pill accent new-mark">New</span>{% endif %}</strong><span class="sub">{{ j.title }}{% if j.location %} · {{ j.location }}{% endif %}{% if j.requisition_id or j.linkedin_job_id %} · {{ j.requisition_id or j.linkedin_job_id }}{% endif %}</span></span></a></td>
+    <td><a class="row-person" href="/jobs/{{ j._id }}">{{ company(j.employer, j) }}<span><strong>{{ j.employer }}{% if is_new %} <span class="pill accent new-mark">New</span>{% endif %}</strong><span class="sub">{{ j.title }}{% if j.location %} · {{ j.location }}{% endif %}{% if j.requisition_id or j.linkedin_job_id %} · {{ j.requisition_id or j.linkedin_job_id }}{% elif j.title == unknown_title and j.posting_url %} · {{ short_link(j.posting_url) }}{% endif %}</span></span></a></td>
     <td>{{ status(j.status) }}{% if j.needs_reconciliation %} <span class="pill bad">check this one</span>{% endif %}</td>
     <td>{% set fv = fit_score(j.fit) %}{% if fv %}<span class="pill {{ fv.tone }}" title="{{ fv.label }}">{{ fv.score }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
     <td><small>{% if j.closed_reason %}{{ j.closed_reason }}{% elif j.qualification %}{{ j.qualification.reasons|join('; ') }}{% endif %}</small></td>

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import re
+from datetime import datetime, timedelta
 
 from fastapi.responses import JSONResponse
 
+from amorehiremepls.core.util import new_id
+from amorehiremepls.jobs.discovery import UNKNOWN_TITLE
 from amorehiremepls.web.chrome import (
     SOURCES,
     STEP_HELP,
@@ -23,8 +27,12 @@ from amorehiremepls.web.chrome import (
     status_label,
     utcnow,
 )
-from amorehiremepls.web.jobs_refresh import ACTIVE, FINISHED, SEARCH_KINDS, new_job_ids, pick, refresh_state
+from amorehiremepls.web.jobs_paste import EVENT as PASTE_EVENT
+from amorehiremepls.web.jobs_paste import FAILED_KEPT, MAX_LINKS, NEW_MARK_HOURS, PASTE_ID_RE, banner, pasted_job_ids, short, split_links
+from amorehiremepls.web.jobs_refresh import ACTIVE, FINISHED, SEARCH_KINDS, automatic, new_job_ids, pick, refresh_state
 from amorehiremepls.web.shots import split_screenshots
+
+log = logging.getLogger(__name__)
 
 _FILTER_RE = re.compile(r"^[a-z_]{1,40}$")
 
@@ -38,27 +46,51 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         ended = list(rt.store.c("runs").find({**kinds, "status": {"$in": sorted(FINISHED)}}).sort("created_at", -1).limit(1))
         return [*open_runs, *ended]
 
-    def refresh_now() -> tuple[dict, set[str]]:
-        """(what the strip above the list says, ids of the jobs the latest search found)."""
-        from amorehiremepls.core.worker import worker_healthy
+    def refresh_now() -> tuple[dict, dict | None, datetime]:
+        """(what the strip above the list says, the latest search that ended, the time this was read)."""
+        from amorehiremepls.core.worker import published_schedule, worker_healthy
 
-        runs, now = search_runs(), utcnow()
+        runs, now, worker_ok = search_runs(), utcnow(), worker_healthy(rt)
         watched = len(rt.store.get_control("discovery_sources", []) or [])
         _, last = pick(runs, now)
-        return refresh_state(runs, watched, now=now, worker_ok=worker_healthy(rt)), new_job_ids(last)
+        times, zone = published_schedule(rt)
+        last_auto = None
+        if times:
+            by_schedule = [{"params.schedule_slot": {"$exists": True}}, {"params.answers_slot": {"$exists": True}}]
+            last_auto = rt.store.c("runs").find_one({"kind": {"$in": list(SEARCH_KINDS)}, "status": {"$in": sorted(FINISHED)}, "$or": by_schedule}, sort=[("created_at", -1)])
+        auto = automatic(times, zone, last_auto, now=now, worker_ok=worker_ok)
+        return refresh_state(runs, watched, now=now, worker_ok=worker_ok, auto=auto), last, now
+
+    def new_marks(last: dict | None, now: datetime) -> set[str]:
+        """Jobs that carry the New mark: found by the latest check, or added by pasting links since it ended."""
+        recent = {"event": PASTE_EVENT, "created_at": {"$gt": now - timedelta(hours=NEW_MARK_HOURS)}}
+        pastes = list(rt.store.c("audit").find(recent).sort("created_at", -1).limit(20))
+        return new_job_ids(last) | pasted_job_ids(pastes, last, now)
+
+    def paste_banner(paste_id: str) -> dict:
+        """The banner for one paste of links, read back from what that paste recorded."""
+        if not PASTE_ID_RE.match(paste_id or ""):
+            return {}
+        doc = rt.store.c("audit").find_one({"event": PASTE_EVENT, "subject_id": paste_id})
+        if not doc:
+            return {}
+        said = banner(doc.get("data") or {})
+        return {"flash": said["text"], "flash_tone": said["tone"]}
 
     def list_context(status_filter: str) -> dict:
         status_filter = status_filter if _FILTER_RE.match(status_filter or "") else ""
         q = {"status": status_filter} if status_filter else {"status": {"$ne": "closed"}}
         jobs = list(rt.store.c("jobs").find(q).sort("updated_at", -1).limit(200))
         apps = {a["job_id"]: a for a in rt.store.c("applications").find({"provenance.origin": "local"})}
-        refresh, new_ids = refresh_now()
+        refresh, last, now = refresh_now()
+        new_ids = new_marks(last, now)
         sources = rt.store.get_control("discovery_sources", []) or []
-        return {"jobs": jobs, "apps": apps, "refresh": refresh, "new_ids": new_ids, "sources": sources, "status_filter": status_filter}
+        named = {"unknown_title": UNKNOWN_TITLE, "short_link": short}  # a job added as a bare link is told apart by its link
+        return {"jobs": jobs, "apps": apps, "refresh": refresh, "new_ids": new_ids, "sources": sources, "status_filter": status_filter, **named}
 
     @app.get("/jobs", response_class=HTMLResponse)
-    def jobs(request: Request, session: dict = Depends(require_session), status_filter: str = ""):
-        return render(request, "jobs.html", session, source_types=sorted(SOURCES), **list_context(status_filter))
+    def jobs(request: Request, session: dict = Depends(require_session), status_filter: str = "", pasted: str = ""):
+        return render(request, "jobs.html", session, source_types=sorted(SOURCES), max_links=MAX_LINKS, **list_context(status_filter), **paste_banner(pasted))
 
     @app.get("/jobs/refresh")
     def jobs_refresh(request: Request, session: dict = Depends(require_session)):
@@ -77,17 +109,58 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         request: Request,
         session: dict = Depends(require_session),
         csrf: str = Form(...),
-        url: str = Form(...),
+        url: str = Form(""),
         employer: str = Form(""),
         title: str = Form(""),
         requisition_id: str = Form(""),
         location: str = Form(""),
         posting_text: str = Form(""),
     ):
+        """Add one job link, or several pasted at once. Each link is saved the way a single link always was, in this
+        request: nothing is fetched, so fifty links are fifty small writes. One clean link opens that job as before;
+        anything else goes back to the list with one banner that says what happened."""
         require_csrf(request, session, csrf)
-        job = rt.discovery().import_url(url, employer or None, title or None, posting_text or None, requisition_id or None, location or None)
-        rt.discovery().qualify_job(job["_id"])
-        return RedirectResponse(f"/jobs/{job['_id']}", status_code=303)
+        pasted = split_links(url)
+        links = pasted["links"]
+        one = len(links) == 1
+        details = [employer, title, posting_text, requisition_id, location] if one else ["", "", "", "", ""]
+        extras_ignored = len(links) > 1 and any(v.strip() for v in (employer, title, posting_text, requisition_id, location))
+        failed = [short(entry) for entry in pasted["unreadable"]]
+        hint, added, known, job = bool(failed), [], 0, None
+        disc = rt.discovery() if links else None
+        for link in links:
+            try:
+                job, created = disc.import_link(link, *[v or None for v in details])
+            except Exception as exc:
+                log.warning("a pasted job link could not be saved: %s", type(exc).__name__)
+                failed.append(short(link))
+                job = None
+                continue
+            if created:
+                added.append(job["_id"])
+            else:
+                known += 1
+            if created or one:  # a single link is checked again even when it was already in the list, as before
+                try:
+                    disc.qualify_job(job["_id"])
+                except Exception as exc:
+                    log.warning("a pasted job could not be checked against the rules: %s", type(exc).__name__)
+        result = {
+            "added": len(added),
+            "known": known,
+            "failed": failed[:FAILED_KEPT],
+            "failed_count": len(failed),
+            "left_out": pasted["left_out"],
+            "too_long": pasted["too_long"],
+            "hint": hint,
+            "extras_ignored": extras_ignored,
+            "new_job_ids": added,
+        }
+        paste_id = new_id("paste")
+        rt.store.audit(PASTE_EVENT, paste_id, **result)
+        if one and job is not None and not failed and not pasted["left_out"]:
+            return RedirectResponse(f"/jobs/{job['_id']}", status_code=303)
+        return RedirectResponse(f"/jobs?pasted={paste_id}", status_code=303)
 
     @app.post("/jobs/sources")
     def jobs_sources(request: Request, session: dict = Depends(require_session), csrf: str = Form(...), type: str = Form(...), key: str = Form(...), employer: str = Form("")):
@@ -103,11 +176,11 @@ def register(app, rt, require_session, require_csrf, render) -> None:
     def jobs_discover(request: Request, session: dict = Depends(require_session), csrf: str = Form(...), status_filter: str = Form("")):
         """Ask for one read of every watched board. A second press while one is waiting or running adds nothing."""
         require_csrf(request, session, csrf)
-        state, _ = refresh_now()
+        state = refresh_now()[0]
         if not state["checking"]:
             rt.store.create_run("discovery_request", {"trigger": "dashboard"})
             rt.store.set_control("discovery_requested", {"at": utcnow()})
-            state, _ = refresh_now()
+            state = refresh_now()[0]
         if "application/json" in (request.headers.get("accept") or ""):
             return JSONResponse(state, headers={"Cache-Control": "no-store"})
         back = f"&status_filter={status_filter}" if _FILTER_RE.match(status_filter or "") else ""

@@ -20,6 +20,8 @@
 #                                         # set/override a non-secret stack variable (repeatable); values stick across runs
 #   scripts/deploy_nas.sh --skip-build --set AMORE_PUBLISH_HOST=0.0.0.0   # publish on all NAS interfaces (LAN + tailnet)
 #   scripts/deploy_nas.sh --set AMORE_CANDIDATE_DIR=/candidate            # drop folder inside the containers (compose default)
+#   scripts/deploy_nas.sh --set AMORE_DISCOVERY_SCHEDULE=08:00,16:30      # check the watched job boards at these times of day
+#                                         # (24 hour HH:MM in AMORE_TIMEZONE, comma separated; an empty value turns it off)
 #
 # Stack variables not managed here (anything other than AMORE_IMAGE, AMORE_IMAGE_TAG and the vault secrets) are carried over from
 # the stack's current environment, so a value set once with --set stays until changed. Secret names cannot be --set.
@@ -54,7 +56,7 @@ while [ $# -gt 0 ]; do
       case "$2" in *=*) ;; *) echo "--set expects KEY=VALUE" >&2; exit 2 ;; esac
       SET_JSON="$(KV="$2" python3 -c 'import json,os,sys; k,v=os.environ["KV"].split("=",1); a=json.loads(sys.argv[1]); a.append([k,v]); print(json.dumps(a))' "$SET_JSON")"
       shift ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -117,6 +119,11 @@ overrides = dict(json.loads(os.environ["SET_JSON"]))
 for k in overrides:
     if k in MANAGED:
         print(f"refusing --set {k}: managed by this script (secrets come from the vault)", file=sys.stderr); sys.exit(2)
+# A mistyped time of day would be left out by the worker without a word here, so it is refused before anything is applied.
+for entry in [e.strip() for e in overrides.get("AMORE_DISCOVERY_SCHEDULE", "").split(",") if e.strip()]:
+    hh, _, mm = entry.partition(":")
+    if not (hh.isdigit() and mm.isdigit() and len(mm) == 2 and int(hh) < 24 and int(mm) < 60):
+        print(f"refusing --set AMORE_DISCOVERY_SCHEDULE: '{entry}' is not a 24 hour HH:MM time of day", file=sys.stderr); sys.exit(2)
 
 
 def call(method, path, body=None, timeout=600):

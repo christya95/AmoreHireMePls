@@ -1,7 +1,9 @@
 """Worker process: runs queued/resumed workflows, drives the sync coordinator, runs scheduled discovery.
 
 Scheduling uses wall-clock slots in the configured time zone (AMORE_TIMEZONE) claimed atomically in MongoDB so two workers (or a
-restart) never start the same slot twice. Browser work is sequential per authenticated site.
+restart) never start the same slot twice. A due slot only queues a check: it is read by the same single pass that
+answers "Check for new jobs", so a scheduled check and a pressed button never read the boards twice. Browser work is
+sequential per authenticated site.
 """
 
 from __future__ import annotations
@@ -10,13 +12,16 @@ import logging
 import signal
 import socket
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from amorehiremepls.core.accounts import active_admin_id, active_user_ids, user_scope
 from amorehiremepls.core.runtime import Runtime
+from amorehiremepls.core.schedule import due_slot, ignored_entries, parse_times, slot_key, times_text
 from amorehiremepls.core.util import local_now, local_zone, utcnow
 from amorehiremepls.jobs.discovery import SOURCES, SourceError
+from amorehiremepls.web.jobs_refresh import ACTIVE, SEARCH_KINDS, is_active
 from amorehiremepls.web.ui_settings import UISettingsStore
 
 log = logging.getLogger(__name__)
@@ -25,6 +30,9 @@ log = logging.getLogger(__name__)
 DISCOVERY_LEASE_SECONDS = 1800
 # How many newly found job ids one search keeps, so the Jobs page can mark them.
 NEW_JOB_IDS_KEPT = 200
+# Where the worker says which times of day it checks at. The dashboard reads it, because the dashboard a person has
+# open may run on another computer with other settings.
+SCHEDULE_CONTROL = "discovery_schedule"
 
 
 class Worker:
@@ -34,6 +42,7 @@ class Worker:
         self.name = f"{socket.gethostname()}:{threading.get_ident()}"
         self.stop_event = threading.Event()
         self.runner = rt.runner()
+        self._schedule_published = False
 
     # -- lifecycle --------------------------------------------------------------------
     def run_forever(self) -> None:
@@ -86,8 +95,20 @@ class Worker:
             log.warning("recovered %d interrupted runs; %d expired action leases marked needs_verification", n, swept)
         return n
 
+    def publish_schedule(self) -> None:
+        """Save and log the times of day this worker checks the boards at. Done once, at its first pass."""
+        value = self.rt.settings.discovery_schedule
+        times = times_text(parse_times(value))
+        self.rt.store.set_control(SCHEDULE_CONTROL, {"times": times, "timezone": local_zone().key, "worker": self.name, "at": utcnow()})
+        self._schedule_published = True
+        if ignored_entries(value):
+            log.warning("discovery schedule: %d entries are not HH:MM times of day and were left out", ignored_entries(value))
+        log.info("discovery schedule: %s", f"{', '.join(times)} ({local_zone().key})" if times else "none, the boards are checked only when asked")
+
     def tick(self) -> dict[str, Any]:
         self.heartbeat()
+        if not self._schedule_published:
+            self.publish_schedule()
         done: dict[str, Any] = {"runs": 0, "sync": 0, "scheduled": 0, "searches": 0, "logos": 0, "challenge_retries": 0}
         self.rt.auth.expire_stale()
         self.rt.actions.sweep_expired_leases()
@@ -124,8 +145,8 @@ class Worker:
             self.rt.store.update_run(run["_id"], requested=None, resume_payload=None)
             self.runner.resume(run["_id"], payload)
             done["runs"] += 1
+        done["scheduled"] += self.run_schedule()  # a due time of day queues a check; the next line reads the boards for it
         done["searches"] += self.run_requested_discovery()
-        done["scheduled"] += self.run_schedule()
         done["logos"] += self.refresh_logos()
         done["challenge_retries"] += self.run_due_challenge_retries()
 
@@ -244,34 +265,43 @@ class Worker:
 
     # -- schedule ------------------------------------------------------------------------
     def due_slots(self, now: datetime | None = None) -> list[str]:
-        sched = self.rt.settings.discovery_schedule.strip()
-        if not sched:
-            return []
-        now = now or local_now()
-        slots = []
-        for hhmm in [s.strip() for s in sched.split(",") if s.strip()]:
-            try:
-                h, m = (int(x) for x in hhmm.split(":"))
-            except ValueError:
-                continue
-            slot_time = now.replace(hour=h, minute=m, second=0, microsecond=0)
-            if slot_time <= now < slot_time + timedelta(hours=6):
-                slots.append(f"discovery:{slot_time.strftime('%Y-%m-%dT%H:%M')}")
-        return slots
+        """The one slot that is due, if any: the latest scheduled time of day that has passed, within the grace time."""
+        at = due_slot(parse_times(self.rt.settings.discovery_schedule), now or local_now())
+        return [slot_key(at)] if at else []
 
-    def run_schedule(self) -> int:
+    def _active_search(self) -> dict | None:
+        """A check for new jobs that is waiting to start or reading boards right now, for this person."""
+        now = utcnow()
+        open_runs = self.rt.store.c("runs").find({"kind": {"$in": list(SEARCH_KINDS)}, "status": {"$in": sorted(ACTIVE)}}).sort("created_at", 1)
+        return next((run for run in open_runs if is_active(run, now)), None)
+
+    def run_schedule(self, now: datetime | None = None) -> int:
+        """Queue the check a due time of day asks for. Returns how many were queued (0 or 1).
+
+        The slot is claimed first, so a restart or a second worker never queues it again. A check that is already
+        waiting or running answers the slot too: nothing is queued next to it. Nothing is read here."""
         count = 0
-        for slot in self.due_slots():
-            if self.rt.store.claim_schedule_slot(slot, self.name):
-                log.info("running scheduled discovery for %s", slot)
-                self.run_discovery(trigger=slot)
-                count += 1
+        for slot in self.due_slots(now):
+            if not (self.rt.store.get_control("discovery_sources", []) or []):
+                continue  # no board is watched: nothing to check, and the slot stays free in case one is added soon
+            if not self.rt.store.claim_schedule_slot(slot, self.name):
+                continue
+            active = self._active_search()
+            if active:
+                self.rt.store.c("runs").update_one({"_id": active["_id"]}, {"$set": {"params.answers_slot": slot}})
+                log.info("scheduled discovery for %s: a check is already under way and answers it", slot)
+                continue
+            self.rt.store.create_run("discovery", {"trigger": slot, "schedule_slot": slot})
+            log.info("scheduled discovery queued for %s", slot)
+            count += 1
         return count
 
     def run_requested_discovery(self) -> int:
-        """A search asked for on the Jobs page. One pass answers every request that was waiting, so pressing the
-        button several times never reads the boards several times."""
-        waiting = list(self.rt.store.c("runs").find({"status": "queued", "kind": "discovery_request", "requested": {"$ne": "cancel"}}).sort("created_at", 1))
+        """A search asked for on the Jobs page or queued by the schedule. One pass answers every request that was
+        waiting, so pressing the button several times, or pressing it as a scheduled check comes due, never reads the
+        boards several times."""
+        asked = [{"kind": "discovery_request"}, {"kind": "discovery", "params.schedule_slot": {"$exists": True}}]  # by the button, by the schedule
+        waiting = list(self.rt.store.c("runs").find({"status": "queued", "requested": {"$ne": "cancel"}, "$or": asked}).sort("created_at", 1))
         claimed = None
         for run in waiting:
             claimed = self.rt.store.reserve("runs", {"_id": run["_id"]}, self.name, ["queued"], "running", lease_seconds=DISCOVERY_LEASE_SECONDS, extra={"started_at": utcnow()})
@@ -280,7 +310,7 @@ class Worker:
         if not claimed:
             return 0
         self.rt.store.run_event(claimed["_id"], "Picked up")
-        summary = self.run_discovery(trigger="dashboard", run=claimed)
+        summary = self.run_discovery(trigger=(claimed.get("params") or {}).get("trigger") or "dashboard", run=claimed)
         others = [r["_id"] for r in waiting if r["_id"] != claimed["_id"]]
         if others:
             now = utcnow()
@@ -349,8 +379,20 @@ def worker_healthy(rt: Runtime, max_age_seconds: int = 120) -> bool:
     return at is not None and (utcnow() - at).total_seconds() < max_age_seconds
 
 
+def published_schedule(rt: Runtime) -> tuple[list[tuple[int, int]], ZoneInfo]:
+    """(times of day, their zone) the running worker checks the boards at. Read from what the worker saved at its
+    first pass; before any worker has said so, from this process's own settings."""
+    saved = rt.store.get_control(SCHEDULE_CONTROL)
+    if isinstance(saved, dict):
+        try:
+            return parse_times(",".join(saved.get("times") or [])), ZoneInfo(str(saved.get("timezone") or "UTC"))
+        except (ZoneInfoNotFoundError, ValueError):
+            pass
+    return parse_times(rt.settings.discovery_schedule), local_zone()
+
+
 def next_slot_description(rt: Runtime) -> str:
-    sched = rt.settings.discovery_schedule.strip()
-    if not sched:
+    times, zone = published_schedule(rt)
+    if not times:
         return "disabled"
-    return f"daily at {sched} {local_zone().key}"
+    return f"daily at {','.join(times_text(times))} {zone.key}"

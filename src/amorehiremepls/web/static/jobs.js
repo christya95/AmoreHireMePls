@@ -75,6 +75,9 @@
       time.setAttribute("title", state.checked_title || "");
       tickTime();
     }
+    // When the next check the app starts by itself is due, and when the last one ran. Empty when no time is set.
+    var autoWrap = byId("jr-auto-wrap");
+    if (autoWrap) { setText(byId("jr-auto"), state.auto || ""); autoWrap.hidden = !state.auto; }
   }
 
   function showBanner(text, tone) {

@@ -36,6 +36,14 @@ def dedup_keys(employer: str, posting_url: str | None, requisition_id: str | Non
     return sorted(set(keys))
 
 
+def posting_changed(old: dict | None, new: dict) -> bool:
+    """True when a posting read again says something else than the stored one: other text, or other details from the
+    source. The time it was read does not count."""
+    if not old:
+        return True
+    return (old.get("posting_hash"), old.get("extracted") or {}) != (new.get("posting_hash"), new.get("extracted") or {})
+
+
 def soft_key(employer: str, title: str) -> str:
     return f"fp:{normalize_employer(employer)}:{normalize_text(title)}"
 
@@ -71,19 +79,28 @@ class JobStore:
             merged_keys = sorted(set(existing.get("dedup_keys", [])) | set(keys))
             # Another job may already own one of the new keys; never merge two distinct jobs silently.
             clash = self.coll.find_one({"_id": {"$ne": existing["_id"]}, "dedup_keys": {"$in": merged_keys}})
-            update: dict[str, Any] = {"updated_at": now}
+            # `update` holds what makes this a different job than the one stored: a new identity, a first value for an
+            # empty field, a changed posting. Only that moves the job up the list (updated_at).
+            update: dict[str, Any] = {}
             if not clash:
-                update["dedup_keys"] = merged_keys
+                if set(merged_keys) != set(existing.get("dedup_keys", [])):
+                    update["dedup_keys"] = merged_keys
             else:
-                update["needs_reconciliation"] = {"reason": "dedup key clash", "other_job_id": clash["_id"]}
+                flag = {"reason": "dedup key clash", "other_job_id": clash["_id"]}
+                if existing.get("needs_reconciliation") != flag:
+                    update["needs_reconciliation"] = flag
             for k, v in (("requisition_id", requisition_id), ("linkedin_job_id", linkedin_job_id), ("location", location)):
                 if v and not existing.get(k):
                     update[k] = v
-            if snapshot:
+            if snapshot and posting_changed(existing.get("latest_snapshot"), snapshot):
                 update["latest_snapshot"] = snapshot
-            if extra:
-                update.update(extra)
-            doc = self.coll.find_one_and_update({"_id": existing["_id"]}, {"$set": update, "$addToSet": {"sources": source}}, return_document=ReturnDocument.AFTER)
+            if update:
+                update["updated_at"] = now
+            # Seen again with the same posting: when it was seen and the source's own details are kept, and the job
+            # stays where it was in the list.
+            quiet = {k: v for k, v in (extra or {}).items() if existing.get(k) != v}
+            quiet["last_seen_at"] = now
+            doc = self.coll.find_one_and_update({"_id": existing["_id"]}, {"$set": {**quiet, **update}, "$addToSet": {"sources": source}}, return_document=ReturnDocument.AFTER)
             return doc, False
         doc = {
             "_id": new_id("job"),

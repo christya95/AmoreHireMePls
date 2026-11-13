@@ -9,6 +9,9 @@
 #   AMORE_IMAGE_TAG            image tag to run (git sha pushed by scripts/deploy_nas.sh; "latest" also exists)
 #   AMORE_DATA_ROOT            bind mount root on the NAS (default /volume1/docker/amorehiremepls)
 #   AMORE_TIMEZONE             timezone for schedules and dates shown in the dashboard (default America/Toronto here)
+#   AMORE_DISCOVERY_SCHEDULE   times of day, in AMORE_TIMEZONE, at which the worker checks the watched job boards by itself:
+#                              comma separated 24 hour HH:MM, for example 08:00,16:30 (default empty = only when asked on
+#                              the Jobs page). The worker runs it; web gets it too so the Jobs page can say when the next one is.
 #   AMORE_TRACKER_ENABLED      "true" keeps a private GitHub ledger of confirmed applications (default true here; off = database only)
 #   AMORE_TRACKER_REMOTE_URL   the ledger repository to clone when the tracker is on
 #   AMORE_PUBLISH_HOST         host address the dashboard is published on (default: NAS LAN address 192.168.2.49;
@@ -58,6 +61,7 @@ x-app: &app
   environment:
     TZ: ${AMORE_TIMEZONE:-America/Toronto}
     AMORE_TIMEZONE: ${AMORE_TIMEZONE:-America/Toronto}
+    AMORE_DISCOVERY_SCHEDULE: "${AMORE_DISCOVERY_SCHEDULE:-}"
     AMORE_MONGODB_URI: mongodb://mongodb:27017/?directConnection=true
     AMORE_MONGODB_DATABASE: amorehiremepls
     AMORE_MONGODB_AUTH_SOURCE: amorehiremepls
