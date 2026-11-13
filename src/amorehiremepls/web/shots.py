@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from amorehiremepls.apply.stop_record import DIAGNOSTIC_SHOTS
 from amorehiremepls.web.chrome import SCREENSHOT_LABELS, humanize, normalize_screenshots
 
 
 def split_screenshots(arts: list[dict]) -> tuple[list[dict], list[dict]]:
     """Tailored documents and submission screenshots are shown apart: screenshots get no DOCX/PDF buttons."""
-    shots = [describe_shot(a) for a in arts if a.get("kind") == "screenshot"]
-    docs = [a for a in arts if a.get("kind") != "screenshot"]
+    shots = [describe_shot(a) for a in arts if a.get("kind") == "screenshot" and a.get("label") not in DIAGNOSTIC_SHOTS]
+    docs = [a for a in arts if a.get("kind") not in ("screenshot", "stop_record")]
     return docs, shots
 
 

@@ -278,6 +278,21 @@
     });
   });
 
+  // The request list of a stop record is fetched the first time its panel is opened. Without scripts the link works.
+  document.querySelectorAll("details[data-load]").forEach(function (panel) {
+    panel.addEventListener("toggle", function () {
+      if (!panel.open || panel.getAttribute("data-loaded")) return;
+      var box = panel.querySelector(".stop-net-body");
+      if (!box) return;
+      panel.setAttribute("data-loaded", "1");
+      box.setAttribute("aria-busy", "true");
+      fetch(panel.getAttribute("data-load"), { credentials: "same-origin", headers: { Accept: "text/html" } })
+        .then(function (res) { if (!res.ok) throw new Error(String(res.status)); return res.text(); })
+        .then(function (html) { box.innerHTML = html; box.removeAttribute("aria-busy"); })
+        .catch(function () { panel.removeAttribute("data-loaded"); box.removeAttribute("aria-busy"); });
+    });
+  });
+
   // A proof picture whose file lives on another host shows a quiet placeholder, never a broken image.
   document.addEventListener("error", function (ev) {
     var img = ev.target;

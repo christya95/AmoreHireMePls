@@ -19,6 +19,8 @@
 #                              (default true here; the code default is false). The containers hold no 1Password tool and no
 #                              token: the owner presses Allow 1Password on a dashboard running where 1Password is installed,
 #                              and the login reaches this worker sealed to a one-time key. The Settings switch overrides it.
+#   AMORE_STOP_RECORD          "false" stops keeping the complete, unmasked record of a stopped attempt under
+#                              <data root>/artifacts/jobs/<job>/stop/ (default true; cleared at the next attempt, left out of backups)
 #   AMORE_CANDIDATE_DIR        drop folder for the candidate's own resume DOCX and career notes (default /candidate,
 #                              bind mount of /volume1/docker/amorehiremepls/candidate; web writes it through the Profile
 #                              page upload form, the worker only reads it)
@@ -76,6 +78,7 @@ x-app: &app
     AMORE_BROWSER_HEADLESS: "true"
     AMORE_BROWSER_ALLOWED_HOSTS: ${AMORE_BROWSER_ALLOWED_HOSTS:-}
     AMORE_SITE_SIGNIN: "${AMORE_SITE_SIGNIN:-true}"
+    AMORE_STOP_RECORD: "${AMORE_STOP_RECORD:-true}"
     AMORE_TRACKER_ENABLED: "${AMORE_TRACKER_ENABLED:-true}"
     AMORE_TRACKER_REMOTE_URL: ${AMORE_TRACKER_REMOTE_URL:-https://github.com/christya95/job-application-records.git}
     AMORE_TRACKER_CLONE_DIR: /runtime/private/job-application-records

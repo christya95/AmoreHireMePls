@@ -145,6 +145,7 @@ class SignInTools:
     save_session: Callable[[], bool]
     hide: Callable[[str], None]  # keeps a value out of the saved network rows
     cdp_port: int | None = None
+    keep: Callable[[Any], None] = lambda page: None  # the stop record takes the page as it is, before boxes are emptied
 
 
 @dataclass
@@ -218,6 +219,10 @@ class SiteSignIn:
         except SignInStop as stop:
             record["outcome"] = stop.code
             record["retry_safe"] = stop_for(stop.code).retry_safe
+            try:
+                tools.keep(page)
+            except Exception:
+                pass
             self._blank(page)
             raise
 

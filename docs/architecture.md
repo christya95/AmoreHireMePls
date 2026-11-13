@@ -16,6 +16,10 @@ The installable package is still `amorehiremepls`. Imports are absolute (`from a
 
 A new site adapter goes in `apply/ats/`, is registered from `apply/ats/__init__.py`, and returns a browser plan. Extend `apply/browser.py` for a new kind of step. Do not click a specific site's layout from a route.
 
+## The stop record
+
+`apply/stop_record.py`. `BrowserAdapter.run_plan` asks `StopRecords.begin(job_id)` for a recorder before it opens the page; that call first clears the earlier record for the job. The recorder turns on Playwright's own network archive (`record_har_path`, bodies attached) and trace, listens for console lines and page errors, and is told about each request the app's host gate refuses. In `finally`, when the attempt is not a confirmed success, it photographs the page, saves its source, closes the archive and trace, builds `network.json` from the archive, hashes every file and hands the list to `StopRecords.landed`, which registers one `artifacts` row per file (kind `stop_record`). A confirmed success deletes the folder. Every recorder call is wrapped so that a failure is named in the record and never changes the stop. `web/stop_view.py` and `web/routes/stop_record.py` show it; the request rows are read from the file only when the panel is opened. Nothing captured is put in evidence, events, logs or the database.
+
 ## Signing in on a job site (extension point)
 
 One generic step signs in on every site: `apply/signin.py` (`SiteSignIn`). It finds the form by structure (a password box, the username box before it, a button), so a new site needs no code. `apply/browser.py: _pass_wall` calls it wherever a plan can meet a wall, and stops with the sentence for that kind of page (`core/site_signin.py: STOPS`, `WALLS`) when it cannot. The pieces, and where to extend each:

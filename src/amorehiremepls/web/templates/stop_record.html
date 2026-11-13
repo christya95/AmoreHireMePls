@@ -1,0 +1,10 @@
+{% extends "base.html" %}{% block content %}
+<div class="stack">
+<section class="card stop-record">
+  <div class="card-h"><h3>Requests the page made before it stopped</h3><span class="sub">{{ job.employer }}{% if job.title %} · {{ job.title }}{% endif %}</span></div>
+  <p class="stop-notice"><svg class="icon"><use href="#i-stop"/></svg><span><strong>{{ notice }}</strong> {{ where }}</span></p>
+  <p><a class="btn secondary sm" href="/applications/{{ a._id }}">Back to the application</a></p>
+  {% include "_stop_network.html" %}
+</section>
+</div>
+{% endblock %}

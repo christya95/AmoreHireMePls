@@ -25,6 +25,7 @@ from amorehiremepls.web.chrome import (
     what_to_do_line,
 )
 from amorehiremepls.web.shots import evidence_shots
+from amorehiremepls.web.stop_view import NOTICE, WHERE, split_proof, stop_record_view
 
 _OWN_ASK = frozenset({"login", "checkpoint", "human_check", "blocked"})
 _BUSY_RUNS = frozenset({"queued", "claimed", "running", "paused"})
@@ -214,7 +215,9 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         doc_art = rt.store.c("artifacts").find_one({"sha256": doc_sha, "owner_id": a["job_id"]}, {"content": 0}) if doc_sha else None
         ctx = application_view(rt, a, job, session)
         a = ctx["a"]
-        ctx.update(scopes=scopes, doc_art=doc_art, shots=evidence_shots(rt, a), updates=application_timeline(a, ctx["runs"], ctx["saved_reason"]))
+        proof, stopped_shots = split_proof(evidence_shots(rt, a))
+        ctx.update(scopes=scopes, doc_art=doc_art, shots=proof, stopped_shots=stopped_shots, updates=application_timeline(a, ctx["runs"], ctx["saved_reason"]))
+        ctx.update(stop=stop_record_view(rt, a), stop_notice=NOTICE, stop_where=WHERE)
         happening = ctx["happening"]
         if request.query_params.get("ok") == "field_ok" and field_answer_flash_is_stale(happening):
             ctx["flash"] = None
@@ -381,6 +384,9 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         rt.store.c("applications").update_one(
             {"_id": app_id}, {"$set": {"status": "queued", "reason": None, "next_action": "the app is reading the form again", "updated_at": utcnow()}}
         )
+        from amorehiremepls.apply.stop_record import clear_stop_records
+
+        clear_stop_records(rt.store, a)  # a new attempt starts without the earlier attempt's stop record
         run = rt.store.create_run("application", {"job_id": job["_id"], "retry_of": app_id})
         rt.store.audit("application_retry", app_id, run_id=run["_id"])
         return RedirectResponse(f"/applications/{app_id}?ok=retry_started", status_code=303)

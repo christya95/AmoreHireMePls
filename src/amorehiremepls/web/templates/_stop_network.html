@@ -1,0 +1,40 @@
+{# expects `net` (stop_network_view). Every value below came from a web page and is shown as escaped text. #}
+{% macro pairs(title, items) %}{% if items %}<h5>{{ title }}</h5><table class="net-kv"><tbody>{% for name, value in items %}<tr><td>{{ name }}</td><td>{{ value }}</td></tr>{% endfor %}</tbody></table>{% endif %}{% endmacro %}
+{% macro body(title, b) %}{% if b.text or b.note %}<h5>{{ title }}</h5>{% if b.note %}<p class="note">{{ b.note }}</p>{% endif %}{% if b.text %}<pre class="net-body">{{ b.text }}</pre>{% endif %}{% endif %}{% endmacro %}
+{% macro row(r) %}
+<li class="net-row{% if r.tone %} {{ r.tone }}{% endif %}"><details><summary><span class="net-mark">{{ r.mark or '···' }}</span><span class="net-method">{{ r.method }}</span><span class="net-url">{{ r.url }}</span><span class="net-meta">{{ [r.type, r.time, r.size]|select|join(' · ') }}</span></summary>
+  <div class="net-detail">
+    {% if r.failure %}<p class="net-why">{{ r.failure }}</p>{% endif %}
+    <p class="note">Request {{ r.n }}{% if r.started %} · started {{ r.started }}{% endif %}{% if r.http %} · {{ r.http }}{% endif %}{% if r.server %} · server {{ r.server }}{% endif %}{% if r.status_text %} · {{ r.status_text }}{% endif %}</p>
+    {% if r.redirected_from %}<p class="note">Reached by a redirect from request {{ r.redirected_from }}.</p>{% endif %}
+    {% if r.redirect_to %}<p class="note">Redirects to <span class="net-url">{{ r.redirect_to }}</span></p>{% endif %}
+    {{ pairs('Request headers', r.request_headers) }}
+    {{ pairs('Cookies sent', r.cookies_sent) }}
+    {{ pairs('Form fields sent', r.form_fields) }}
+    {{ body('Request body', r.request_body) }}
+    {{ pairs('Response headers', r.response_headers) }}
+    {% if r.cookies_set %}<h5>Cookies set</h5><ul class="net-list">{% for c in r.cookies_set %}<li>{{ c }}</li>{% endfor %}</ul>{% endif %}
+    {{ body('Response body', r.response_body) }}
+  </div></details></li>
+{% endmacro %}
+<div class="net-panel" id="stop-net-panel">
+{% if net.state == 'elsewhere' %}
+  <p class="note" id="net-elsewhere">The request list is on the computer that ran the attempt, not on this one.</p>
+{% elif net.state != 'saved' %}
+  <p class="note" id="net-none">No stop record is saved for this application.</p>
+{% elif not net.total %}
+  <div class="empty" id="net-empty"><svg class="icon"><use href="#i-stop"/></svg>No requests were recorded. The page stopped before it asked for anything, or the recording could not start.</div>
+{% else %}
+  <p class="net-sum">{{ net.total }} requests · <span class="{{ 'pill bad' if net.failed else '' }}">{{ net.failed }} failed</span> · <span class="{{ 'pill warn' if net.refused else '' }}">{{ net.refused }} refused by the app</span> · {{ net.errors }} error replies. Open a row to see what was sent and what came back.</p>
+  {% if net.problems %}<h4 id="net-problems">Failed or refused <span class="sum-meta">{{ net.problems|length }}</span></h4>
+  <ul class="net-rows">{% for r in net.problems %}{{ row(r) }}{% endfor %}</ul>{% endif %}
+  <h4 id="net-all">Every request, in order <span class="sum-meta">{{ net.rows|length }}{% if net.left_out %} of {{ net.total }}{% endif %}</span></h4>
+  <ul class="net-rows">{% for r in net.rows %}{{ row(r) }}{% endfor %}</ul>
+  {% if net.left_out %}<p class="note">{{ net.left_out }} more requests are in the request list file.</p>{% endif %}
+{% endif %}
+{% if net.state == 'saved' %}
+  <h4 id="net-console">Console and page errors <span class="sum-meta">{{ net.console|length }}</span></h4>
+  {% if net.console %}<ul class="net-console">{% for c in net.console %}<li class="{{ 'bad' if c.type in ('error', 'pageerror') else '' }}"><span class="net-mark">{{ c.type }}</span><span class="net-url">{{ c.text }}</span></li>{% endfor %}</ul>
+  {% else %}<p class="note">The page wrote nothing to its console.</p>{% endif %}
+{% endif %}
+</div>

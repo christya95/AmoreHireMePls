@@ -290,6 +290,22 @@ A refused password (owner, 2026-11-12). The app never sends it again by itself.
 
 The site's words, the item title and both links are untrusted. They are shown as escaped text; a link is shown only when it is https and, for the reset link, on the same registrable domain as the sign-in page or the run's site. Links open in a new tab with `rel="noopener noreferrer"`.
 
+## What the app saw when it stopped (2026-11-12)
+
+A card under the status block whenever a stop record exists for the application. Title "What the app saw when it stopped", with the capture time.
+
+- Notice, always first: "This record is complete. It can include passwords, verification codes and session cookies. It is kept in private storage on the computer that ran the attempt, and it is deleted when a new attempt starts."
+- The screen as a picture; a click opens the whole page full size in a new tab. Beside it: "Page address", "Page title", "Requests" ("42 in all · 1 failed · 2 refused by the app · 1 error replies"), "Console" ("7 lines · 1 page errors").
+- Downloads, each with its size: "Page source", "Request list", "Console and page errors", "Network archive (HAR, zipped)", "Playwright trace", "Record summary".
+- Limits, stated on the card: "A text body over 512.0 KB is cut in the request list and whole in the network archive. A picture or other binary body is listed by size and type and kept in the archive. An archive or trace over 200.0 MB is not kept."
+- "Requests the page made", closed until opened, with the failed and refused counts in its heading. Inside: "Failed or refused" first, then "Every request, in order", then "Console and page errors". A row opens to request headers, cookies sent, form fields sent, request body, response headers, cookies set, response body. A body shows its first 4 KB with "Showing the first 4.0 KB of 700.0 KB. The whole body is in the network archive." Without scripts the same list opens on its own page.
+- "Pictures taken during this attempt": the Needs you, Stopped early, Form complaint and Human check pictures. They are no longer under Proof of applying, which keeps the filled review page, the confirmation, an unclear result and a confirmation for another job.
+- Three other states: no record ("No record was kept for this stop. The next time an attempt stops, the page, its requests and its console are saved here."), files on another computer ("The files of this record are on the computer that ran the attempt. Open this page on that dashboard to see the picture, the requests and the downloads." and "The picture is on the computer that ran this attempt, not on this one."), and an empty list ("No requests were recorded. The page stopped before it asked for anything, or the recording could not start.").
+- A part that failed: "Parts that could not be recorded: network: ValueError. The attempt stopped for the reason shown above, not because of this."
+- Timeline line: "Saved what the page showed and sent when this attempt stopped."
+
+Everything in the record came from a web page. Addresses, titles, headers and bodies are shown as escaped text and are never links. Files are downloads; the saved page source is never opened as a page.
+
 ## Rules applied everywhere
 
 - Short everyday sentences, one idea per sentence. Verbs on buttons ("Check fit", "Read and approve", "I applied on

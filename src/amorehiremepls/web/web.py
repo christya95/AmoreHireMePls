@@ -58,6 +58,7 @@ from amorehiremepls.web.routes.profile import register as register_profile
 from amorehiremepls.web.routes.public import register as register_public
 from amorehiremepls.web.routes.settings import register as register_settings
 from amorehiremepls.web.routes.signin import register as register_signin
+from amorehiremepls.web.routes.stop_record import register as register_stop_record
 from amorehiremepls.web.routes.sync import register as register_sync
 from amorehiremepls.web.task_list import worker_status
 
@@ -226,6 +227,7 @@ def create_app(rt: Runtime) -> FastAPI:
     register_jobs(app=app, rt=rt, require_session=require_session, require_csrf=require_csrf, render=render)
     register_applications(app=app, rt=rt, require_session=require_session, require_csrf=require_csrf, render=render)
     register_signin(app=app, rt=rt, require_session=require_session, require_csrf=require_csrf)
+    register_stop_record(app=app, rt=rt, require_session=require_session, render=render)
     register_authorizations(app=app, rt=rt, require_session=require_session, require_csrf=require_csrf, render=render)
     register_outreach(app=app, rt=rt, require_session=require_session, require_csrf=require_csrf, render=render)
     register_sync(app=app, rt=rt, require_session=require_session, require_csrf=require_csrf, render=render)

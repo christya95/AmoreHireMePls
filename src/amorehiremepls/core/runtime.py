@@ -11,6 +11,7 @@ from typing import Any
 from amorehiremepls.apply.applications import CANCEL_REASON, ApplicationService, AttemptCancelled, CancelWatch, FormField, SalaryResearcher, settle_late_cancel
 from amorehiremepls.apply.browser import BrowserAdapter, BrowserConfig, Plan, Step
 from amorehiremepls.apply.network_log import NetworkLog
+from amorehiremepls.apply.stop_record import StopRecords
 from amorehiremepls.apply.tailoring import Tailor
 from amorehiremepls.candidate.candidate_docs import CandidateDocs, load_candidate_docs
 from amorehiremepls.candidate.profile import Profile, ProfileStore
@@ -89,6 +90,7 @@ class Runtime:
                 cdp_port=settings.human_check_cdp_port,
             ),
             network=NetworkLog(self.store),
+            stop_records=StopRecords(self.store, settings.artifact_dir, enabled=settings.stop_record, trace=settings.stop_record_trace),
         )
         self.sync = SyncCoordinator(self.store, settings.tracker_clone_dir, settings.tracker_remote, settings.tracker_branch, settings.tracker_push_enabled)
         smtp = (

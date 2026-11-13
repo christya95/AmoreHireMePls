@@ -220,6 +220,77 @@ async def verify_post(sc: str, request: Request):
     return _session(sc, f"/acct/{sc}/job")
 
 
+# -- pages for the stop record: a form that never offers its send button, and requests of every kind ------------
+QUERY_TOKEN = "QUERY-TOKEN-77"
+COOKIE_VALUE = "COOKIE-VALUE-55"
+BODY_MARKER = "BODY-MARKER-33"
+REPLY_MARKER = "REPLY-MARKER-11"
+CONSOLE_MARKER = "CONSOLE-MARKER-22"
+PAGE_ERROR_MARKER = "PAGE-ERROR-MARKER-44"
+MARKUP = '<script>window.hacked = 1</script><img src=x onerror="window.hacked = 2">'
+BIG_BYTES = 700 * 1024
+
+
+@app.get("/stop/{sc}/job", response_class=HTMLResponse)
+def stop_job(sc: str):
+    if sc == "quiet":
+        return _page("Quiet page", '<input id="ready_note"><input id="full_name">')
+    send = '<button id="submit">Send application</button>' if sc == "ok" else ""
+    script = f"""
+    <script>
+      console.log("{CONSOLE_MARKER} <b>bold</b>");
+      const first = fetch("/stop/{sc}/data?token={QUERY_TOKEN}&next=%2Fa%3Fb");
+      first.then(() => Promise.allSettled([
+        fetch("/stop/{sc}/big"),
+        fetch("/stop/{sc}/blob"),
+        fetch("/stop/{sc}/missing"),
+        fetch("/stop/{sc}/post", {{method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify({{note: "{BODY_MARKER}"}})}}),
+        fetch("http://blocked.invalid/pixel?id=9").catch(() => 0),
+        fetch("http://127.0.0.1:9/gone").catch(() => 0),
+      ])).then(() => {{
+        const box = document.createElement("input"); box.id = "ready_note"; document.body.appendChild(box);
+        setTimeout(() => {{ throw new Error("{PAGE_ERROR_MARKER}"); }}, 0);
+      }});
+    </script>"""
+    form = f'<form method="post" action="/stop/{sc}/apply"><label for="full_name">Full name</label><input id="full_name" name="full_name">{send}</form>'
+    return HTMLResponse(
+        f"<html><head><title>Apply &lt;now&gt; R-{sc}</title></head><body><h1>Apply</h1><p>&lt;script&gt;shown as text&lt;/script&gt;</p>{form}{script}</body></html>"
+    )
+
+
+@app.get("/stop/{sc}/data")
+def stop_data(sc: str):
+    from fastapi.responses import JSONResponse
+
+    out = JSONResponse({"ok": True, "marker": REPLY_MARKER, "markup": MARKUP})
+    out.set_cookie("track", COOKIE_VALUE)
+    return out
+
+
+@app.get("/stop/{sc}/big")
+def stop_big(sc: str):
+    from fastapi.responses import PlainTextResponse
+
+    return PlainTextResponse("START-OF-BIG " + "x" * BIG_BYTES + " END-OF-BIG")
+
+
+@app.get("/stop/{sc}/blob")
+def stop_blob(sc: str):
+    from fastapi.responses import Response
+
+    return Response(bytes(range(256)) * 8, media_type="application/octet-stream")
+
+
+@app.post("/stop/{sc}/post")
+async def stop_post(sc: str, request: Request):
+    return {"got": len(await request.body())}
+
+
+@app.post("/stop/{sc}/apply", response_class=HTMLResponse)
+def stop_apply(sc: str):
+    return _page("Application received", f"<p>Thank you. Application received for requisition R-{sc}.</p>")
+
+
 class SignInSite:
     def __init__(self, port: int) -> None:
         self.port = port

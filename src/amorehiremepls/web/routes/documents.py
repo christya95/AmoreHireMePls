@@ -49,7 +49,14 @@ def register(app, rt, require_session, render) -> None:
         if not art:
             raise HTTPException(404)
         is_shot = art.get("kind") == "screenshot" or str(art.get("media_type") or "").startswith("image/")
-        if kind == "png":
+        if kind == "file":
+            # One file of a stop record. It is handed over as a download; a saved page is never opened as a page.
+            if art.get("kind") != "stop_record" or is_shot:
+                raise HTTPException(400, "kind=file is only for the files of a stop record")
+            raw, expected, media, name = art.get("path"), art.get("sha256"), "application/octet-stream", art.get("filename")
+        elif art.get("kind") == "stop_record" and not is_shot:
+            raise HTTPException(400, "the files of a stop record are served with kind=file only")
+        elif kind == "png":
             if not is_shot:
                 raise HTTPException(400, "this artifact is a document, not a screenshot")
             raw, expected, media, name = art.get("path"), art.get("sha256"), "image/png", art.get("filename")
@@ -60,7 +67,7 @@ def register(app, rt, require_session, render) -> None:
         elif kind == "docx":
             raw, expected, media, name = art.get("path"), art.get("sha256"), DOCX_MEDIA_TYPE, art.get("filename")
         else:
-            raise HTTPException(400, "kind must be docx, pdf or png")
+            raise HTTPException(400, "kind must be docx, pdf, png or file")
         if not raw or not expected:
             raise HTTPException(404, f"no {kind} recorded for this document")
         path = Path(raw).resolve()

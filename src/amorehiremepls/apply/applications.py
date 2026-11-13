@@ -19,6 +19,7 @@ from bson import json_util
 
 from amorehiremepls.apply.ats.rules import SENSITIVE_BLANK_REASON, YEARS_RULE, pick_years_bucket
 from amorehiremepls.apply.browser import Plan, apply_location_fallbacks, normalize_screenshots
+from amorehiremepls.apply.stop_record import clear_stop_records
 from amorehiremepls.apply.tailoring import Tailor, page_limit_block_reason
 from amorehiremepls.candidate.profile import BandEvidence, Fact, Profile, compute_experience, desired_salary
 from amorehiremepls.core.actions import REPLAY_LABEL, ActionHandoff, ActionStore, Outcome
@@ -872,6 +873,7 @@ class ApplicationService:
             raise ApplicationRefused(reason)
         self._stop_unsent_work(app)
         delete_tailored_files(self.store, self.tailor.artifact_dir, app["job_id"])
+        clear_stop_records(self.store, app)
         backup_dir.mkdir(parents=True, exist_ok=True)
         path = backup_dir / f"{app_id}-{utcnow().strftime('%Y%m%dT%H%M%SZ')}.json"
         path.write_text(json_util.dumps(app), encoding="utf-8")
@@ -914,6 +916,7 @@ class ApplicationService:
         self._stop_unsent_work(app)
         job = self.jobs.get(app["job_id"])
         delete_tailored_files(self.store, self.tailor.artifact_dir, app["job_id"])
+        clear_stop_records(self.store, app)
         self.apps.update_one(
             {"_id": app_id},
             {

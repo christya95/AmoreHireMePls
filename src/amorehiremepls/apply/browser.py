@@ -593,10 +593,13 @@ class _Scope:
 
 
 class BrowserAdapter:
-    def __init__(self, config: BrowserConfig, captcha_solver: Any | None = None, network: Any | None = None) -> None:
+    def __init__(self, config: BrowserConfig, captcha_solver: Any | None = None, network: Any | None = None, stop_records: Any | None = None) -> None:
         self.config = config
         self.captcha_solver = captcha_solver  # opt-in; only ever used from the application-submit path
         self.network = network  # per-job request log; each row is saved as Chromium sees it
+        # What the page and its requests looked like when an attempt stopped (`apply/stop_record.py`). None = not kept.
+        self.stop_records = stop_records
+        self._stop_keep = None
         self._progress = None
 
     def _shot_target(self, plan: Plan | None = None) -> _ShotTarget:
@@ -663,7 +666,27 @@ class BrowserAdapter:
             ctx_kwargs: dict[str, Any] = {"accept_downloads": False, "viewport": {"width": 1280, "height": 900}}
             if state and state.exists():
                 ctx_kwargs["storage_state"] = str(state)
-            context = browser.new_context(**ctx_kwargs)
+            # The stop record starts with the page. Starting it, or failing to, never changes the attempt.
+            rec = self._begin_stop_record(plan)
+
+            def record(part: str, *args: Any, **kwargs: Any) -> Any:
+                if rec is None:
+                    return None
+                try:
+                    return getattr(rec, part)(*args, **kwargs)
+                except Exception:
+                    return None
+
+            self._stop_keep = lambda target: record("keep", target)
+            extra = record("context_options") or {}
+            try:
+                context = browser.new_context(**ctx_kwargs, **extra)
+            except Exception:
+                if not extra:
+                    raise
+                rec = None
+                context = browser.new_context(**ctx_kwargs)
+            record("attach", context)
             # Record every request from this moment, before the first page load and before any form step.
             if self.network is not None and plan.job_id:
                 watch_network(context, self.network, plan.job_id, self._net_secrets)
@@ -704,6 +727,7 @@ class BrowserAdapter:
                 if host and (host in self._asset_hosts or host_allowed(host, resources)) and not top_level(request, True):
                     route.continue_()
                     return
+                record("blocked", request)
                 route.abort()
 
             context.route("**/*", gate)
@@ -719,6 +743,7 @@ class BrowserAdapter:
             self._save_session = save_session
             page = context.new_page()
             scope = _Scope(page)
+            confirmed = False
             try:
                 page.goto(plan.start_url, wait_until="domcontentloaded")
                 self._pass_wall(page, evidence, shots, resume_url=plan.start_url)
@@ -755,6 +780,7 @@ class BrowserAdapter:
                 if state:
                     state.parent.mkdir(parents=True, exist_ok=True)
                     context.storage_state(path=str(state))
+                confirmed = True
                 return evidence
             except (AmbiguousOutcome, HandoffRequired):
                 raise
@@ -778,9 +804,37 @@ class BrowserAdapter:
                 self._snapshot(page, evidence, "failed", shots)
                 raise ActionFailed(reason, evidence, retryable=True) from exc
             finally:
-                context.close()
-                browser.close()
-                self._progress = None
+                # Every stop that is not a confirmed success keeps what the page showed and sent. The reason it
+                # stopped is already decided above; nothing here can change it.
+                if not confirmed:
+                    record("keep", page)
+                record("stop", context, keep=not confirmed)
+                try:
+                    context.close()
+                    browser.close()
+                finally:
+                    self._stop_keep = None
+                    if rec is not None:
+                        self._land_stop_record(plan, rec, confirmed)
+                    self._progress = None
+
+    def _begin_stop_record(self, plan: Plan):
+        """A recorder for this attempt, after the earlier record for the job was cleared. None when it is off."""
+        if self.stop_records is None or not plan.job_id:
+            return None
+        try:
+            return self.stop_records.begin(plan.job_id)
+        except Exception:
+            return None
+
+    def _land_stop_record(self, plan: Plan, rec: Any, confirmed: bool) -> None:
+        try:
+            if confirmed:
+                rec.discard()
+                return
+            self.stop_records.landed(plan.job_id, rec.finish())
+        except Exception:
+            pass
 
     def _say(self, message: str) -> None:
         """Record one real step so the application page can show it. A note that fails does not stop the form."""
@@ -2268,6 +2322,7 @@ class BrowserAdapter:
             save_session=lambda: self._save_session(),
             hide=lambda value: self._net_secrets.append(value) if value and value not in self._net_secrets else None,
             cdp_port=evidence.get("cdp_port"),
+            keep=lambda target: self._stop_keep(target) if getattr(self, "_stop_keep", None) is not None else None,
         )
         self._signin_site = wall_host
         try:

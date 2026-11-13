@@ -520,6 +520,22 @@ Fixture tested (`tests/test_signin.py`, 53 tests on `tests/fixtures/signin_site.
 
 Open questions: none blocking. Owner-only steps are in `docs/HANDOFF.md`.
 
+## The stop record: what the app saw when it stopped (2026-11-12)
+
+Owner: "for whatever reason the app stops. Please take a screenshot of the screen with network tab open and post the screenshot in the app", then "don't leave anything out, record it all." `apply/stop_record.py`, on by default (`AMORE_STOP_RECORD`, `AMORE_STOP_RECORD_TRACE`).
+
+What is recorded, for every browser attempt that ends without a confirmed success (handoff, failure, unclear after the final click, cancel, a later look that finds no confirmation, an unexpected error): the screen and the whole page as pictures, unmasked; the page source, address, title and frames; every request from the first page load, with the full address and query, method, type, timing, status, request and response headers, cookies sent and set, form fields, request body, response body, redirect links, failure text, and whether the app's own list of allowed sites refused it; console lines and page errors; Playwright's network archive (zipped HAR with every body, binary ones too) and a Playwright trace.
+
+Limits, shown on the page: a text body over 512 KB is cut in `network.json` and whole in the archive; a binary body is listed by size and type and kept in the archive; the list keeps 5000 requests and 2000 console lines; the page source keeps 8 MB; an archive or trace over 200 MB is not kept and the record says so. The page draws 300 rows and the first 4 KB of a body.
+
+Where it lives: `artifacts/jobs/<job_id>/stop/<attempt>/` on the computer that ran the attempt (the NAS for the worker), files mode 600, each hashed and registered in `artifacts` as kind `stop_record`, served only through the signed-in, hash-verified download route as downloads. The database holds names, sizes, hashes and counts. Nothing captured is in the application's evidence, a run event (one plain line is written), a log, the tracker or its outbox, a model input, or a backup (`core/backup.py` leaves the folders and the rows out).
+
+What deletes it: the next attempt for the job (the browser clears it before it opens the page, and queuing a retry clears it at once), Start over, and Remove. A sent application, a saved receipt and an unclear result keep theirs, and proof pictures (filled review page, confirmation, unclear result) are never cleared; the pictures of where an unsent attempt stopped are cleared with the record and now show in this card instead of under Proof of applying. When the dashboard that cleared a record is not the computer that holds the files (the Mac dashboard and the NAS worker), the files are removed when that computer next starts an attempt.
+
+This is the one exception to the rule that a sign-in secret is never stored: a stop during or after a sign-in can hold the site password and session cookies. The page says so first.
+
+Capture never changes why an attempt stopped: each part is wrapped, a failed part is named in the record. Fixture tested (`tests/test_stop_record.py`, 13 tests). Not yet seen on the deployed worker with a real stop.
+
 ## Exact next step
 
 Queue item 5 waits for a confirmed employer receipt. Do not draft recruiter Connect notes until one exists. Do not retry the Faire application or mark the BMO job closed; those are owner decisions (handoff questions 4 and 5). The employment-type rule is deployed; the owner uses Check fit again on the skipped job. An already approved package with no task is picked up by the worker; do not start that send by hand. The plain-language fill page is deployed as `329d1c022adf`. The live profile still has no later places; save those before relying on them. Do not confirm a destructive action on the live Workday job unless the owner asks. Open owner questions are 1, 2, 3, 4, 5, 7, 8, and 9. Question 6 is answered: tracker sync keeps running for an expired member.

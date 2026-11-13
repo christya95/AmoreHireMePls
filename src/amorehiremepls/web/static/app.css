@@ -1173,3 +1173,53 @@ details.pop[open] .pop-body { animation: rise var(--enter) var(--ease-in); }
   .app { display: block; }
   .card { box-shadow: none; }
 }
+
+/* -- stop record: what the app saw when an attempt stopped ------------------------------------------------- */
+.stop-record .stop-notice { display: flex; gap: var(--s-2); align-items: flex-start; margin: 0 0 var(--s-3); padding: var(--s-2) var(--s-3); border: 1px solid var(--warn-line); border-radius: var(--radius-xs); background: var(--warn-soft); color: var(--warn-text); font-size: 0.86rem; line-height: 1.45; }
+.stop-record .stop-notice .icon { flex: none; width: 16px; height: 16px; margin-top: 2px; }
+.stop-grid { display: grid; grid-template-columns: minmax(0, 280px) minmax(0, 1fr); gap: var(--s-4); align-items: start; }
+.stop-pic { display: block; }
+.stop-pic img, .stop-pic.shot-missing { width: 100%; height: auto; aspect-ratio: 16 / 10; object-fit: cover; object-position: top; border: 1px solid var(--border); border-radius: var(--radius-xs); background: var(--bg); }
+.stop-facts { display: grid; gap: var(--s-2); min-width: 0; }
+.stop-kv { margin: 0; display: grid; gap: var(--s-2); }
+.stop-kv > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: var(--s-3); align-items: baseline; }
+.stop-kv dt { color: var(--muted); font-size: 0.76rem; font-weight: 600; }
+.stop-kv dd { margin: 0; font-size: 0.9rem; overflow-wrap: anywhere; }
+.stop-files { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-4); font-size: 0.86rem; }
+.stop-files small { color: var(--muted); }
+.stop-record details.disclosure { margin-top: var(--s-3); }
+.stop-net-body { margin-top: var(--s-2); }
+.stop-net-body[aria-busy="true"] { opacity: 0.6; }
+.net-panel h4 { margin: var(--s-4) 0 var(--s-2); font-size: 0.86rem; display: flex; gap: var(--s-2); align-items: baseline; }
+.net-panel h5 { margin: var(--s-3) 0 var(--s-1); font-size: 0.74rem; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.net-sum { margin: 0; font-size: 0.86rem; color: var(--text-2); }
+.net-rows, .net-console, .net-list { list-style: none; margin: 0; padding: 0; }
+.net-rows { border: 1px solid var(--border); border-radius: var(--radius-xs); max-height: 28rem; overflow-y: auto; overscroll-behavior: contain; }
+.net-row { border-bottom: 1px solid var(--border); }
+.net-row:last-child { border-bottom: 0; }
+.net-row summary { display: grid; grid-template-columns: 64px 52px minmax(0, 1fr) auto; gap: var(--s-2); align-items: baseline; padding: var(--s-2) var(--s-3); cursor: pointer; font-size: 0.8rem; transition: background 150ms ease-out; }
+.net-row summary:hover { background: var(--accent-softer); }
+.net-row.bad summary { background: var(--bad-soft); }
+.net-row.warn summary { background: var(--warn-soft); }
+.net-mark { font-variant-numeric: tabular-nums; font-weight: 650; }
+.net-row.bad .net-mark, .net-console .bad .net-mark { color: var(--bad-text); }
+.net-row.warn .net-mark { color: var(--warn-text); }
+.net-method { color: var(--muted); font-weight: 600; }
+.net-url { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.76rem; }
+.net-meta { color: var(--muted); white-space: nowrap; font-size: 0.74rem; }
+.net-detail { padding: 0 var(--s-3) var(--s-3); }
+.net-why { margin: 0 0 var(--s-2); font-weight: 600; color: var(--bad-text); }
+.net-kv { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 0.76rem; }
+.net-kv td { padding: 2px var(--s-2) 2px 0; vertical-align: top; overflow-wrap: anywhere; border: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.net-kv td:first-child { width: 32%; color: var(--muted); }
+.net-body { max-height: 16rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.74rem; margin: 0; }
+.net-list li { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.76rem; overflow-wrap: anywhere; padding: 2px 0; }
+.net-console { border: 1px solid var(--border); border-radius: var(--radius-xs); max-height: 16rem; overflow-y: auto; }
+.net-console li { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: var(--s-2); padding: var(--s-1) var(--s-3); border-bottom: 1px solid var(--border); font-size: 0.78rem; }
+.net-console li:last-child { border-bottom: 0; }
+@media (max-width: 720px) {
+  .stop-grid { grid-template-columns: minmax(0, 1fr); }
+  .stop-kv > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .net-row summary { grid-template-columns: 52px 44px minmax(0, 1fr); }
+  .net-meta { grid-column: 1 / -1; white-space: normal; }
+}

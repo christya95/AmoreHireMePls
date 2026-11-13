@@ -95,4 +95,6 @@ Never: a refused password without the owner, anything through a block page, a ca
 
 ## Secrets
 
-The password, the one-time code and the 1Password account password are never written to Mongo, run events, evidence, logs, model input or exceptions. Network rows drop them. Password boxes are emptied before a stopped page is photographed.
+The password, the one-time code and the 1Password account password are never written to Mongo, run events, evidence, logs, model input or exceptions. Network rows drop them. Password boxes are emptied before a stopped page is photographed as evidence.
+
+The one exception is the stop record ("What the app saw when it stopped" on the application page), which the owner chose to keep complete. A stop during or after a sign-in can hold the site password and session cookies in its request list, archive and trace. It lives only in the job's private artifact folder, is left out of backups, and is deleted when a new attempt starts. Read it there when a sign-in stops for a reason the sentence does not explain; never copy its contents into chat, a log, a commit or a model prompt.

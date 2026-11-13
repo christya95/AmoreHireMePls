@@ -1,7 +1,7 @@
 {# expects `shots` (described screenshot artifacts) and optional `show_job` (bool). One row per picture: the status
    chip, the picture, the time and the page address; the hash sits muted at the end. Each picture opens full size
    through the hash-verified route in a new tab. Captures whose file never landed are listed without a link. #}
-<ul class="shots" id="evidence-shots">
+<ul class="shots" id="{{ shots_id or 'evidence-shots' }}">
 {% for s in shots %}{% set href = ('/documents/' ~ s.artifact_id ~ '/download?kind=png&inline=1') if s.artifact_id else None %}
   {% set tone = {'failed': 'bad', 'validation': 'bad', 'challenge': 'warn', 'receipt': 'ok', 'ambiguous': 'warn'}.get(s.label, 'neutral') %}
   <li class="shot" data-key="{{ s.sha256 or s.artifact_id or loop.index }}">

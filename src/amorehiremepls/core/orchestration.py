@@ -320,6 +320,16 @@ def _same_finished_answers(action: dict | None, app: dict) -> bool:
     return action.get("status") in ("succeeded", "needs_verification")
 
 
+def _clear_stop_record(store: Store, app: dict) -> None:
+    """A new attempt starts without the earlier attempt's stop record. Clearing it never blocks the queue."""
+    try:
+        from amorehiremepls.apply.stop_record import clear_stop_records
+
+        clear_stop_records(store, app)
+    except Exception:
+        log.warning("could not clear the earlier stop record")
+
+
 def queue_approved_send(store: Store, app: dict, allowed: bool, *, replace_repeat: bool = False) -> bool:
     """Queue one apply task for an approved application that has no task working on it.
 
@@ -353,6 +363,7 @@ def queue_approved_send(store: Store, app: dict, allowed: bool, *, replace_repea
             from amorehiremepls.core.actions import ActionStore
 
             ActionStore(store).retire_failed_attempt(action)
+        _clear_stop_record(store, app)
         store.create_run("application", params)
         return True
     approved_at = max((h.get("at") for h in (app.get("history") or []) if h.get("status") == "authorized" and h.get("at")), default=None)
@@ -368,5 +379,6 @@ def queue_approved_send(store: Store, app: dict, allowed: bool, *, replace_repea
     )
     if taken.modified_count != 1:
         return False
+    _clear_stop_record(store, app)
     store.create_run("application", params)
     return True

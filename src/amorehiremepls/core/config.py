@@ -89,6 +89,10 @@ class Settings(BaseSettings):
     site_signin_max_seconds: int = Field(default=240, ge=30, le=900)
     site_signin_settle_seconds: int = Field(default=30, ge=5, le=120)
     site_signin_code_attempts: int = Field(default=3, ge=1, le=5)
+    # When an attempt stops short of a confirmed success, keep what the page showed and everything it sent and
+    # received, unmasked, in the job's private artifact folder until the next attempt. It can hold a site password.
+    stop_record: bool = True
+    stop_record_trace: bool = True
     # One fresh-session try after a human check, before the owner is notified. 0 sends the note immediately.
     # Skipped while a hold is still open. The later try never clicks submit if the first try already did.
     challenge_retry_minutes: int = Field(default=180, ge=0, le=1440)
