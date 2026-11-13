@@ -174,6 +174,7 @@ Two owner decisions: "Build pasting several links at once now, and reading Linke
 - Changed behaviour to know: a pasted entry without `http://` or `https://` is no longer accepted, also when it is the only one.
 - **Next source of jobs, agreed with the owner:** LinkedIn job alert emails, read from the mailbox once mail reading works. Not started. Searching LinkedIn by script is ruled out; the app still does not contact LinkedIn to find jobs.
 - Tests: `tests/test_jobs_paste.py`, `tests/test_jobs_schedule.py`. Fixture tested and looked at in a headless browser on fictional data.
+- Deployed 2026-11-13 15:25 as `lepia/amorehiremepls:1c735bcc39fd` with `--set AMORE_DISCOVERY_SCHEDULE=08:00,16:30`; every other stack variable was carried over. Web and worker healthy; both containers carry the variable and the worker logged `discovery schedule: 08:00, 16:30 (America/Toronto)`. The first automatic check is the 16:30 one that day; no scheduled check had run when this was written, so the schedule itself is fixture tested, not yet seen live.
 
 ## Dashboard polish: designer notes (2026-11-05)
 
