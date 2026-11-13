@@ -29,12 +29,15 @@ LOOKUP_BACKOFF_SECONDS = (1.0, 3.0)
 # Second-level labels that are public suffixes under a two-letter country code (example.co.uk is the site, not co.uk).
 _LOOPBACK = frozenset({"127.0.0.1", "localhost", "::1"})
 _COUNTRY_SECOND_LEVEL = frozenset({"co", "com", "org", "net", "gov", "edu", "ac", "or", "ne", "go", "gob", "nom"})
+# A login the app saved for an account the site then refused to create. It never worked, so it is never offered for sign-in.
+NOT_CREATED_TAG = "account-not-created"
 
 
 class LoginLookupError(Exception):
     """A lookup that did not return one login. `kind` is a short category; the message never carries tool output."""
 
     kind = "failed"
+    detail = ""  # a finer category for a write that failed: `vault_missing` or `recipe`
 
     def __init__(self, kind: str | None = None) -> None:
         self.kind = kind or self.kind
@@ -75,6 +78,7 @@ class SavedLogin:
     hosts: tuple[str, ...] = ()
     vault: str = field(repr=False, default="")
     title: str = ""  # the saved login's own name, shown so the owner knows which one to edit
+    tags: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -141,6 +145,7 @@ def fingerprint(ref: str, version: Any = "", updated: Any = "") -> str:
 def choose_login(logins: list[SavedLogin], host: str, prefer_username: str = "") -> SavedLogin:
     """The one saved login for this host. Raises `NoSavedLogin` or `SeveralSavedLogins`; it never guesses."""
     want = site_host(host)
+    logins = [item for item in logins if NOT_CREATED_TAG not in item.tags]
     exact = [item for item in logins if want and want in item.hosts]
     found = exact or [item for item in logins if any(same_site(want, saved) for saved in item.hosts)]
     if not found:
@@ -175,6 +180,8 @@ _NOT_APPROVED = ("authorization prompt dismissed", "authorization timeout", "aut
 _INTEGRATION = ("connecting to desktop app", "connect to the 1password desktop app", "desktop app integration", "couldn't connect to the 1password", "app integration")
 _SIGNED_OUT = ("not currently signed in", "not signed in", "no accounts configured", "no account found", "sign in to", "session expired", "invalid service account")
 _PASSING = ("timeout", "timed out", "connection re", "network", "dial tcp", "temporar", "too many requests", "rate limit", " 502", " 503", " 504")
+_NO_VAULT = ("isn't a vault", "vault not found", "no vault")
+_RECIPE = ("--generate-password", "valid password", "password recipe")
 
 
 def _category(stderr: str) -> LoginLookupError:
@@ -186,6 +193,12 @@ def _category(stderr: str) -> LoginLookupError:
         return SourceUnavailable("integration_off")
     if any(mark in text for mark in _SIGNED_OUT):
         return SourceUnavailable("not_signed_in")
+    # Two write failures get a finer name in `detail`. `kind` stays `failed`, so a lookup reads them as it always did.
+    for marks, detail in ((_NO_VAULT, "vault_missing"), (_RECIPE, "recipe")):
+        if any(mark in text for mark in marks):
+            error = SourceUnavailable("failed")
+            error.detail = detail
+            return error
     if any(mark in text for mark in _PASSING):
         return LookupTransient()
     return SourceUnavailable("failed")
@@ -209,7 +222,8 @@ class OpCliSource:
     def available(self) -> bool:
         return shutil.which(self.binary) is not None
 
-    def _call(self, args: list[str], vault: str = "") -> str:
+    def _call(self, args: list[str], vault: str = "", stdin_text: str | None = None) -> str:
+        """Run the tool once. `stdin_text` is piped to it (an item template); nothing sensitive is ever an argument."""
         if not self.available():
             raise SourceUnavailable("not_installed")
         command = [self.binary, *args]
@@ -218,7 +232,8 @@ class OpCliSource:
         if self.account:
             command += ["--account", self.account]
         try:
-            done = self._run(command, capture_output=True, text=True, timeout=self.timeout_seconds, stdin=subprocess.DEVNULL)
+            piped = {"stdin": subprocess.DEVNULL} if stdin_text is None else {"input": stdin_text}
+            done = self._run(command, capture_output=True, text=True, timeout=self.timeout_seconds, **piped)
         except subprocess.TimeoutExpired:
             # The tool was still waiting for its approval window. That is a missed prompt, not a broken lookup.
             raise ApprovalNotGiven() from None
@@ -227,6 +242,8 @@ class OpCliSource:
         if done.returncode != 0:
             raise _category(done.stderr or "")
         return done.stdout or ""
+
+    call = _call  # the same runner, for the item writer and the mail grant store beside this module
 
     def logins(self) -> list[SavedLogin]:
         raw = self._call(["item", "list", "--categories", "Login", "--format", "json"])
@@ -248,6 +265,7 @@ class OpCliSource:
                     hosts=hosts,
                     vault=str((row.get("vault") or {}).get("id") or ""),
                     title=str(row.get("title") or "")[:120],
+                    tags=tuple(str(tag) for tag in row.get("tags") or [] if tag),
                 )
             )
         return found

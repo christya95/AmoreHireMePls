@@ -3,20 +3,23 @@
 A scope binds an action kind to a target (job or recipient) or a bounded batch filter, plus the
 material content hash (answers + document hashes + message). Changing material content invalidates
 the match. Scopes expire, have maximum counts, and stop conditions. Distinct kinds exist for
-application submission, first contact, connection requests, follow-ups and email sends.
+application submission, first contact, connection requests, follow-ups and email sends. Creating an account on a
+job site is its own kind (`site_account_create`): an approval to apply never covers it.
 """
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from amorehiremepls.core.credentials import registrable_domain
 from amorehiremepls.core.db import Store
 from amorehiremepls.core.util import new_id, sha256_json, utcnow
 
-ScopeKind = Literal["application_submit", "outreach_first_contact", "connection_request", "follow_up", "email_send", "owner_notification"]
+ScopeKind = Literal["application_submit", "outreach_first_contact", "connection_request", "follow_up", "email_send", "owner_notification", "site_account_create"]
 
 
 class ScopeBinding(BaseModel):
@@ -61,6 +64,18 @@ MATERIAL_CHANGED = "material content changed since authorization; renew it"
 
 def material_hash(answers: Any = None, document_hashes: list[str] | None = None, message: str | None = None, recipient: str | None = None, extra: Any = None) -> str:
     return sha256_json({"answers": answers, "documents": sorted(document_hashes or []), "message": message, "recipient": recipient, "extra": extra})
+
+
+def site_account_key(user_id: str | None, site: str, email: str) -> str:
+    """Idempotency key for creating one account: one person, one registrable domain, one email address.
+
+    `site` is a host or a URL. The address is kept as a short digest so the key can sit in records and logs. Two hosts
+    of the same site give the same key, so a second sign-up for that site can never be prepared beside the first.
+    """
+    domain, address = registrable_domain(site), (email or "").strip().lower()
+    if not domain or "@" not in address:
+        raise ValueError("an account key needs a site and an email address")
+    return f"account:{(user_id or '').strip() or 'owner'}:{domain}:{hashlib.sha256(address.encode()).hexdigest()[:16]}"
 
 
 class AuthorizationStore:

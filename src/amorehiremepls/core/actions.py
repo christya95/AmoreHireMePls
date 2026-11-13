@@ -31,6 +31,7 @@ ACTION_SCOPE: dict[str, ScopeKind] = {
     "follow_up": "follow_up",
     "email_send": "email_send",
     "owner_notification": "owner_notification",
+    "site_account_create": "site_account_create",
 }
 
 

@@ -180,6 +180,40 @@ class Runtime:
         limits = SignInLimits(settle_ms=s.site_signin_settle_seconds * 1000, max_seconds=s.site_signin_max_seconds, code_attempts=s.site_signin_code_attempts)
         return SiteSignIn(s.app_secret.get_secret_value(), SignInMemory(self.store), limits, job_id=job_id)
 
+    # -- creating an account on a job site (groundwork; nothing in a run calls these yet) ------------------
+    def site_account_create_enabled(self) -> bool:
+        """Settings toggle (control `site_account_create`) over the environment default. Needs sign-in to be on."""
+        value = self.store.get_control("site_account_create")
+        return self.site_signin_enabled() and bool(self.settings.site_account_create if value is None else value)
+
+    def mail_verification_enabled(self) -> bool:
+        """Settings toggle (control `mail_verification`) over the environment default; both default to off."""
+        value = self.store.get_control("mail_verification")
+        return bool(self.settings.mail_verification if value is None else value)
+
+    def account_email(self) -> str:
+        """The address new job site accounts are registered with."""
+        from amorehiremepls.core.account_items import account_email
+
+        return account_email(self.settings, self.profile)
+
+    def item_writer(self):
+        """Saves new logins in 1Password. Only the dashboard that receives the owner's press calls it."""
+        from amorehiremepls.core.account_items import OpCliWriter
+        from amorehiremepls.core.credentials import OpCliSource
+
+        s = self.settings
+        return OpCliWriter(OpCliSource(account=s.site_signin_account, vault=s.site_account_vault), tries=s.site_account_password_tries)
+
+    def mail_access(self):
+        """Read-only access to the owner's mailbox, on the computer where it was connected. One per process: a grant
+        read from 1Password stays in this object's memory and is never written anywhere."""
+        if getattr(self, "_mail_access", None) is None:
+            from amorehiremepls.core.mail_access import MailAccess, grant_store
+
+            self._mail_access = MailAccess(grant_store(self.settings), on_state=lambda state, address: self.store.set_control("mail_access", {"state": state, "address": address}))
+        return self._mail_access
+
     def candidate_docs(self) -> CandidateDocs:
         """Fresh read of the drop folder (base DOCX + extra notes). Cheap, so every tailor/rank sees the current files."""
         return load_candidate_docs(self.settings.candidate_dir, self.settings.candidate_supplemental_max_chars)

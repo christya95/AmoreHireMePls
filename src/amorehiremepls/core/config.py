@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -89,6 +90,27 @@ class Settings(BaseSettings):
     site_signin_max_seconds: int = Field(default=240, ge=30, le=900)
     site_signin_settle_seconds: int = Field(default=30, ge=5, le=120)
     site_signin_code_attempts: int = Field(default=3, ge=1, le=5)
+    # Create an account on a job site that needs one when 1Password has no login for it. Off by default: the run stops
+    # and the owner creates the account. On: one approval per site (its own scope, never implied by an approval to
+    # apply); the login is saved in 1Password, with a password 1Password generates, before the sign-up form is sent
+    # once. Needs `site_signin`. Overridable from Settings (control `site_account_create`).
+    site_account_create: bool = False
+    # The 1Password vault that receives logins the app creates. Empty = 1Password's own default vault. Use a vault the
+    # deployment's service account cannot read, so a new password is never readable at rest from another computer.
+    site_account_vault: str = ""
+    # The address new accounts are registered with. Empty = the profile's email.
+    site_account_email: str = ""
+    # Passwords one sign-up may use in all: the first, plus a new one each time the site refuses it for its rules.
+    site_account_password_tries: int = Field(default=3, ge=1, le=3)
+    # Read the verification email a job site sends after a sign-up (read-only mail access, connected with
+    # `amore mail connect` on the computer that runs the dashboard). Off by default: the owner types the code or opens
+    # the link. Overridable from Settings (control `mail_verification`).
+    mail_verification: bool = False
+    # How long a verification email is waited for before the owner is asked instead.
+    mail_wait_seconds: int = Field(default=300, ge=30, le=900)
+    # Where the mail grant is kept: "1password" (one item in `site_account_vault`, read at the owner's press and held
+    # in memory) or "file" (owner-only files under the private folder's `mail/`, left out of backups).
+    mail_grant_store: Literal["1password", "file"] = "1password"
     # When an attempt stops short of a confirmed success, keep what the page showed and everything it sent and
     # received, unmasked, in the job's private artifact folder until the next attempt. It can hold a site password.
     stop_record: bool = True
