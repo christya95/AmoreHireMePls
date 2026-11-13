@@ -29,6 +29,11 @@ def _without_stop_records(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
     return None if _is_stop_record(tuple(Path(info.name).parts)) else info
 
 
+def _without_mail_grant(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
+    """`private/mail/...` holds the mail grant. It stays on the computer it was made on and is never archived."""
+    return None if Path(info.name).parts[1:2] == ("mail",) else info
+
+
 def backup(store: Store, artifact_dir: Path, private_dir: Path, out_path: Path, repo_root: Path | None = None, include_checkpoints: bool = True) -> dict[str, Any]:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     manifest: dict[str, Any] = {"created_at": utcnow().isoformat(), "database": store.db.name, "collections": {}, "artifacts": 0, "private": 0}
@@ -51,8 +56,8 @@ def backup(store: Store, artifact_dir: Path, private_dir: Path, out_path: Path, 
                 manifest["artifacts"] = sum(1 for p in artifact_dir.rglob("*") if p.is_file() and not _is_stop_record(p.relative_to(artifact_dir).parts))
             if private_dir.exists():
                 # sessions hold cookies: still backed up (the archive must be protected like the data itself)
-                tar.add(private_dir, arcname="private")
-                manifest["private"] = sum(1 for p in private_dir.rglob("*") if p.is_file())
+                tar.add(private_dir, arcname="private", filter=_without_mail_grant)
+                manifest["private"] = sum(1 for p in private_dir.rglob("*") if p.is_file() and p.relative_to(private_dir).parts[:1] != ("mail",))
             if repo_root:
                 for rel in CONFIG_FILES:
                     p = repo_root / rel

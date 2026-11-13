@@ -1,4 +1,4 @@
-"""Command line entry points: web, worker, setup, imports, browser sessions, backup/restore."""
+"""Command line entry points: web, worker, setup, imports, browser sessions, mail access, backup/restore."""
 
 from __future__ import annotations
 
@@ -17,6 +17,8 @@ browser_app = typer.Typer(help="Authenticated browser sessions (Mac)")
 app.add_typer(tracker_app, name="tracker")
 app.add_typer(profile_app, name="profile")
 app.add_typer(browser_app, name="browser")
+mail_app = typer.Typer(help="Read-only mail access for verification emails (run on the computer you sit at)")
+app.add_typer(mail_app, name="mail")
 
 
 def _rt(settings: Settings | None = None):
@@ -326,6 +328,98 @@ def browser_status(site: str):
 @browser_app.command("logout")
 def browser_logout(site: str):
     typer.echo("removed" if _rt().browser.logout(site) else "no session")
+
+
+# -- mail --------------------------------------------------------------------------------------
+
+_MAIL_PROBLEMS = {
+    "client_file": "That file is not a Desktop app client file from Google Cloud. Nothing was changed.",
+    "no_client": "No earlier connection was found to reuse. Pass --client-file with the client file from Google Cloud.",
+    "no_browser": "A browser could not be opened on this computer. Nothing was changed.",
+    "consent_timeout": "No answer came back from the browser in time. Nothing was changed. Run the command again.",
+    "consent_denied": "Access was not granted. Nothing was changed.",
+    "consent_scope": "Read-only mail access was left unticked on the consent page. Nothing was saved. Run the command again and allow it.",
+    "not_approved": "1Password was not approved in time. Nothing was saved. Run the command again.",
+    "vault_missing": "The vault for the app's own items was not found in 1Password. Check AMORE_SITE_ACCOUNT_VAULT. Nothing was saved.",
+    "transient": "The mail service could not be reached. Nothing was changed. Run the command again.",
+}
+
+
+def _mail_problem(exc: Exception) -> None:
+    kind = getattr(exc, "detail", "") or getattr(exc, "kind", "") or "failed"
+    typer.echo(_MAIL_PROBLEMS.get(kind, f"Mail access could not be changed ({kind}). Nothing was saved."), err=True)
+    raise typer.Exit(1) from exc
+
+
+@mail_app.command("connect")
+def mail_connect(
+    client_file: Path | None = typer.Option(None, "--client-file", help="The Desktop app client file from Google Cloud. Omit it to connect again with the client saved last time."),
+):
+    """Open the browser to allow read-only mail access, then save the grant. Prints the address, never a token."""
+    from amorehiremepls.core.credentials import LoginLookupError
+    from amorehiremepls.core.mail_access import STATES, MailError, read_client_file
+    from amorehiremepls.core.util import local_now
+
+    rt = _rt()
+    access = rt.mail_access()
+    try:
+        client = read_client_file(client_file) if client_file is not None else access.saved_client()
+        if client is None:
+            raise MailError("no_client")
+        address = access.connect(*client, login_hint=rt.account_email(), today=local_now().date().isoformat())
+    except (MailError, LoginLookupError) as exc:
+        _mail_problem(exc)
+    _echo(
+        {
+            "state": "connected",
+            "meaning": STATES["connected"],
+            "address": address,
+            "is_account_email": address.lower() == rt.account_email().lower(),
+            "kept_in": rt.settings.mail_grant_store,
+        }
+    )
+
+
+@mail_app.command("status")
+def mail_status(check: bool = typer.Option(True, help="Also ask the mail service whether the grant still works.")):
+    """Whether mail access is connected and for which address. Never prints a token."""
+    from amorehiremepls.core.mail_access import STATES, MailTransient
+
+    rt = _rt()
+    access = rt.mail_access()
+    state = access.unlock()
+    reached = True
+    if state == "connected" and check:
+        try:
+            state = access.check()
+        except MailTransient:
+            reached = False
+    out = {
+        "state": state,
+        "meaning": STATES.get(state, state),
+        "address": access.address(),
+        "kept_in": rt.settings.mail_grant_store,
+        "reading_is_on": rt.mail_verification_enabled(),
+    }
+    if access.address():
+        out["is_account_email"] = access.address().lower() == rt.account_email().lower()
+    if not reached:
+        out["note"] = "The mail service could not be reached just now, so the grant was not checked."
+    _echo(out)
+
+
+@mail_app.command("disconnect")
+def mail_disconnect():
+    """Withdraw the mail grant and delete it from where it is kept."""
+    from amorehiremepls.core.credentials import LoginLookupError
+    from amorehiremepls.core.mail_access import STATES, MailError
+
+    rt = _rt()
+    try:
+        done = rt.mail_access().disconnect()
+    except (MailError, LoginLookupError) as exc:
+        _mail_problem(exc)
+    _echo({"state": "not_connected", "meaning": STATES["not_connected"], **done})
 
 
 # -- backup ------------------------------------------------------------------------------------
