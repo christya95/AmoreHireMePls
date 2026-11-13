@@ -315,6 +315,14 @@ def test_the_1password_store_pipes_the_grant_and_touches_only_its_own_item():
     assert sum(1 for i in fake.items.values() if i["category"] == "API_CREDENTIAL") == 1 and store.load().connected_on == "2026-11-20"
     assert store.delete() and store.load() is None and not store.delete()
     assert list(fake.items) == ["owner-item-1"]  # an item that only shares a tag was never the app's to remove
+    with pytest.raises(MailError) as caught:  # no vault named: nothing is saved in a vault the tool would choose by itself
+        OpGrantStore(OpCliSource(binary="python3", run=fake)).save(GRANT)
+    assert caught.value.kind == "vault_missing" and list(fake.items) == ["owner-item-1"]
+    # and that is known before the browser is opened for a consent
+    unset = MailAccess(OpGrantStore(OpCliSource(binary="python3", run=fake)), FakeGoogle().client())
+    with pytest.raises(MailError) as caught:
+        unset.connect(CLIENT_ID, CLIENT_SECRET, open_browser=lambda url: pytest.fail("the browser was opened"))
+    assert caught.value.kind == "vault_missing" and store.problem() == "" and FileGrantStore("unused").problem() == ""
 
 
 # -- using the grant -----------------------------------------------------------------------------------------

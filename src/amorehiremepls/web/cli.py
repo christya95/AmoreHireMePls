@@ -340,7 +340,8 @@ _MAIL_PROBLEMS = {
     "consent_denied": "Access was not granted. Nothing was changed.",
     "consent_scope": "Read-only mail access was left unticked on the consent page. Nothing was saved. Run the command again and allow it.",
     "not_approved": "1Password was not approved in time. Nothing was saved. Run the command again.",
-    "vault_missing": "The vault for the app's own items was not found in 1Password. Check AMORE_SITE_ACCOUNT_VAULT. Nothing was saved.",
+    "vault_missing": "The vault for the app's own items is not set or was not found in 1Password. Check AMORE_SITE_ACCOUNT_VAULT. Nothing was saved.",
+    "not_installed": "The 1Password command line tool is not on this computer. Nothing was saved.",
     "transient": "The mail service could not be reached. Nothing was changed. Run the command again.",
 }
 

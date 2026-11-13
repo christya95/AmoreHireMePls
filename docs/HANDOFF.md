@@ -16,6 +16,7 @@ Written 2026-11-12 Toronto. Read this first in every new session. No private val
 - Data (counts only, live database): contact and address facts, links, availability, notice, work arrangements, compensation floor, five self identification facts, 62 answers, 11 skills, 11 education rows. Profile city and province are still the defaults; `location_fallbacks` is empty. Faire application `app_6a78e38192928c99` (job `job_d0f65161045baf54`).
 
 - Sign in with saved logins (2026-11-12, `AMORE_SITE_SIGNIN`, Settings switch, on for this stack): at a sign-in page an approved run holds and the application page shows Allow 1Password. The press must happen on the Mac dashboard (`op` and the 1Password app live there); the login reaches the NAS worker sealed to a one-time key and is not stored. Codes are typed on the application page. A refused password holds with the site's reset link and "I changed the password, try again"; the app never resends it by itself (3 refusals per site in 24 h, lock wait 30 min or what the site says). Fixture tested only; no real 1Password read and no real site yet. Guide for agents: `.cursor/skills/site-sign-in/SKILL.md`.
+- Creating a job site account (2026-11-13): groundwork only, nothing calls it and no page offers it. Built and fixture tested: approval kind `site_account_create`, the settings (all off), the 1Password item writer (`core/account_items.py`), read-only verification mail (`core/mail_access.py`, `core/mail_codes.py`, `amore mail connect|status|disconnect`) and sign-up page recognition (`apply/signup.py`). No real item was created and no mailbox was read. Next is the wiring; see `docs/PROGRESS.md` and `.cursor/skills/amore-site-account/SKILL.md`.
 - Stop record (2026-11-12, `AMORE_STOP_RECORD`, on): every attempt that ends without a confirmed success keeps the page picture, page source, every request with headers, bodies and cookies, the console, a zipped HAR and a Playwright trace under `artifacts/jobs/<job_id>/stop/` on the computer that ran it. Unmasked by the owner's choice, so it can hold a site password. The application page shows it under the status block with that notice; the Mac dashboard shows counts only because the files are on the NAS (open the NAS dashboard for the picture and the request list). Cleared by the next attempt, Start over and Remove; never for a sent, receipted or unclear application; left out of backups. Fixture tested only.
 - Application page flow (2026-11-13): one status block carries a step tracker (Prepared … Confirmed, one step marked now, waiting on you or stopped here), the attempt number and start time, the one ask and the one control, and it follows a new attempt without a reload. A stopped application always names a next action; the state to action table is in `docs/ui-copy.md` and `web/app_flow.py: STATES`, walked by `tests/test_app_flow.py`. I applied on the site, Start over and Remove unused resumes sit under More in the header; the manual record needs a tick and the server refuses it without one. The header warns before approval when the form is on another site, when the site has asked to sign in, or when an earlier application stopped there for want of an account. Settings lists the sites the app has signed in on. Not built: a Sign in now button ahead of an attempt (it needs a worker task of its own) and a count in the side navigation. Fixture tested and looked at in a headless browser on fictional data; not yet watched on a live run.
 
@@ -27,6 +28,11 @@ Written 2026-11-12 Toronto. Read this first in every new session. No private val
 2. For each job site that needs an account: create the account on the site yourself, and save one Login item whose website is that site's address.
 3. Use the Mac dashboard (`http://127.0.0.1:8790`) for the application page when a run asks to sign in. The NAS dashboard cannot open 1Password and says so.
 4. Press Allow 1Password when the page asks, approve the 1Password window, and type the code if the site sends one.
+
+## Owner-only steps for creating accounts (when the wiring lands)
+
+1. `.env`: `AMORE_SITE_ACCOUNT_VAULT=Personal`. Leave `AMORE_SITE_ACCOUNT_EMAIL` empty to use the profile email.
+2. On the Mac, once: `op run --env-file .env.references -- uv run amore mail connect --client-file <the client file in Downloads>`. A browser opens Google's consent page for read-only mail; allow it, approve 1Password's window, and the command prints the connected address. `amore mail status` shows it again; `amore mail disconnect` withdraws it.
 
 ## Decisions
 
@@ -73,6 +79,7 @@ Next step: the owner presses Retry with the app once on `app_5cf993fc297f4b3e`. 
 - `web/chrome.py`, `web/routes/applications.py`, `web/templates/_macros.html`.
 - Application page flow: `web/app_flow.py`, `web/templates/application.html`, `_macros.html: status_block`, `tests/test_app_flow.py`.
 - Stop record: `apply/stop_record.py`, `web/stop_view.py`, `web/routes/stop_record.py`, `tests/test_stop_record.py`.
+- Account creation groundwork: `core/account_items.py`, `core/mail_access.py`, `core/mail_codes.py`, `apply/signup.py`, `tests/fixtures/fake_op.py`, `tests/fixtures/signup_pages.py`.
 - Sign-in: `apply/signin.py`, `core/site_signin.py`, `core/credentials.py`, `core/sealed.py`, `web/routes/signin.py`, `tests/fixtures/signin_site.py`.
 - `candidate/candidate_profile.py` and `candidate/profile.example.toml`.
 - Jobs page: `web/jobs_paste.py`, `web/jobs_refresh.py`, `core/schedule.py`, `core/worker.py: run_schedule`, `tests/test_jobs_paste.py`, `tests/test_jobs_schedule.py`.

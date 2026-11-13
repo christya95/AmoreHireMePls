@@ -108,6 +108,8 @@ def read_client_file(path: Path) -> tuple[str, str]:
 class GrantStore(Protocol):
     prompts: bool  # reading shows the password manager's own window, so it happens only at the owner's press
 
+    def problem(self) -> str: ...  # why nothing could be saved here ("" when it can), known without asking anyone
+
     def load(self) -> MailGrant | None: ...
 
     def save(self, grant: MailGrant) -> None: ...
@@ -129,6 +131,9 @@ class FileGrantStore:
     def __init__(self, directory: Path) -> None:
         self.directory = Path(directory)
         self.path = self.directory / "grant.json"
+
+    def problem(self) -> str:
+        return ""
 
     def load(self) -> MailGrant | None:
         if not self.path.exists():
@@ -177,6 +182,9 @@ class OpGrantStore:
     def __init__(self, op: OpCliSource) -> None:
         self.op = op
 
+    def problem(self) -> str:
+        return "not_installed" if not self.op.available() else "" if self.op.vault else "vault_missing"
+
     def _rows(self) -> list[dict]:
         try:
             rows = json.loads(self.op.call(["item", "list", "--tags", MAIL_TAG, "--format", "json"]) or "[]")
@@ -209,6 +217,8 @@ class OpGrantStore:
 
     def save(self, grant: MailGrant) -> None:
         """Save the new grant, then remove the app's earlier mail access items. Only items with both tags are removed."""
+        if not self.op.vault:
+            raise MailError("vault_missing")  # the tool would pick a vault by itself; the owner names where the app's items go
         earlier = self._rows()
         section = {"id": "client", "label": "Client"}
         template = {
@@ -483,6 +493,8 @@ class MailAccess:
 
     def connect(self, client_id: str, client_secret: str, **consent: Any) -> str:
         """Run the consent and save the grant. Returns the connected address."""
+        if self.store.problem():
+            raise MailError(self.store.problem())  # known before the browser opens: no consent is asked for nothing
         grant = run_consent(client_id, client_secret, self.http, **consent)
         try:
             self.store.save(grant)

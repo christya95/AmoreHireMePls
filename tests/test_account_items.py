@@ -406,3 +406,8 @@ def test_creating_accounts_needs_sign_in_and_both_switches_default_off(store, tm
     assert rt.site_account_create_enabled() and rt.mail_verification_enabled()
     writer = rt.item_writer()
     assert isinstance(writer, OpCliWriter) and writer.tries == 3
+    with pytest.raises(ItemError) as caught:  # no vault named: nothing is saved in a vault the tool would choose by itself
+        OpCliWriter(OpCliSource(binary="python3", run=FakeOp())).create(
+            item_spec({"employer": "Northwind Traders"}, "https://careers.northwindtraders.test/login", "a@example.test", "rec_1"), "letters,digits,32"
+        )
+    assert caught.value.kind == "vault_missing"

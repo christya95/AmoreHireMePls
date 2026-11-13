@@ -332,6 +332,8 @@ class OpCliWriter:
         """Save one new login with a generated password. Not repeated by itself: a second call could save a second item."""
         if not spec.record or not spec.username or not secure_page(spec.signin_url):
             raise ItemError("bad_spec")
+        if not (spec.vault or self.op.vault):
+            raise ItemError("vault_missing")  # the tool would pick a vault by itself; the owner names where new logins go
         raw = self.op.call(["item", "create", "-", f"--generate-password={recipe}", "--format", "json"], vault=spec.vault, stdin_text=json.dumps(item_template(spec)))
         return self._credential(raw, spec.username)
 
@@ -482,7 +484,7 @@ def answer_account_ask(
     except NotOurItem:
         return _error("account_not_ours", "not_ours")
     except (ItemError, LoginLookupError) as exc:
-        return _error("account_vault_missing" if getattr(exc, "detail", "") == "vault_missing" else "account_cannot_save", "cannot_save")
+        return _error("account_vault_missing" if "vault_missing" in (getattr(exc, "detail", ""), getattr(exc, "kind", "")) else "account_cannot_save", "cannot_save")
     payload = {"host": host, "username": found.username, "password": found.password, "has_code": False, "fingerprint": found.login.fingerprint, "title": found.login.title}
     try:
         box = seal(str(ask.get("key") or ""), payload, context)
