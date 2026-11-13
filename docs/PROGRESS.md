@@ -555,7 +555,7 @@ Not done, with the reason:
 - A count in the side navigation for pages that wait on the owner (`base.html` belongs to the jobs-page work). The tab title carries the notice.
 - The browser notice shows only on a secure address (127.0.0.1 or https), so not on the NAS dashboard over plain http.
 
-Fixture tested (`tests/test_app_flow.py`, 48 cases; `tests/test_web.py`). Looked at in headless Chromium on fictional data, light and dark and narrow (`/tmp/amore-ui/`). Not yet watched on a live attempt.
+Fixture tested (`tests/test_app_flow.py`; `tests/test_web.py`). Looked at in headless Chromium on a throwaway dashboard with fictional data, light and dark and at 390 px: the tracker, a hold appearing on an open page without a manual reload, a half-typed code surviving a refresh, the background tab title, no sideways scroll. Commits `064f342` and `2a9d292`, image `2a9d292723b6`, deployed 2026-11-13 15:03, web and worker healthy, Mac dashboard restarted on the same commit. Not yet watched on a live attempt.
 
 ## Exact next step
 
