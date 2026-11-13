@@ -13,6 +13,6 @@
   {% else %}<tr><td colspan="6"><div class="empty"><svg class="icon"><use href="#i-jobs"/></svg>
     {%- if status_filter %}No jobs are "{{ status_filter|label }}" right now.<div class="actions center mt"><a class="btn secondary sm" href="/jobs">Show all</a></div>
     {%- elif sources %}No jobs yet. Check your job boards for new jobs, or paste a job link in "Add a job" above.
-      <div class="actions center mt"><form method="post" action="/jobs/discover" class="inline" data-jobs-check><input type="hidden" name="csrf" value="{{ csrf }}"><button class="sm"{% if refresh.checking %} disabled{% endif %}><svg class="icon"><use href="#i-sync"/></svg><span class="jr-label" data-idle="Check for new jobs" data-busy="Checking…">{{ 'Checking…' if refresh.checking else 'Check for new jobs' }}</span></button></form></div>
+      <div class="actions center mt"><form method="post" action="/jobs/discover" class="inline" data-jobs-check><input type="hidden" name="csrf" value="{{ csrf }}"><button class="sm"{% if refresh.checking %} disabled{% endif %}><span class="jr-label" data-idle="Check for new jobs" data-busy="Checking…">{{ 'Checking…' if refresh.checking else 'Check for new jobs' }}</span></button></form></div>
     {%- else %}No jobs yet. Paste a job link in "Add a job" above, or add a company's board under "Job boards the app watches".{% endif %}</div></td></tr>{% endfor %}</tbody>
 </table></div>
