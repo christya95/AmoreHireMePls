@@ -494,6 +494,64 @@ table.compact th, table.compact td { padding: 7px 10px; }
 td.msg-text { max-width: 360px; min-width: 220px; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .doc-actions { margin: 4px 0; }
+/* ---------- Jobs page: check for new jobs (jobs.html, _jobs_table.html, jobs.js) ----------
+   One strip above the rows says what the last check found and holds the one control that starts a check.
+   While a check runs: the button is disabled, a thin bar sweeps under the strip and the rows dim. The bar's track is
+   always there, so nothing moves down. When the check ends jobs.js swaps the rows in and adds .reloaded: every row
+   fades up 6px over 220ms, 50ms apart, capped at the 12th row. A job the check found keeps a New mark and an accent
+   edge; its tint fades once. Reduced motion: no sweep, no rise, no fade; the dimming, the marks and the words stay. */
+.jobs-refresh {
+  display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; margin: 0 20px; padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2);
+  transition: border-color var(--motion) var(--ease), background-color var(--motion) var(--ease);
+}
+.jobs-refresh[data-tone="warn"] { border-color: var(--warn-line); }
+.jobs-refresh[data-tone="bad"] { border-color: var(--bad-line); }
+.jobs-refresh .jr-icon {
+  display: grid; place-items: center; width: 24px; height: 24px; flex: none; border-radius: 50%;
+  background: var(--neutral-soft); color: var(--neutral-text);
+  transition: background-color var(--motion) var(--ease), color var(--motion) var(--ease);
+}
+.jobs-refresh .jr-icon .icon { width: 14px; height: 14px; }
+.jobs-refresh[data-tone="ok"] .jr-icon { background: var(--ok-soft); color: var(--ok-text); }
+.jobs-refresh[data-tone="warn"] .jr-icon { background: var(--warn-soft); color: var(--warn-text); }
+.jobs-refresh[data-tone="bad"] .jr-icon { background: var(--bad-soft); color: var(--bad-text); }
+.jobs-refresh[data-tone="info"] .jr-icon { background: var(--accent-soft); color: var(--accent-text); }
+.jobs-refresh .jr-text { flex: 1 1 260px; min-width: 0; margin: 0; font-size: 0.86rem; line-height: 1.45; color: var(--text-2); }
+.jobs-refresh .jr-text strong { color: var(--text); font-weight: 640; }
+.jobs-refresh .jr-when { color: var(--muted); font-size: 0.78rem; white-space: nowrap; }
+.jobs-refresh .jr-when[hidden] { display: none; }
+.jobs-refresh.settled { animation: jobs-settle 240ms var(--ease) 1; }
+.jr-track { position: relative; height: 2px; margin: var(--s-2) 20px 0; border-radius: 2px; overflow: hidden; }
+.jr-track i { position: absolute; top: 0; bottom: 0; left: 0; width: 32%; border-radius: 2px; background: var(--accent); opacity: 0; transform: translateX(-100%); transition: opacity var(--motion-quick) var(--ease); }
+.card.checking .jr-track i { opacity: 0.75; animation: jobs-sweep 1200ms var(--ease-io) infinite; }
+.card.checking [data-jobs-check] button .icon { animation: jobs-spin 900ms linear infinite; }
+.jobs-list > .table-wrap { margin-top: var(--s-2); }
+.jobs-list tbody { transition: opacity var(--motion-quick) var(--ease); }
+.jobs-list.refreshing tbody { opacity: 0.5; }
+.card .jobs-list.reloaded tbody tr { animation: jobs-row-in 220ms var(--ease) backwards; animation-delay: calc(var(--i, 0) * 50ms); }
+tbody tr.is-new:not(.hot) td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+tbody tr.is-new .new-mark { margin-left: var(--s-1); font-size: 0.68rem; padding: 1px 7px; }
+.jobs-list.reloaded tbody tr.is-new td { animation: jobs-new-tint 2400ms var(--ease-io) 1; }
+.flash.warn { background: var(--warn-soft); color: var(--warn-text); border-color: var(--warn-line); }
+.flash.leaving { opacity: 0; transition: opacity var(--motion-quick) var(--ease); }
+@keyframes jobs-sweep { from { transform: translateX(-100%); } to { transform: translateX(320%); } }
+@keyframes jobs-spin { to { transform: rotate(360deg); } }
+@keyframes jobs-row-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes jobs-new-tint { 0%, 45% { background-color: var(--accent-soft); } 100% { background-color: transparent; } }
+@keyframes jobs-settle { from { background-color: var(--accent-soft); } to { background-color: var(--surface-2); } }
+@media (max-width: 900px) {
+  .jobs-refresh, .jr-track { margin-left: var(--s-4); margin-right: var(--s-4); }
+  .jobs-refresh [data-jobs-check], .jobs-refresh [data-jobs-check] button { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card.checking .jr-track i { animation: none !important; width: 100%; transform: none; opacity: 0.45; }
+  .card.checking [data-jobs-check] button .icon,
+  .card .jobs-list.reloaded tbody tr,
+  .jobs-list.reloaded tbody tr.is-new td,
+  .jobs-refresh.settled { animation: none !important; }
+}
+/* ---------- end of Jobs page: check for new jobs ---------- */
 /* Proof of applying: one row per picture (chip, picture, time, address), inside a box that scrolls past 16rem.
    The same .scroll-box wraps the step list, so both lists keep their heading in view. */
 .scroll-box { max-height: 16rem; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding-right: var(--s-1); }

@@ -354,6 +354,7 @@ STATUS_LABELS: dict[str, str] = {
     "url_import": "Pasted link",
     "greenhouse": "Greenhouse board",
     "lever": "Lever board",
+    "ashby": "Ashby board",
     # kinds of background task
     "application": "Application",
     "discovery": "Job search",

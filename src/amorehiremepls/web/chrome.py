@@ -201,6 +201,7 @@ FLASHES = {
     "posting_unreadable": ("The posting could not be read. The job was left as it is.", "bad"),
     "postings_checked": ("Checked which jobs are still posted. Any that are no longer up are under Closed. Sent applications were left alone.", "ok"),
     "postings_fresh": ("Those jobs were checked in the last few hours. Open one job and check that posting if you want to look again.", "ok"),
+    "search_started": ("The app is checking your job boards for new jobs. The line above the list says what it found.", "ok"),
     "resumes_removed": (
         "Tailored resumes that were never sent were deleted. Your base resume and any sent application were kept. An approval that pointed at a deleted file no longer applies.",
         "ok",

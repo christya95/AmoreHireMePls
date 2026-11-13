@@ -20,9 +20,9 @@
   </div>
   <div class="stack">
     <div class="card">
-      <div class="card-h"><h3>Job boards the app watches</h3><form method="post" action="/jobs/discover" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary sm"><svg class="icon"><use href="#i-sync"/></svg>Search now</button></form></div>
+      <div class="card-h"><h3>Job boards the app watches</h3><span class="sub">Each row is one company's board. "Check for new jobs" in the All jobs list reads every one of them.</span></div>
       {% if sources %}<div class="table-wrap"><table class="compact"><thead><tr><th>Board</th><th>Company name on the board</th><th>Employer</th></tr></thead><tbody>{% for s in sources %}<tr><td>{{ s.type|label }}</td><td class="mono">{{ s.key }}</td><td>{{ s.employer or '' }}</td></tr>{% endfor %}</tbody></table></div>
-      {% else %}<p class="note">No boards yet. Add a Greenhouse or Lever company name below and the app checks it on its schedule.</p>{% endif %}
+      {% else %}<p class="note">No boards yet. Add a company's board below ({% for t in source_types %}{{ t|label }}{{ ', ' if not loop.last }}{% endfor %}). The app reads only the boards listed here.</p>{% endif %}
       <form method="post" action="/jobs/sources" class="stack gap-s mt"><input type="hidden" name="csrf" value="{{ csrf }}">
         <div class="form-grid">
           <div class="field"><label>Board</label><select name="type">{% for t in source_types %}<option value="{{ t }}">{{ t|label }}</option>{% endfor %}</select></div>
@@ -50,19 +50,23 @@
         <label>Type remove to confirm <input name="confirm" autocomplete="off"></label>
         <button class="danger sm w100">Remove unused resumes</button></form>
     </div></details>
-    <div class="choices">{% for f in ['', 'new', 'needs_review', 'qualified', 'applied', 'applied_historical', 'closed'] %}<a class="pill {{ 'accent' if request.query_params.get('status_filter', '') == f else '' }}" href="/jobs{% if f %}?status_filter={{ f }}{% endif %}">{{ 'open' if not f else f|label }}</a>{% endfor %}</div>
+    <div class="choices">{% for f in ['', 'new', 'needs_review', 'qualified', 'applied', 'applied_historical', 'closed'] %}<a class="pill {{ 'accent' if status_filter == f else '' }}" href="/jobs{% if f %}?status_filter={{ f }}{% endif %}">{{ 'open' if not f else f|label }}</a>{% endfor %}</div>
   </div>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Employer and role</th><th>Status</th><th>Fit {{ hint('fit_rank') }}</th><th>Why</th><th>Application</th><th class="right">Updated</th></tr></thead>
-    <tbody>{% for j in jobs %}{% set app_hot = apps.get(j._id) and apps[j._id].status in ['ready_for_review', 'needs_input', 'handoff', 'needs_verification'] %}<tr class="{{ 'hot' if (j.status == 'needs_review' or j.needs_reconciliation or app_hot) }}{{ ' bad' if j.needs_reconciliation }}">
-      <td><a class="row-person" href="/jobs/{{ j._id }}">{{ company(j.employer, j) }}<span><strong>{{ j.employer }}</strong><span class="sub">{{ j.title }}{% if j.location %} · {{ j.location }}{% endif %}{% if j.requisition_id or j.linkedin_job_id %} · {{ j.requisition_id or j.linkedin_job_id }}{% endif %}</span></span></a></td>
-      <td>{{ status(j.status) }}{% if j.needs_reconciliation %} <span class="pill bad">check this one</span>{% endif %}</td>
-      <td>{% set fv = fit_score(j.fit) %}{% if fv %}<span class="pill {{ fv.tone }}" title="{{ fv.label }}">{{ fv.score }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
-      <td><small>{% if j.closed_reason %}{{ j.closed_reason }}{% elif j.qualification %}{{ j.qualification.reasons|join('; ') }}{% endif %}</small></td>
-      <td>{% if apps.get(j._id) %}<a class="btn {{ 'sm' if apps[j._id].status in ['ready_for_review', 'needs_input', 'handoff', 'needs_verification'] else 'secondary sm' }}" href="/applications/{{ apps[j._id]._id }}">{{ apps[j._id].status|verb }}</a><span class="sub">{{ apps[j._id].status|label }}</span>{% else %}<a class="btn secondary sm" href="/jobs/{{ j._id }}">Open</a>{% endif %}</td>
-      <td class="right nowrap">{{ j.updated_at|local }}</td></tr>
-    {% else %}<tr><td colspan="6"><div class="empty"><svg class="icon"><use href="#i-jobs"/></svg>{% if request.query_params.get('status_filter') %}No jobs are "{{ request.query_params.get('status_filter')|label }}" right now.<div class="actions center mt"><a class="btn secondary sm" href="/jobs">Show all</a></div>{% else %}No jobs yet. Paste a job link in "Add a job" above, or add a job board to watch.{% endif %}</div></td></tr>{% endfor %}</tbody>
-  </table></div>
+  {#- The check strip: what the last check for new jobs found, and the one control that starts a check. jobs.js keeps
+      it current while a check runs and swaps the rows below when it ends; without scripts the form posts and the
+      page reloads with the same sentences. -#}
+  {% set tone_icon = {'ok': 'check', 'warn': 'alert', 'bad': 'alert', 'info': 'sync', 'neutral': 'history'} %}
+  <div class="jobs-refresh" id="jobs-refresh" data-tone="{{ refresh.tone }}" data-checking="{{ '1' if refresh.checking else '0' }}" data-state="/jobs/refresh" data-list="/jobs/list{% if status_filter %}?status_filter={{ status_filter }}{% endif %}">
+    <span class="jr-icon" aria-hidden="true"><svg class="icon"><use id="jr-icon" href="#i-{{ tone_icon[refresh.tone] }}"/></svg></span>
+    <p class="jr-text" role="status" aria-live="polite"><strong id="jr-line">{{ refresh.line }}</strong> <span id="jr-detail">{{ refresh.detail }}</span>
+      <span class="jr-when" id="jr-when"{% if not refresh.checked_at %} hidden{% endif %}><span id="jr-when-label">{{ refresh.when_label }}</span> <time id="jr-time" datetime="{{ refresh.checked_at }}" title="{{ refresh.checked_title }}">{{ refresh.checked_ago }}</time>.</span>
+      {% if refresh.checking %}<noscript>Reload this page in a moment to see what it found.</noscript>{% endif %}</p>
+    <form method="post" action="/jobs/discover" class="inline" data-jobs-check><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="status_filter" value="{{ status_filter }}">
+      <button class="secondary sm"{% if refresh.checking %} disabled{% endif %}><svg class="icon"><use href="#i-sync"/></svg><span class="jr-label" data-idle="Check for new jobs" data-busy="Checking…">{{ 'Checking…' if refresh.checking else 'Check for new jobs' }}</span></button></form>
+  </div>
+  <div class="jr-track" aria-hidden="true"><i></i></div>
+  <div class="jobs-list{% if refresh.checking %} refreshing{% endif %}" id="jobs-list"{% if refresh.checking %} aria-busy="true"{% endif %}>{% include "_jobs_table.html" %}</div>
 </div>
 </div>
 {% endblock %}
+{% block scripts %}<script src="/static/jobs.js" defer></script>{% endblock %}

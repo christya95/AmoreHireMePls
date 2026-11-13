@@ -21,6 +21,11 @@ from amorehiremepls.web.ui_settings import UISettingsStore
 
 log = logging.getLogger(__name__)
 
+# A search asked for on the Jobs page is held this long; after that it reads as stopped, not as still checking.
+DISCOVERY_LEASE_SECONDS = 1800
+# How many newly found job ids one search keeps, so the Jobs page can mark them.
+NEW_JOB_IDS_KEPT = 200
+
 
 class Worker:
     def __init__(self, rt: Runtime, poll_seconds: float = 5.0) -> None:
@@ -83,7 +88,7 @@ class Worker:
 
     def tick(self) -> dict[str, Any]:
         self.heartbeat()
-        done: dict[str, Any] = {"runs": 0, "sync": 0, "scheduled": 0, "logos": 0, "challenge_retries": 0}
+        done: dict[str, Any] = {"runs": 0, "sync": 0, "scheduled": 0, "searches": 0, "logos": 0, "challenge_retries": 0}
         self.rt.auth.expire_stale()
         self.rt.actions.sweep_expired_leases()
         # Tracker sync is not an access check. Expired and turned-off members still flush queued ledger items.
@@ -119,6 +124,7 @@ class Worker:
             self.rt.store.update_run(run["_id"], requested=None, resume_payload=None)
             self.runner.resume(run["_id"], payload)
             done["runs"] += 1
+        done["searches"] += self.run_requested_discovery()
         done["scheduled"] += self.run_schedule()
         done["logos"] += self.refresh_logos()
         done["challenge_retries"] += self.run_due_challenge_retries()
@@ -262,34 +268,76 @@ class Worker:
                 count += 1
         return count
 
-    def run_discovery(self, trigger: str = "manual") -> dict[str, Any]:
+    def run_requested_discovery(self) -> int:
+        """A search asked for on the Jobs page. One pass answers every request that was waiting, so pressing the
+        button several times never reads the boards several times."""
+        waiting = list(self.rt.store.c("runs").find({"status": "queued", "kind": "discovery_request", "requested": {"$ne": "cancel"}}).sort("created_at", 1))
+        claimed = None
+        for run in waiting:
+            claimed = self.rt.store.reserve("runs", {"_id": run["_id"]}, self.name, ["queued"], "running", lease_seconds=DISCOVERY_LEASE_SECONDS, extra={"started_at": utcnow()})
+            if claimed:
+                break
+        if not claimed:
+            return 0
+        self.rt.store.run_event(claimed["_id"], "Picked up")
+        summary = self.run_discovery(trigger="dashboard", run=claimed)
+        others = [r["_id"] for r in waiting if r["_id"] != claimed["_id"]]
+        if others:
+            now = utcnow()
+            answered = {"status": "completed", "summary": {**summary, "answered_by": claimed["_id"]}, "finished_at": now, "updated_at": now}
+            self.rt.store.c("runs").update_many({"_id": {"$in": others}, "status": "queued"}, {"$set": answered})
+        return 1
+
+    def run_discovery(self, trigger: str = "manual", run: dict | None = None) -> dict[str, Any]:
+        """Read every watched board once. `run` is a request already claimed from the Jobs page; without it a
+        scheduled pass makes its own task. Each board's outcome is kept so the Jobs page can say what happened."""
         sources = self.rt.store.get_control("discovery_sources", []) or []
-        run = self.rt.store.create_run("discovery", {"trigger": trigger, "sources": len(sources)})
+        if run is None:
+            run = self.rt.store.create_run("discovery", {"trigger": trigger, "sources": len(sources)})
+            self.rt.store.update_run(run["_id"], status="running", started_at=utcnow())
         disc = self.rt.discovery(run["_id"])
-        summary: dict[str, Any] = {"ingested": 0, "new": 0, "qualified": 0, "errors": []}
-        for src in sources:
-            cls = SOURCES.get(src.get("type"))
-            if cls is None:
-                summary["errors"].append(f"unknown source type {src.get('type')}")
-                continue
-            try:
-                raws = cls().fetch(src["key"], src.get("employer"))
-            except SourceError as exc:
-                summary["errors"].append(str(exc))
-                continue
-            for raw in raws:
-                job, created = disc.ingest_raw(raw)
-                summary["ingested"] += 1
-                summary["new"] += int(created)
-                if created or job.get("status") == "new":
-                    q = disc.qualify_job(job["_id"])
-                    if q["status"] == "qualified":
-                        summary["qualified"] += 1
-                        try:
-                            disc.rank_fit(job["_id"])
-                        except Exception as exc:  # budget or provider problems must not stop discovery
-                            summary["errors"].append(f"rank {job['_id']}: {type(exc).__name__}")
-        self.rt.store.update_run(run["_id"], status="completed", summary=summary, finished_at=utcnow())
+        summary: dict[str, Any] = {"ingested": 0, "new": 0, "qualified": 0, "errors": [], "sources": [], "new_job_ids": []}
+        try:
+            for index, src in enumerate(sources, 1):
+                row: dict[str, Any] = {"type": src.get("type"), "key": src.get("key"), "employer": src.get("employer"), "found": 0, "new": 0, "error": None}
+                self.rt.store.update_run(
+                    run["_id"], progress={"index": index, "total": len(sources), "source": {k: row[k] for k in ("type", "key", "employer")}, "new": summary["new"]}
+                )
+                summary["sources"].append(row)
+                cls = SOURCES.get(src.get("type"))
+                if cls is None:
+                    row["error"] = "unsupported"
+                    summary["errors"].append(f"unknown source type {src.get('type')}")
+                    continue
+                try:
+                    raws = cls().fetch(src["key"], src.get("employer"))
+                except SourceError as exc:
+                    row["error"] = "not_found" if getattr(getattr(exc.__cause__, "response", None), "status_code", None) == 404 else "unreachable"
+                    summary["errors"].append(str(exc))
+                    continue
+                for raw in raws:
+                    job, created = disc.ingest_raw(raw)
+                    summary["ingested"] += 1
+                    summary["new"] += int(created)
+                    row["found"] += 1
+                    row["new"] += int(created)
+                    if created and len(summary["new_job_ids"]) < NEW_JOB_IDS_KEPT:
+                        summary["new_job_ids"].append(job["_id"])
+                    if created or job.get("status") == "new":
+                        q = disc.qualify_job(job["_id"])
+                        if q["status"] == "qualified":
+                            summary["qualified"] += 1
+                            try:
+                                disc.rank_fit(job["_id"])
+                            except Exception as exc:  # budget or provider problems must not stop discovery
+                                summary["errors"].append(f"rank {job['_id']}: {type(exc).__name__}")
+        except Exception as exc:
+            # A board that answers with something unexpected must not leave the task looking busy forever.
+            log.exception("discovery stopped early")
+            summary["errors"].append(f"stopped early: {type(exc).__name__}")
+            self.rt.store.update_run(run["_id"], status="failed", summary=summary, error=f"stopped early: {type(exc).__name__}", finished_at=utcnow(), progress=None)
+            return summary
+        self.rt.store.update_run(run["_id"], status="completed", summary=summary, finished_at=utcnow(), progress=None)
         return summary
 
 

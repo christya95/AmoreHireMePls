@@ -151,6 +151,15 @@ Keep this file current. A later session should be able to continue from the "Exa
 
 - Short ease-out motion in `app.css` only: page cards and the first six table rows fade in, buttons and the theme control lift slightly, the fit ring draws once, flash banners slide in. `prefers-reduced-motion: reduce` snaps movement (0.01 ms) and keeps a colour fade. No animation library.
 
+## Jobs list: "Check for new jobs" shows what happened (2026-11-12)
+
+- **The button did nothing before.** `POST /jobs/discover` saved a `discovery_request` task that no code read, and `AMORE_DISCOVERY_SCHEDULE` is empty on the Mac and absent from the NAS stack, so no board was read by button or by schedule. `Worker.run_requested_discovery()` now claims the oldest request, runs one pass and closes the other waiting requests against it. Takes effect on the NAS with the next image.
+- `run_discovery` records one row per board (`found`, `new`, `error` = `unsupported` / `not_found` / `unreachable`), the ids of new jobs (first 200) and live `progress`. A crash mid-pass ends the task as `failed` with the boards read so far.
+- `web/jobs_refresh.py` turns those tasks into the words above the list (pure, no database). Routes: `GET /jobs/refresh` (small JSON state), `GET /jobs/list` (the table only), `POST /jobs/discover` (one request at a time; JSON when asked, otherwise redirect).
+- Page: a status line above the list (what was found, from which boards, last checked as a relative time), a thin sweep and dimmed rows while checking, rows fade and rise in on reload (50 ms apart, capped), new jobs get a "New" mark and a tint that fades, a banner states the outcome (warning when a board was skipped, critical when all failed). `static/jobs.js` is loaded by the jobs page only; without JS the form posts and the page reloads. Reduced motion removes all of it.
+- Tests: `tests/test_jobs_refresh.py` (wording, routes, CSRF, one pass for several presses, failed board, stylesheet block). Seen in the browser against fictional data on the dev database only; not pressed against the real database.
+- Open: decide whether to set `AMORE_DISCOVERY_SCHEDULE` so boards are read without the button. LinkedIn as a source of jobs was investigated, nothing built.
+
 ## Dashboard polish: designer notes (2026-11-05)
 
 All in `static/app.css` plus small template changes; no new routes, no JS framework, no outside assets. Checked on the local web at 127.0.0.1:8790 in light and dark at 1280px and 390px (`/tmp/amore_ui_polish/`), no console errors, no horizontal scroll on any page.

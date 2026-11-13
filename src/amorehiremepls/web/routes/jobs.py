@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import re
+
+from fastapi.responses import JSONResponse
+
 from amorehiremepls.web.chrome import (
     SOURCES,
     STEP_HELP,
@@ -19,17 +23,54 @@ from amorehiremepls.web.chrome import (
     status_label,
     utcnow,
 )
+from amorehiremepls.web.jobs_refresh import ACTIVE, FINISHED, SEARCH_KINDS, new_job_ids, pick, refresh_state
 from amorehiremepls.web.shots import split_screenshots
+
+_FILTER_RE = re.compile(r"^[a-z_]{1,40}$")
 
 
 def register(app, rt, require_session, require_csrf, render) -> None:
     # -- jobs --------------------------------------------------------------------------------------
-    @app.get("/jobs", response_class=HTMLResponse)
-    def jobs(request: Request, session: dict = Depends(require_session), status_filter: str = ""):
+    def search_runs() -> list[dict]:
+        """This person's search tasks that matter to the Jobs page: any still open, and the latest that ended."""
+        kinds = {"kind": {"$in": list(SEARCH_KINDS)}}
+        open_runs = list(rt.store.c("runs").find({**kinds, "status": {"$in": sorted(ACTIVE)}}).sort("created_at", -1).limit(20))
+        ended = list(rt.store.c("runs").find({**kinds, "status": {"$in": sorted(FINISHED)}}).sort("created_at", -1).limit(1))
+        return [*open_runs, *ended]
+
+    def refresh_now() -> tuple[dict, set[str]]:
+        """(what the strip above the list says, ids of the jobs the latest search found)."""
+        from amorehiremepls.core.worker import worker_healthy
+
+        runs, now = search_runs(), utcnow()
+        watched = len(rt.store.get_control("discovery_sources", []) or [])
+        _, last = pick(runs, now)
+        return refresh_state(runs, watched, now=now, worker_ok=worker_healthy(rt)), new_job_ids(last)
+
+    def list_context(status_filter: str) -> dict:
+        status_filter = status_filter if _FILTER_RE.match(status_filter or "") else ""
         q = {"status": status_filter} if status_filter else {"status": {"$ne": "closed"}}
         jobs = list(rt.store.c("jobs").find(q).sort("updated_at", -1).limit(200))
         apps = {a["job_id"]: a for a in rt.store.c("applications").find({"provenance.origin": "local"})}
-        return render(request, "jobs.html", session, jobs=jobs, apps=apps, sources=rt.store.get_control("discovery_sources", []), source_types=sorted(SOURCES))
+        refresh, new_ids = refresh_now()
+        sources = rt.store.get_control("discovery_sources", []) or []
+        return {"jobs": jobs, "apps": apps, "refresh": refresh, "new_ids": new_ids, "sources": sources, "status_filter": status_filter}
+
+    @app.get("/jobs", response_class=HTMLResponse)
+    def jobs(request: Request, session: dict = Depends(require_session), status_filter: str = ""):
+        return render(request, "jobs.html", session, source_types=sorted(SOURCES), **list_context(status_filter))
+
+    @app.get("/jobs/refresh")
+    def jobs_refresh(request: Request, session: dict = Depends(require_session)):
+        """What the check for new jobs is doing right now. The open Jobs page reads this while a check runs."""
+        return JSONResponse(refresh_now()[0], headers={"Cache-Control": "no-store"})
+
+    @app.get("/jobs/list", response_class=HTMLResponse)
+    def jobs_list(request: Request, session: dict = Depends(require_session), status_filter: str = ""):
+        """The job rows alone, for the open Jobs page to swap in after a check ends."""
+        resp = render(request, "_jobs_table.html", session, **list_context(status_filter))
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
 
     @app.post("/jobs/import")
     def jobs_import(
@@ -59,11 +100,18 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         return RedirectResponse("/jobs", status_code=303)
 
     @app.post("/jobs/discover")
-    def jobs_discover(request: Request, session: dict = Depends(require_session), csrf: str = Form(...)):
+    def jobs_discover(request: Request, session: dict = Depends(require_session), csrf: str = Form(...), status_filter: str = Form("")):
+        """Ask for one read of every watched board. A second press while one is waiting or running adds nothing."""
         require_csrf(request, session, csrf)
-        rt.store.create_run("discovery_request", {"trigger": "dashboard"})
-        rt.store.set_control("discovery_requested", {"at": utcnow()})
-        return RedirectResponse("/jobs", status_code=303)
+        state, _ = refresh_now()
+        if not state["checking"]:
+            rt.store.create_run("discovery_request", {"trigger": "dashboard"})
+            rt.store.set_control("discovery_requested", {"at": utcnow()})
+            state, _ = refresh_now()
+        if "application/json" in (request.headers.get("accept") or ""):
+            return JSONResponse(state, headers={"Cache-Control": "no-store"})
+        back = f"&status_filter={status_filter}" if _FILTER_RE.match(status_filter or "") else ""
+        return RedirectResponse(f"/jobs?ok=search_started{back}", status_code=303)
 
     @app.post("/jobs/check-postings")
     def jobs_check_postings(request: Request, session: dict = Depends(require_session), csrf: str = Form(...)):
