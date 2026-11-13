@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from amorehiremepls.core.authorization import MATERIAL_CHANGED
+from amorehiremepls.web.app_flow import ACCOUNT_STOPS, attempt_line, attempts, finish_need, flow_key, flow_steps, hold_limit, site_status
 from amorehiremepls.web.chrome import (
     Depends,
     Form,
@@ -11,6 +12,7 @@ from amorehiremepls.web.chrome import (
     RedirectResponse,
     Request,
     ScopeBinding,
+    _local,
     activity_payload,
     answers_differ,
     application_timeline,
@@ -125,6 +127,7 @@ def _signin_fix(rt, a: dict, hold: dict | None) -> dict | None:
 def application_view(rt, a: dict, job: dict, session: dict, runs: list[dict] | None = None) -> dict:
     """Everything the status block needs for one application: the headline status, the one or two sentences from the
     latest saved event, and the one thing the page asks of the person. The job page reuses it so the two pages agree."""
+    from amorehiremepls.apply.applications import LIVE_RUN_STATES, final_click_noted
     from amorehiremepls.apply.ats import adapter_for
     from amorehiremepls.core.human_check import active_hold
     from amorehiremepls.core.runtime import RealServices
@@ -176,7 +179,14 @@ def application_view(rt, a: dict, job: dict, session: dict, runs: list[dict] | N
         can_retry_same=can_retry_same,
         signin_fix=_signin_fix(rt, a, hold),
     )
+    need = finish_need(need, a, job, show_status=show_status, working=filling, live=live, allowed=allowed, can_clear=can_clear, hold=hold)
+    clicked = any(final_click_noted(run) for run in runs if run.get("status") in LIVE_RUN_STATES)
+    flow = flow_steps(a, show_status, need, hold, working=filling, final_noted=clicked, live=live)
     return dict(
+        flow=flow,
+        flow_key=flow_key(flow, need),
+        attempt=attempt_line(runs, _local),
+        hold_limit=hold_limit(hold, _local),
         a=a,
         job=job,
         action=action,
@@ -202,6 +212,32 @@ def application_view(rt, a: dict, job: dict, session: dict, runs: list[dict] | N
     )
 
 
+def _account_stop(rt, a: dict, job: dict | None) -> str:
+    """The outcome of the latest stop on this job's site that means an account is missing there, or ""."""
+    from amorehiremepls.core.credentials import registrable_domain, site_host
+
+    url = str((a.get("review_package") or {}).get("apply_url") or (job or {}).get("apply_url") or "")
+    domain = registrable_domain(site_host(url)) if url else ""
+    if not domain:
+        return ""
+    rows = rt.store.c("applications").find({"evidence.signin.outcome": {"$in": list(ACCOUNT_STOPS)}}, {"evidence.signin": 1, "review_package.apply_url": 1})
+    for row in rows.sort("updated_at", -1).limit(50):
+        seen = (row.get("evidence") or {}).get("signin") or {}
+        hosts = [str(seen.get("host") or ""), site_host(str((row.get("review_package") or {}).get("apply_url") or ""))]
+        if any(host and registrable_domain(host) == domain for host in hosts):
+            return str(seen.get("outcome") or "")
+    return ""
+
+
+def _last_line(run: dict) -> str:
+    """How one attempt ended: its last saved step that is shown to people, in the same words as the timeline."""
+    for event in reversed(run.get("events") or []):
+        rows = application_timeline({}, [{**run, "events": [event]}])
+        if rows and rows[0].get("text"):
+            return str(rows[0]["text"])
+    return ""
+
+
 def register(app, rt, require_session, require_csrf, render) -> None:
     # -- applications / review ---------------------------------------------------------------
     @app.get("/applications/{app_id}", response_class=HTMLResponse)
@@ -218,6 +254,14 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         proof, stopped_shots = split_proof(evidence_shots(rt, a))
         ctx.update(scopes=scopes, doc_art=doc_art, shots=proof, stopped_shots=stopped_shots, updates=application_timeline(a, ctx["runs"], ctx["saved_reason"]))
         ctx.update(stop=stop_record_view(rt, a), stop_notice=NOTICE, stop_where=WHERE)
+        from amorehiremepls.core.site_signin import SignInMemory
+
+        ctx.update(
+            site=None
+            if a.get("status") in ("submitted", "needs_verification")
+            else site_status(SignInMemory(rt.store), a, job, rt.site_signin_enabled(), _local, _account_stop(rt, a, job)),
+            tries=attempts(ctx["runs"], _last_line),
+        )
         happening = ctx["happening"]
         if request.query_params.get("ok") == "field_ok" and field_answer_flash_is_stale(happening):
             ctx["flash"] = None
@@ -240,7 +284,17 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         field = None
         if hold and hold.get("purpose") == "field":
             field = {"label": hold.get("field_label") or "", "reason": hold.get("field_reason") or ""}
-        return JSONResponse(activity_payload(a, runs, shown_failure_reason(a, action), field, action=action, stale=approval_stale(rt, a), hold=hold))
+        payload = activity_payload(a, runs, shown_failure_reason(a, action), field, action=action, stale=approval_stale(rt, a), hold=hold)
+        # The tracker and the ask, so the open page follows a new attempt or a stop without being reloaded by hand.
+        view = application_view(rt, a, rt.jobs.get(a["job_id"]) or {}, session, runs)
+        need = view["need"]
+        payload.update(
+            flow=view["flow_key"],
+            steps=view["flow"],
+            attempt=view["attempt"],
+            ask={"kind": need.get("kind") or "", "title": need.get("title") or "", "waits": bool(need.get("waits_on_you"))},
+        )
+        return JSONResponse(payload)
 
     @app.post("/applications/{app_id}/inputs")
     async def application_inputs(request: Request, app_id: str, session: dict = Depends(require_session)):
@@ -307,8 +361,12 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         confirmation: str = Form(...),
         application_date: str = Form(...),
         resume_sha256: str = Form(""),
+        sent_myself: str = Form(""),
     ):
         require_csrf(request, session, csrf)
+        if sent_myself != "yes":
+            # This records an application as sent. The page asks for the tick; a request without it records nothing.
+            raise HTTPException(400, "Tick the box to confirm that you sent this application on the job site yourself.")
         a = rt.store.c("applications").find_one({"_id": app_id})
         waiting = rt.store.c("runs").find_one({"params.job_id": a["job_id"], "status": "waiting", "interrupt.type": "handoff"})
         if waiting:

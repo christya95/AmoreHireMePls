@@ -306,6 +306,91 @@ A card under the status block whenever a stop record exists for the application.
 
 Everything in the record came from a web page. Addresses, titles, headers and bodies are shown as escaped text and are never links. Files are downloads; the saved page source is never opened as a page.
 
+## The application page as one flow (2026-11-12)
+
+One status block at the top carries everything the page asks for. It holds, in this order: the step tracker, the
+status label with the attempt number and start time, what is happening, the one ask, and the one control.
+
+Step tracker (`web/app_flow.py: flow_steps`). Steps: Prepared, Approved, Opening the job site, Signing in, Filling the
+form, Verification code, Sending, Confirmed. Signing in appears only when the site asked for it, Verification code
+only when a code was asked for. Exactly one step is marked: "now" (the app is working), "waiting on you", or
+"stopped here". On a narrow screen finished and future steps are dots; the marked step keeps its words.
+
+Rules:
+- A stopped application never reads "Nothing is needed from you right now." It says what stopped and what to do.
+- "I applied on the site" marks an application as sent, so it is never the main button for one that was not sent.
+  It sits under More in the header, with a tick box "I sent this application on the job site myself"; a request
+  without the tick records nothing. Only after the final click, when no confirmation was seen, is recording it the
+  main step, labelled "Record the confirmation".
+- Start over and Remove unused resumes sit under the same More, each closed until opened.
+- A wait in the block (1Password, a code, a human check) shows its time limit: "The app waits for you until HH:MM.
+  After that this attempt stops with nothing sent, and you can start it again here."
+- A new attempt shows "Attempt N · started YYYY-MM-DD HH:MM" beside the status, so its lines are not read as the
+  last attempt's stop. Earlier attempts are one line each in the fold "Earlier attempts"; the full stop record is
+  kept only for the latest stop.
+- While the tab is in the background and the page waits on the person, the tab title starts with "Needs you · ".
+  "Tell me when this needs me" (in "What is happening") asks the browser for a notice; it shows only where the
+  browser allows notices (a secure address such as 127.0.0.1).
+- Before approval the header says what is known about signing in where the form lives: "The form for this job is on
+  <site>, not on the site where the job is posted.", "The app last signed in to <site> on <time>. It tries that
+  saved session first.", "<site> has asked the app to sign in before, and no sign-in there has worked yet.", then
+  "If the site asks to sign in, this page asks you to allow 1Password first." or "Signing in with saved logins is off
+  under Settings, so a sign-in page stops the application for you." Nothing is said when nothing is known.
+  When an earlier application stopped on the same site for want of an account, and no sign-in there has worked
+  since, the note is amber and says which: "Last time <site> only offered sign up. The app does not create accounts.
+  Create one on the job site yourself and save its login in 1Password first." or "Last time <site> asked to sign in
+  and no saved login for it was found in 1Password. Save one there first, or the application stops at the sign-in
+  page."
+- Settings lists the job sites the app has signed in on: site, last signed in, last try.
+
+Section order: status block, what the app saw when it stopped, the job header, Still needed, What would be sent,
+Your approval, What is happening, Proof of applying, Things the job asks for that you do not have, Earlier attempts,
+What happened last time (technical details).
+
+State → action table (`web/app_flow.py: STATES`; `tests/test_app_flow.py` walks every row and fails when a row here
+is missing). "none" means the page shows no button because the app is working or a wait has to pass.
+
+| State | Button | What the block says |
+| --- | --- | --- |
+| A resume is not selected yet | Select a resume | A resume still needs to be selected. |
+| One answer is missing | Save this answer | Notice period is still needed. |
+| Several answers are missing | Answer the questions | Some answers are still needed. |
+| Being prepared | none | (the app is working or waiting; no ask) |
+| Ready to read and approve | Approve this exact application | Read the resume and the answers, then approve this exact application. |
+| Answers changed after approval | Approve this exact application | Read the resume and the answers, then approve this exact application. |
+| The approval ended or was used up | Approve this exact application | This application needs your approval again. |
+| Approved, different answers on the page | Fill in the form | Fill in the form with the answers on this page. |
+| Approved, nothing running | Apply with the app | This application is approved. |
+| Queued or opening the job site | none | (the app is working or waiting; no ask) |
+| Filling the form | Cancel this attempt | (the app is working or waiting; no ask) |
+| Sending, after the final click | none | (the app is working or waiting; no ask) |
+| Sign-in page, waiting for 1Password | Allow 1Password | <site> asks you to sign in. |
+| 1Password prompt was missed | Allow 1Password | <site> asks you to sign in. |
+| Saved password refused, attempt still open | I changed the password, try again | <site> did not accept the saved login. |
+| Saved login unchanged since the refusal | I changed the password, try again | The saved login has not changed. |
+| Verification code while signing in | Use this code | Verification code |
+| The form asks for one more answer | Use this answer | Start date |
+| Human check on the page | Continue | Human check needed |
+| A later try is scheduled after a human check | none | (the app is working or waiting; no ask) |
+| Stopped: sign-in page, saved logins off | Retry with the app | Sign in on the job site first. |
+| Stopped: no saved login for the site | Retry with the app | Save a login for this site in 1Password, then retry. |
+| Stopped: 1Password not approved in time | Retry with the app | Retry when you are at your computer. |
+| Stopped: saved password refused | I changed the password, try again | <site> did not accept the saved login. |
+| Stopped: account locked, wait running | none | <site> says the account is locked or has had too many attempts. |
+| Stopped: refused too many times today | none | <site> refused the saved login 3 times, so the app stopped for now. |
+| Stopped: verification code not typed or refused | Retry with the app | Retry when you can read the code. |
+| Stopped: verify it is you, no code box | Open the job site | The job site asked you to verify it is you. |
+| Stopped: the site blocked the browser | Open the job site | The job site blocked this browser. |
+| Stopped: human check was not finished | Retry with the app | The site asked for a human check last time. |
+| Stopped: a step the app cannot do | Open the job site | Finish the remaining step on the job site. |
+| Stopped before sending, same approval still covers it | Retry with the app | The app can try again. |
+| Stopped on a site the app cannot fill | Open the job site | Apply on the job site yourself. |
+| Failed before anything was sent | Retry with the app | The app can try again. |
+| Failed on a site the app cannot fill | Open the job site | This attempt stopped. |
+| Stopped after the final click, no confirmation seen | Record the confirmation | The form was sent, but the app saw no confirmation. |
+| Unclear after the final click | Save the result | Check the job site, then record whether it went through. |
+| Sent and confirmed | none | (the app is working or waiting; no ask) |
+
 ## Rules applied everywhere
 
 - Short everyday sentences, one idea per sentence. Verbs on buttons ("Check fit", "Read and approve", "I applied on

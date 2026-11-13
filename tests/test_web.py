@@ -518,7 +518,10 @@ def test_an_unsent_handoff_retries_the_same_package(client):
     def page() -> str:
         return client.get(f"/applications/{app_id}").text
 
-    head = page().split("What is happening", 1)[0]
+    def block() -> str:
+        return page().split('id="activity-banner"', 1)[1].split("</section>", 1)[0]
+
+    head = block()
     assert "The app can try again." in head and "Nothing was sent." in head and "Your approval already covers them." in head
     assert ">Retry with the app</button>" in head
     assert f'action="/applications/{app_id}/retry"' in head and 'name="csrf"' in head
@@ -540,7 +543,8 @@ def test_an_unsent_handoff_retries_the_same_package(client):
     assert ">Retry with the app</button>" in page()
 
     rt.store.c("applications").update_one({"_id": app_id}, {"$set": {"evidence.final_clicked": True}})
-    assert "Retry with the app" not in page() and "I applied on the site" in page()
+    # After the final click recording what the site showed is the step; before it, that form is never the main button.
+    assert "Retry with the app" not in page() and "Record the confirmation" in block() and f'action="/applications/{app_id}/manual"' in block()
     rt.store.c("applications").update_one({"_id": app_id}, {"$set": {"evidence.final_clicked": False, "evidence.receipt_text": "saved"}})
     assert "Retry with the app" not in page()
     rt.store.c("applications").update_one({"_id": app_id}, {"$unset": {"evidence.receipt_text": ""}})

@@ -335,6 +335,24 @@ class SignInMemory:
         )
         return int(done.modified_count)
 
+    def asked(self, host: str) -> bool:
+        """True when this site has shown the app a sign-in page before."""
+        return self._rows().find_one({"domain": registrable_domain(host)}, {"_id": 1}) is not None
+
+    def sites(self, limit: int = 40) -> list[dict]:
+        """One row per site the app met a sign-in page on, newest first: `{site, last_at, last_status, signed_in_at}`."""
+        seen: dict[str, dict] = {}
+        for row in self._rows().find({}, {"domain": 1, "status": 1, "started_at": 1, "finished_at": 1}).sort("started_at", -1).limit(2000):
+            domain = str(row.get("domain") or "")
+            if not domain:
+                continue
+            site = seen.setdefault(
+                domain, {"site": domain, "last_at": row.get("finished_at") or row.get("started_at"), "last_status": str(row.get("status") or ""), "signed_in_at": None}
+            )
+            if row.get("status") == "signed_in" and not site["signed_in_at"]:
+                site["signed_in_at"] = row.get("finished_at") or row.get("started_at")
+        return list(seen.values())[:limit]
+
     def last_success(self, host: str) -> Any:
         row = self._rows().find_one({"domain": registrable_domain(host), "status": "signed_in"}, sort=[("finished_at", -1)])
         return (row or {}).get("finished_at")

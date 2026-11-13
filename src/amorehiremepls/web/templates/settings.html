@@ -81,6 +81,14 @@
     <label class="switch"><span class="body"><strong>Sign in with saved logins</strong><small>Off by default. When a job site asks you to sign in, the application page asks you first. You press Allow 1Password, and 1Password shows its own window for Touch ID or your account password on the computer where this dashboard runs. The app never sees that password and never asks for it. A password the site refuses is not tried again, the app never creates an account, and nothing is sent without your approval of the application.</small></span><input type="checkbox" name="signin" value="on" {{ 'checked' if site_signin }}></label>
     <div class="flex between"><small class="muted">Start up default from the environment: {{ 'on' if site_signin_env_default else 'off' }}. This switch wins. 1Password {{ 'can' if site_signin_reader else 'cannot' }} be read from this dashboard.</small><button class="secondary sm">Save</button></div>
   </form>
+  <div class="site-list" id="signin-sites">
+    <p class="sub">Job sites the app has signed in on. A site shows up here after the first time a saved login was used there. To sign in again, use Retry with the app on an application for that site; the page asks you before 1Password is read.</p>
+    {% if signin_sites %}<div class="table-wrap"><table><thead><tr><th>Site</th><th>Last signed in</th><th>Last try</th></tr></thead><tbody>
+    {% for row in signin_sites %}<tr><td class="wrap">{{ row.site }}</td><td>{{ row.signed_in_at|local if row.signed_in_at else 'not yet' }}</td>
+      <td>{{ {'signed_in': 'Signed in', 'rejected': 'The saved password was refused', 'locked': 'The site said the account was locked', 'unclear': 'No result was seen'}.get(row.last_status, 'Did not finish') }}{% if row.last_at %} <small class="muted">{{ row.last_at|local }}</small>{% endif %}</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% else %}<div class="empty">No job site has asked the app to sign in yet. The first one shows up here.</div>{% endif %}
+  </div>
 </div>
 
 <div class="card">

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from amorehiremepls.core.site_signin import SignInMemory
 from amorehiremepls.web.chrome import (
     ACCENT_PRESETS,
     AVATAR_MAX_BYTES,
@@ -56,6 +57,7 @@ def register(app, rt, ui_store, require_session, require_csrf, set_ui_cookie, sa
             site_signin=rt.site_signin_enabled(),
             site_signin_env_default=rt.settings.site_signin,
             site_signin_reader=rt.credential_source().available(),
+            signin_sites=SignInMemory(rt.store).sites(),
             notify_email=rt.notifier().email_ready(),
             notify_webhook=rt.notifier().webhook_ready(),
         )

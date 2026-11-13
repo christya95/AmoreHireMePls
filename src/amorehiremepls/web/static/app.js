@@ -182,6 +182,7 @@
     if (flash && settled && /will be typed/.test(flash.textContent || "")) flash.remove();
     // What the page waits on changed (a sign-in ask, a code box, a held check): show its control.
     if (typeof data.hold === "string" && (banner.getAttribute("data-hold") || "") !== data.hold) { reloadSoon(0); return; }
+    if (paintFlow(banner, data)) return;
     var fieldBox = document.getElementById("field-answer");
     if (data.field && data.field.label) {
       if (!fieldBox) { reloadSoon(0); return; }
@@ -195,6 +196,73 @@
     }
     if (paintChip(banner, data)) reloadSoon(900);
   }
+  // The tracker and the attempt line follow the saved state in place. The control is a form the server wrote,
+  // so the page loads again only when the thing it asks for changed, and never while an answer is being typed.
+  function typing(banner) {
+    var el = document.activeElement;
+    return !!(el && banner.contains(el) && /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) && el.value);
+  }
+  function paintFlow(banner, data) {
+    if (typeof data.flow !== "string") return false;
+    var attempt = document.getElementById("flow-attempt");
+    if (attempt && data.attempt && attempt.textContent !== data.attempt) { attempt.textContent = data.attempt; pulse(attempt); }
+    var before = banner.getAttribute("data-flow") || "";
+    if (before === data.flow) return false;
+    var list = document.getElementById("flow-steps");
+    if (list && data.steps) {
+      var next = document.createDocumentFragment();
+      data.steps.forEach(function (step) {
+        var li = document.createElement("li");
+        li.className = "is-" + step.state;
+        li.setAttribute("data-step", step.key);
+        if (step.state === "current" || step.state === "you" || step.state === "stopped") li.setAttribute("aria-current", "step");
+        li.appendChild(document.createElement("i")).setAttribute("aria-hidden", "true");
+        li.appendChild(document.createElement("span")).textContent = step.label;
+        if (step.note && step.state !== "done") li.appendChild(document.createElement("small")).textContent = step.note;
+        next.appendChild(li);
+      });
+      list.replaceChildren(next);
+    }
+    banner.setAttribute("data-flow", data.flow);
+    var asked = before.split("#")[1] || "";
+    var asks = (data.ask && data.ask.kind) || "";
+    if (asked !== asks || (!attempt && data.attempt)) {
+      if (typing(banner)) { banner.setAttribute("data-flow", before); return false; }
+      reloadSoon(0);
+      return true;
+    }
+    return false;
+  }
+  // A tab in the background says so in its title when the page waits on the person. The browser notice is opt in.
+  (function () {
+    var banner = document.getElementById("activity-banner");
+    if (!banner || !banner.hasAttribute("data-flow")) return;
+    var plain = document.title;
+    var waits = banner.getAttribute("data-waits") === "1";
+    function mark() { document.title = waits && document.hidden ? "Needs you · " + plain : plain; }
+    document.addEventListener("visibilitychange", mark);
+    mark();
+    var can = "Notification" in window && window.isSecureContext;
+    var button = document.getElementById("notify-me");
+    var wanted = false;
+    try { wanted = localStorage.getItem("amore-notify") === "1"; } catch (err) { wanted = false; }
+    if (button && can && !(wanted && Notification.permission === "granted")) {
+      button.hidden = false;
+      button.addEventListener("click", function () {
+        Notification.requestPermission().then(function (answer) {
+          if (answer !== "granted") { button.textContent = "The browser did not allow notices"; return; }
+          try { localStorage.setItem("amore-notify", "1"); } catch (err) { /* asked again next time */ }
+          button.hidden = true;
+        });
+      });
+    }
+    if (!(can && wanted && waits && document.hidden && Notification.permission === "granted")) return;
+    var key = "amore-told:" + location.pathname;
+    var flow = banner.getAttribute("data-flow") || "";
+    try { if (sessionStorage.getItem(key) === flow) return; sessionStorage.setItem(key, flow); } catch (err) { /* tell once per load */ }
+    var ask = banner.querySelector(".ask strong");
+    try { new Notification("This application needs you", { body: ask ? ask.textContent : "", tag: key }); } catch (err) { /* the title already says it */ }
+  })();
   function stepRow(line, fresh) {
     var row = document.createElement("div");
     row.className = "list-item " + (fresh ? "enter" : "settled");
@@ -203,6 +271,7 @@
     when.className = "t";
     when.textContent = line.at || "";
     var what = document.createElement("span");
+    what.className = "msg";
     what.textContent = line.text + (line.count > 1 ? " (" + line.count + ")" : "");
     row.appendChild(when);
     row.appendChild(what);
@@ -224,7 +293,9 @@
     if (empty && lines.length && /Nothing has happened yet/.test(empty.textContent || "")) empty.remove();
   }
   var activity = document.getElementById("updates");
-  if (activity && activity.getAttribute("data-live") === "1") {
+  if (activity && activity.getAttribute("data-activity")) {
+    // Live: every second. Idle: a slow look, so a try the app starts by itself is not missed.
+    var liveNow = activity.getAttribute("data-live") === "1";
     var ticks = 0;
     var activityTimer = setInterval(function () {
       fetch(activity.getAttribute("data-activity"), { credentials: "same-origin", headers: { Accept: "application/json" } })
@@ -232,12 +303,17 @@
         .then(function (data) {
           if (!data) return;
           ticks += 1;
+          if (!liveNow) {
+            var banner = document.getElementById("activity-banner");
+            if (data.live || (banner && typeof data.flow === "string" && (banner.getAttribute("data-flow") || "") !== data.flow && !typing(banner))) reloadSoon(0);
+            return;
+          }
           paintFlags(data);
           if (ticks % 4 === 0) paintSteps(data);
           if (!data.live) clearInterval(activityTimer);
         })
         .catch(function () { /* the next pass tries again */ });
-    }, 1000);
+    }, liveNow ? 1000 : 12000);
   }
 
   // Copy the exact text of a details block. A secure page (localhost) tries the clipboard API first.

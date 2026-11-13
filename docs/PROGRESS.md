@@ -536,6 +536,27 @@ This is the one exception to the rule that a sign-in secret is never stored: a s
 
 Capture never changes why an attempt stopped: each part is wrapped, a failed part is named in the record. Fixture tested (`tests/test_stop_record.py`, 13 tests). Not yet seen on the deployed worker with a real stop.
 
+## The application page as one flow (2026-11-13)
+
+Owner: "Do we need to design this page or functionality a little bit to make things easier and smoother for the application process and sign in? If so, I will leave the designing to you." `web/app_flow.py` finishes what `needed_now` decides; nothing in it grants an approval or queues work.
+
+Done:
+- One state, one sentence, one main action. `STATES` lists 38 states with the control and label each shows; `docs/ui-copy.md` carries the same table and `tests/test_app_flow.py` walks every row. A stopped application never reads "Nothing is needed from you right now."
+- Step tracker in the status block: Prepared, Approved, Opening the job site, Signing in, Filling the form, Verification code, Sending, Confirmed. Signing in and Verification code appear only when they came up. One step is marked now, waiting on you, or stopped here.
+- Live: `/applications/{id}/activity` also returns the tracker, the attempt line and the ask. The page repaints the tracker in place and loads again only when the ask changed, never while an answer is being typed. An idle page looks every 12 seconds, so an attempt the app starts by itself is not missed. Without JavaScript the page is the same after a reload.
+- A new attempt shows "Attempt N · started <time>". Earlier attempts are one line each under Earlier attempts; the full stop record is kept only for the latest stop.
+- Waits in the block (1Password, a code, an answer, a human check) have a large button, focus in the box, and the time the wait ends. A background tab's title starts with "Needs you · "; "Tell me when this needs me" asks the browser for a notice where the browser allows it.
+- "I applied on the site" is never the main button for an unsent application. The main button opens the job site; the record form is under More with a tick box, and `POST /applications/{id}/manual` answers 400 without the tick. After the final click with no confirmation seen it is the main step, labelled Record the confirmation. Start over and Remove unused resumes sit under the same More.
+- Before approval the header says what is known about signing in where the form lives, in amber when an earlier application stopped there because the site only offered sign up or no login was saved. Settings lists the job sites the app has signed in on.
+- Timeline rows wrap beside the time. Sections are ordered by what matters; technical details are last.
+
+Not done, with the reason:
+- Sign in now ahead of an attempt. It needs its own worker task and hold, which means `core/worker.py` and `apply/browser.py`; both were off limits to keep the other agents' rebases clean. Retry with the app on an application for that site runs the same sign-in step.
+- A count in the side navigation for pages that wait on the owner (`base.html` belongs to the jobs-page work). The tab title carries the notice.
+- The browser notice shows only on a secure address (127.0.0.1 or https), so not on the NAS dashboard over plain http.
+
+Fixture tested (`tests/test_app_flow.py`, 48 cases; `tests/test_web.py`). Looked at in headless Chromium on fictional data, light and dark and narrow (`/tmp/amore-ui/`). Not yet watched on a live attempt.
+
 ## Exact next step
 
 Queue item 5 waits for a confirmed employer receipt. Do not draft recruiter Connect notes until one exists. Do not retry the Faire application or mark the BMO job closed; those are owner decisions (handoff questions 4 and 5). The employment-type rule is deployed; the owner uses Check fit again on the skipped job. An already approved package with no task is picked up by the worker; do not start that send by hand. The plain-language fill page is deployed as `329d1c022adf`. The live profile still has no later places; save those before relying on them. Do not confirm a destructive action on the live Workday job unless the owner asks. Open owner questions are 1, 2, 3, 4, 5, 7, 8, and 9. Question 6 is answered: tracker sync keeps running for an expired member.

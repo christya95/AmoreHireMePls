@@ -1223,3 +1223,55 @@ details.pop[open] .pop-body { animation: rise var(--enter) var(--ease-in); }
   .net-row summary { grid-template-columns: 52px 44px minmax(0, 1fr); }
   .net-meta { grid-column: 1 / -1; white-space: normal; }
 }
+
+/* ---- application flow -------------------------------------------------------------------------------
+   The step tracker in the status block, the attempt line, the careful actions under More, and the
+   timeline rows. One block, so it can be moved or removed without touching the rules above. */
+.next-action .flow { grid-column: 1 / -1; margin: 0; padding: 0 0 var(--s-3); list-style: none; display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-4); border-bottom: 1px solid var(--border); }
+.flow li { display: flex; align-items: center; gap: var(--s-2); min-width: 0; font-size: 0.8rem; color: var(--muted); transition: color var(--motion-quick) var(--ease-io); }
+.flow li i { flex: none; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--border-strong); background: transparent; transition: background var(--motion-quick) var(--ease-io), border-color var(--motion-quick) var(--ease-io), box-shadow var(--motion-quick) var(--ease-io); }
+.flow li small { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
+.flow li.is-done { color: var(--text-2); }
+.flow li.is-done i { background: var(--ok); border-color: var(--ok); }
+.flow li.is-current { color: var(--text); font-weight: 620; }
+.flow li.is-current i { background: var(--accent-ui); border-color: var(--accent-ui); box-shadow: 0 0 0 3px var(--accent-soft); }
+.flow li.is-current small { color: var(--accent-text); }
+.flow li.is-you { color: var(--text); font-weight: 620; }
+.flow li.is-you i { background: var(--warn); border-color: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }
+.flow li.is-you small { color: var(--warn-text); }
+.flow li.is-stopped { color: var(--text); font-weight: 620; }
+.flow li.is-stopped i { background: var(--bad); border-color: var(--bad); box-shadow: 0 0 0 3px var(--bad-soft); }
+.flow li.is-stopped small { color: var(--bad-text); }
+.next-action .attempt { margin-left: auto; color: var(--muted); font-size: 0.76rem; font-variant-numeric: tabular-nums; }
+.next-action .hold-limit { font-size: 0.84rem; color: var(--muted); }
+.next-action .act .btn.lg, .next-action .act button.lg { min-width: 200px; justify-content: center; }
+.next-action .act label input:not(.code-input) { min-height: 40px; }
+#app-more .pop-body { width: min(380px, calc(100vw - 32px)); }
+#app-more .pop-body details.disclosure + details.disclosure { border-top: 1px solid var(--border); padding-top: var(--s-2); }
+#app-more .pop-body details.disclosure > summary { font-size: 0.86rem; color: var(--text); }
+#app-more .pop-body form { margin-top: var(--s-2); }
+label.tick { display: flex; align-items: flex-start; gap: var(--s-2); font-size: 0.84rem; color: var(--text-2); }
+label.tick input { flex: none; width: 16px; height: 16px; margin-top: 2px; }
+.site-note { display: flex; align-items: flex-start; gap: var(--s-2); margin: var(--s-3) 0 0; padding-top: var(--s-3); border-top: 1px solid var(--border); font-size: 0.84rem; color: var(--text-2); overflow-wrap: anywhere; }
+.site-note.warn { color: var(--warn-text); }
+.site-note.warn .icon { color: var(--warn); }
+.site-note .icon { flex: none; width: 16px; height: 16px; margin-top: 2px; color: var(--muted); }
+/* A long step wraps beside its time and never under it. */
+.timeline .list-item { align-items: baseline; }
+.timeline .list-item > .t { flex: none; }
+.timeline .list-item > .msg, .timeline .list-item > span:not(.t) { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.tries { margin: var(--s-2) 0 0; padding: 0; list-style: none; display: grid; }
+.tries li { display: grid; grid-template-columns: 96px 128px minmax(0, 1fr); gap: var(--s-3); align-items: baseline; padding: var(--s-2) 0; border-bottom: 1px solid var(--border); font-size: 0.88rem; }
+.tries li:last-child { border-bottom: 0; }
+.tries li small { color: var(--muted); font-size: 0.76rem; font-variant-numeric: tabular-nums; }
+.tries li span { min-width: 0; overflow-wrap: anywhere; color: var(--text-2); }
+.site-list { margin: var(--s-2) 0 0; }
+@media (max-width: 720px) {
+  .next-action .flow { gap: var(--s-1) var(--s-3); }
+  .flow li.is-done span, .flow li.is-todo span { display: none; } /* dots only for the steps that are not the one to read */
+  .next-action .attempt { margin-left: 0; flex-basis: 100%; }
+  .next-action .act .btn.lg, .next-action .act button.lg { width: 100%; }
+  .tries li { grid-template-columns: minmax(0, 1fr); gap: var(--s-1); }
+  .timeline .t { min-width: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .flow li, .flow li i { transition: none; } }
