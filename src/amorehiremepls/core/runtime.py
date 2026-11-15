@@ -180,7 +180,16 @@ class Runtime:
         limits = SignInLimits(settle_ms=s.site_signin_settle_seconds * 1000, max_seconds=s.site_signin_max_seconds, code_attempts=s.site_signin_code_attempts)
         return SiteSignIn(s.app_secret.get_secret_value(), SignInMemory(self.store), limits, job_id=job_id)
 
-    # -- creating an account on a job site (groundwork; nothing in a run calls these yet) ------------------
+    def site_signup(self, app: dict, worker: str):
+        """The opt-in account step for one attempt, or None. It needs sign-in to be on as well."""
+        if not self.site_account_create_enabled():
+            return None
+        from amorehiremepls.apply.account_run import SiteSignUp
+
+        job = self.jobs.get(str(app.get("job_id") or "")) or {}
+        return SiteSignUp(self, job, str(app.get("_id") or ""), worker)
+
+    # -- creating an account on a job site -----------------------------------------------------------------
     def site_account_create_enabled(self) -> bool:
         """Settings toggle (control `site_account_create`) over the environment default. Needs sign-in to be on."""
         value = self.store.get_control("site_account_create")
@@ -353,6 +362,7 @@ class RealServices:
         solver = self.rt.captcha_solver()  # None unless the owner switched the automatic captcha step on
         app = self.rt.store.c("applications").find_one({"_id": application_id}) or {}
         signin = self.rt.site_signin(str(app.get("job_id") or ""))  # None unless the owner switched sign-in on
+        accounts = self.rt.site_signup(app, worker) if signin is not None else None
         hold = None
         if self.rt.settings.human_check_hold_minutes > 0 and app.get("job_id"):
             from amorehiremepls.core.human_check import HumanHold
@@ -373,6 +383,8 @@ class RealServices:
             watch = CancelWatch(self.rt.store, run_id, plan, note)
             try:
                 extra = {"signin": signin} if signin is not None else {}
+                if accounts is not None:
+                    extra["accounts"] = accounts
                 return self.rt.browser.run_plan(plan, site_key=plan.start_url.split("/")[2], captcha_solver=solver, hold=hold, progress=watch, **extra)
             except AttemptCancelled:
                 raise ActionFailed(CANCEL_REASON, {"cancelled": True, "final_clicked": False}, retryable=True) from None

@@ -48,6 +48,7 @@ OWNED_COLLECTIONS = frozenset(
         "challenge_retries",
         "network",
         "site_signins",
+        "site_accounts",
     }
 )
 
@@ -102,6 +103,7 @@ INDEXES: dict[str, list[tuple[list[tuple[str, int]], dict[str, Any]]]] = {
     "challenge_retries": [([("idempotency_key", ASCENDING)], {"unique": True}), ([("status", ASCENDING), ("due_at", ASCENDING)], {})],
     "network": [([("job_id", ASCENDING)], {"unique": True})],
     "site_signins": [([("domain", ASCENDING), ("fingerprint", ASCENDING), ("started_at", ASCENDING)], {})],
+    "site_accounts": [([("user_id", ASCENDING), ("key", ASCENDING)], {"unique": True})],
 }
 
 # Previous unique indexes, dropped once the per-person index exists. Dropping first would leave a window with no uniqueness.

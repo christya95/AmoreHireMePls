@@ -630,6 +630,7 @@ class BrowserAdapter:
         confirm_only: bool = False,
         progress: Any | None = None,
         signin: Any | None = None,
+        accounts: Any | None = None,
     ) -> dict[str, Any]:
         from playwright.sync_api import TimeoutError as PWTimeout
         from playwright.sync_api import sync_playwright
@@ -647,6 +648,7 @@ class BrowserAdapter:
         self._click_documents = []
         # The opt-in sign-in step and the hold it waits in. A confirm-only later try never signs in.
         self._signin = signin if not confirm_only else None
+        self._accounts = accounts if not confirm_only else None
         self._hold = hold if not confirm_only else None
         self._net_secrets = sensitive_values(plan)
         self._signin_site = ""
@@ -2328,7 +2330,20 @@ class BrowserAdapter:
         try:
             signin.run(page, hold, tools, evidence, start=kind, came_from=resume_url)
         except SignInStop as stop:
-            self._wall_stop(page, evidence, shots, stop.code)
+            accounts = getattr(self, "_accounts", None)
+            if stop.code in ("no_login", "account_needed") and accounts is not None:
+                from amorehiremepls.apply.account_run import SignUpStop
+
+                try:
+                    accounts.run(page, hold, tools, evidence, why=stop.code)
+                except SignUpStop as blocked:
+                    record = evidence.setdefault("signin", {})
+                    if blocked.reset_url:
+                        record["reset_url"] = blocked.reset_url
+                    evidence.setdefault("account", {})["outcome"] = blocked.code
+                    self._wall_stop(page, evidence, shots, blocked.code)
+            else:
+                self._wall_stop(page, evidence, shots, stop.code)
         finally:
             self._signin_site = ""
         if resume_url and not self._same_document(page.url or "", resume_url) and (not same_host_only or site_host(page.url or "") == wall_host):

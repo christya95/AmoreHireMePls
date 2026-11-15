@@ -72,7 +72,7 @@ STOPS: dict[str, Stop] = {
     "no_login": Stop(
         "No saved login for {site} was found in 1Password.",
         "Save a login for this site in 1Password, then retry.",
-        f"{_NOTHING_SENT} Set the website of the saved login to this site. If you have no account there, create one on the site yourself. The app never creates accounts.",
+        f"{_NOTHING_SENT} Set the website of the saved login to this site. Or turn on Create an account when a job site needs one, under Settings, and retry.",
     ),
     "several": Stop(
         "1Password has more than one saved login for {site}.",
@@ -124,7 +124,97 @@ STOPS: dict[str, Stop] = {
     "account_needed": Stop(
         "{site} needs an account, and the page only offers sign up.",
         "Create the account on the job site yourself.",
-        f"{_NOTHING_SENT} The app never creates accounts. Save the new login in 1Password, then retry.",
+        f"{_NOTHING_SENT} Creating an account is off under Settings. Turn on Create an account when a job site needs one, "
+        "or create it yourself and save the login in 1Password, then retry.",
+        retry_safe=False,
+    ),
+    "signup_captcha": Stop(
+        "{site} asked for a human check on the create-account page.",
+        "Create the account on the job site yourself. The page asked for a human check.",
+        f"{_NOTHING_SENT} The app does not try to create an account through a human check.",
+        retry_safe=False,
+    ),
+    "signup_phone": Stop(
+        "{site} wants to text a code to a phone before it creates an account.",
+        "Create the account on the job site yourself. It asked for a phone.",
+        f"{_NOTHING_SENT} The app does not create an account that needs a phone code.",
+        retry_safe=False,
+    ),
+    "signup_blocked": Stop(
+        "{site} blocked the create-account page.",
+        "Create the account on the job site yourself later.",
+        f"{_NOTHING_SENT} The app does not try again through a block page.",
+        retry_safe=False,
+    ),
+    "signup_email_exists": Stop(
+        "{site} says this email already has an account.",
+        "Reset the password on the job site, then save that login in 1Password.",
+        f"{_NOTHING_SENT} The app will not create a second account for an email the site already knows.",
+        retry_safe=False,
+    ),
+    "signup_password_rules": Stop(
+        "{site} asks for a password the app cannot have 1Password make.",
+        "Create the account on the job site yourself. Its password rules cannot be met.",
+        f"{_NOTHING_SENT} The page names symbols, or a length, that the generator cannot match.",
+        retry_safe=False,
+    ),
+    "signup_password_limit": Stop(
+        "{site} refused the passwords 1Password made.",
+        "Create the account on the job site yourself. Three passwords were refused.",
+        f"{_NOTHING_SENT} Three passwords were tried. The saved login can be archived from this page.",
+        retry_safe=False,
+    ),
+    "signup_security": Stop(
+        "{site} asks a security question on the create-account form.",
+        "Create the account on the job site yourself. It asks a security question.",
+        f"{_NOTHING_SENT} The app does not save a security answer.",
+        retry_safe=False,
+    ),
+    "signup_questions": Stop(
+        "{site} asks more questions than the app will fill on a create-account form.",
+        "Create the account on the job site yourself.",
+        f"{_NOTHING_SENT} More than five things needed an answer that is not already on your profile.",
+        retry_safe=False,
+    ),
+    "signup_login_exists": Stop(
+        "1Password already has a login for {site}, so no account was created.",
+        "Sign in with that saved login.",
+        f"{_NOTHING_SENT} The app does not create an account while any login for the site exists.",
+        retry_safe=False,
+    ),
+    "signup_not_form": Stop(
+        "{site} did not show a create-account form the app can fill.",
+        "Create the account on the job site yourself. This page is not a form the app can fill.",
+        _NOTHING_SENT,
+        retry_safe=False,
+    ),
+    "signup_no_email": Stop(
+        "There is no email address to register an account with.",
+        "Add an email on your profile, then retry.",
+        _NOTHING_SENT,
+        retry_safe=False,
+    ),
+    "signup_not_secure": Stop(
+        "The create-account page on {site} is not a secure page.",
+        "Create the account on the job site yourself.",
+        f"{_NOTHING_SENT} A password is never typed on a page that is not secure.",
+        retry_safe=False,
+    ),
+    "signup_declined": Stop(
+        "You chose not to create an account on {site}.",
+        "Create it on the job site yourself, or retry.",
+        _NOTHING_SENT,
+    ),
+    "signup_unclear": Stop(
+        "The create-account form on {site} was sent, and the result could not be read.",
+        "Check whether the account was created.",
+        "The app will not send the form again. Open the site, then say here whether the account exists.",
+        retry_safe=False,
+    ),
+    "signup_link_elsewhere": Stop(
+        "The verification link is not on {site}.",
+        "Open the link yourself, then retry.",
+        f"{_NOTHING_SENT} The app only opens a verification link on the same site.",
         retry_safe=False,
     ),
     "not_approved": Stop(

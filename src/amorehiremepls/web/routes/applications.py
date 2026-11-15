@@ -180,6 +180,18 @@ def application_view(rt, a: dict, job: dict, session: dict, runs: list[dict] | N
         signin_fix=_signin_fix(rt, a, hold),
     )
     need = finish_need(need, a, job, show_status=show_status, working=filling, live=live, allowed=allowed, can_clear=can_clear, hold=hold)
+    if need.get("kind") == "account" and str(need.get("step") or "").startswith("mail_") and not need.get("type_it"):
+        saved_mail = rt.store.get_control("mail_access") or {}
+        label = "Use this link" if need.get("step") == "mail_link" else "Use this code"
+        if not rt.mail_verification_enabled():
+            need = {**need, "type_it": True, "label": label, "text": "Reading the verification email is off under Settings. Type the code or paste the link."}
+        elif saved_mail.get("state") == "needs_reconnect":
+            need = {
+                **need,
+                "type_it": True,
+                "label": label,
+                "text": "Mail access needs to be connected again. On this computer run op run --env-file .env.references -- uv run amore mail connect. Or type the code here.",
+            }
     clicked = any(final_click_noted(run) for run in runs if run.get("status") in LIVE_RUN_STATES)
     flow = flow_steps(a, show_status, need, hold, working=filling, final_noted=clicked, live=live)
     return dict(
@@ -209,7 +221,27 @@ def application_view(rt, a: dict, job: dict, session: dict, runs: list[dict] | N
         can_cancel=can_cancel,
         clear_block="" if can_clear else _clear_block(a),
         need=need,
+        account=_account_card(rt, hold, job),
+        account_pending=_account_pending(rt, app_id),
     )
+
+
+def _account_card(rt, hold: dict | None, job: dict | None) -> dict | None:
+    if not hold or hold.get("purpose") != "account":
+        return None
+    from amorehiremepls.core.site_accounts import AccountStore, card_view
+
+    ask = hold.get("signin") if isinstance(hold.get("signin"), dict) else {}
+    return card_view(rt, AccountStore(rt.store).get(str(ask.get("account") or "")), job)
+
+
+def _account_pending(rt, app_id: str) -> dict | None:
+    from amorehiremepls.core.site_accounts import AccountStore
+
+    row = AccountStore(rt.store).pending_for(app_id)
+    if not row:
+        return None
+    return {"id": row["_id"], "title": str(row.get("item_title") or ""), "pending": str(row.get("item_pending") or "")}
 
 
 def _account_stop(rt, a: dict, job: dict | None) -> str:

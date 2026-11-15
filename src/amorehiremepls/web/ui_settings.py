@@ -328,6 +328,7 @@ STATUS_LABELS: dict[str, str] = {
     "single": "One job",
     "batch": "Several jobs",
     "application_submit": "Applying to a job",
+    "site_account_create": "Creating a job site account",
     "owner_notification": "Alert to you",
     "outreach_send": "Sending a message",
     # recruiter messages (outreach)

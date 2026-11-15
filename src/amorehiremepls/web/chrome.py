@@ -257,6 +257,33 @@ FLASHES = {
     "signin_reader_failed": ("1Password could not be read. Nothing was sent. Retry with the app is safe.", "bad"),
     "signin_on": ("The app may now sign in with logins you saved in 1Password. It asks you on the application page each time.", "ok"),
     "signin_off": ("Sign-in pages are left to you again.", "ok"),
+    "account_on": ("When a job site has no saved login, the app can create an account after you approve it on the application page.", "ok"),
+    "account_off": ("The app will not create accounts. A site with no saved login stops for you.", "ok"),
+    "mail_on": ("The app can read a verification email when you press the button on the application page. It reads only the code or the link.", "ok"),
+    "mail_off": ("Verification emails are left to you. The page will ask you to type the code or paste the link.", "ok"),
+    "account_saved": ("The login is saved in 1Password. The form is sent once.", "ok"),
+    "account_password_made": ("A new password is saved on the same login. The form is sent once with it.", "ok"),
+    "account_answers_saved": ("Saved. The page will show exactly what will be typed, then ask you to create the account.", "ok"),
+    "account_answers_needed": ("Type the answers the page asked for.", "bad"),
+    "account_declined": ("No account will be created.", "ok"),
+    "account_missing": ("That step is no longer waiting.", "bad"),
+    "account_changed": ("The form changed, so that approval no longer applies. Look at the page again.", "bad"),
+    "account_not_here": ("1Password cannot be opened from this dashboard. Use the one on this computer.", "bad"),
+    "account_not_approved": ("1Password was not approved in time. Nothing failed. Press the button again.", "bad"),
+    "account_vault_missing": ("No vault is set for new logins. Set it under Settings, then press the button again.", "bad"),
+    "account_login_exists": ("1Password already has a login for this site, so no account was created.", "bad"),
+    "account_code_sent": ("The code is being entered on the page.", "ok"),
+    "account_code_needed": ("Type the code or paste the link first.", "bad"),
+    "account_mail_off": ("The verification email was not read. Type the code or paste the link.", "bad"),
+    "account_mail_reconnect": ("Mail access needs to be connected again. The command is under Settings. Or type the code here.", "bad"),
+    "account_resend": ("The site was asked for a new code. It is asked only once.", "ok"),
+    "account_item_confirmed": ("The saved login is marked confirmed.", "ok"),
+    "account_item_unclear": ("The saved login is marked so you can check the site.", "ok"),
+    "account_item_archived": ("The unused login was moved to 1Password's Archive.", "ok"),
+    "account_item_nothing": ("There is no saved login waiting to be updated.", "bad"),
+    "account_resolved_exists": ("Marked as created. The saved login will be confirmed.", "ok"),
+    "account_resolved_none": ("Marked as not created. The unused login will be archived.", "ok"),
+    "mail_none": ("No verification email has arrived yet. Check again in a moment, or type the code.", "bad"),
     "notify_sent": ("Test notification sent.", "ok"),
     "notify_failed": ("The test notification could not be sent. Check the mail server settings and try again.", "bad"),
     "notify_off": ("Nothing is set up to send a notification yet.", "bad"),
@@ -902,7 +929,7 @@ def needed_now(
     pkg = app.get("review_package") or {}
     status = str(app.get("status") or "")
     none = {"kind": "", "title": NOTHING_NEEDED, "text": "", "field": None}
-    if hold and hold.get("purpose") not in ("field", "signin"):
+    if hold and hold.get("purpose") not in ("field", "signin", "account"):
         where = f" on this computer at 127.0.0.1:{hold['cdp_port']}" if hold.get("cdp_port") else ""
         return {
             "kind": "human_check",
@@ -931,6 +958,48 @@ def needed_now(
         if hold.get("signin_missed"):
             text = "1Password was not approved in time. Nothing failed. Press Allow 1Password again when you are ready, and watch for the 1Password window."
         return {**base, "title": f"{site} asks you to sign in.", "text": text}
+    if hold and hold.get("purpose") == "account":
+        ask = hold.get("signin") or {}
+        step = str(ask.get("step") or "account")
+        site = str(ask.get("host") or "The job site")
+        why = {
+            "off": "Reading the verification email is off under Settings.",
+            "locked": "Mail access is not open on this dashboard yet.",
+            "reconnect": "Mail access needs to be connected again.",
+        }.get(str(ask.get("mail_why") or ""), "")
+        if step == "account_ask":
+            title, label = f"{site} needs a few answers before an account can be created.", "Save these answers"
+            text = "Nothing is saved in 1Password until you press Create this account."
+        elif step == "password":
+            title, label = f"{site} did not accept the password.", "Make a new password"
+            text = "1Password makes a new password for the same saved login. The form is sent once with it."
+        elif step == "mail_link" and ask.get("type_it"):
+            title, label = f"{site} sent a link.", "Use this link"
+            text = why or "Paste the link here. It is opened only on this site."
+        elif step == "mail_code" and ask.get("type_it"):
+            title, label = f"{site} sent a code.", "Use this code"
+            text = why or "Type the code here and the same page enters it."
+        elif step in ("mail_code", "mail_link"):
+            title, label = f"{site} sent a {'link' if step == 'mail_link' else 'code'}.", "Check my email"
+            text = "The app reads only that code or link, and only when you press the button."
+            if ask.get("next_check_at"):
+                text = f"Nothing had arrived yet. Check again when you are ready. {text}"
+        else:
+            title, label = f"Create an account on {site}.", "Create this account"
+            text = "The login is saved in 1Password before the form is sent, and the form is sent once. Approving the application does not approve this."
+            if hold.get("signin_missed"):
+                text = "1Password was not approved in time. Nothing failed. Press the button again and watch for the 1Password window."
+        return {
+            "kind": "account",
+            "title": title,
+            "text": text,
+            "field": None,
+            "label": label,
+            "site": site,
+            "step": step,
+            "type_it": bool(ask.get("type_it")),
+            "resend": bool(ask.get("resend")),
+        }
     if hold and hold.get("purpose") == "field" and hold.get("field_label"):
         label = str(hold["field_label"])
         text = "The same page is still open. Type the answer here and it is entered on that form. The form is not started over."
@@ -982,6 +1051,10 @@ def needed_now(
         outcome = str(signin.get("outcome") or "")
         stop = stop_for(outcome) if outcome else None
         site = str(signin.get("host") or "The job site")
+        if stop is not None and outcome == "signup_unclear":
+            return {"kind": "account_resolve", "title": stop.title, "text": stop.text, "field": None, "href": str(signin.get("reset_url") or "")}
+        if stop is not None and outcome == "signup_email_exists":
+            return {"kind": "site", "title": stop.title, "text": stop.text, "field": None, "href": str(signin.get("reset_url") or "")}
         # A refusal that is still open is the thing to fix, also when the last attempt ended on a missed approval.
         fix = signin_fix if outcome in ("rejected", "remembered", "locked", "cycle_cap", "not_approved", "declined") else None
         if fix:

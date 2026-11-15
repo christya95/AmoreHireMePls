@@ -45,6 +45,7 @@ from amorehiremepls.web.chrome import (
     utcnow,
     worker_healthy,
 )
+from amorehiremepls.web.routes.accounts import register as register_accounts
 from amorehiremepls.web.routes.admin import register as register_admin
 from amorehiremepls.web.routes.applications import register as register_applications
 from amorehiremepls.web.routes.authorizations import register as register_authorizations
@@ -227,6 +228,7 @@ def create_app(rt: Runtime) -> FastAPI:
     register_jobs(app=app, rt=rt, require_session=require_session, require_csrf=require_csrf, render=render)
     register_applications(app=app, rt=rt, require_session=require_session, require_csrf=require_csrf, render=render)
     register_signin(app=app, rt=rt, require_session=require_session, require_csrf=require_csrf)
+    register_accounts(app=app, rt=rt, require_session=require_session, require_csrf=require_csrf)
     register_stop_record(app=app, rt=rt, require_session=require_session, render=render)
     register_authorizations(app=app, rt=rt, require_session=require_session, require_csrf=require_csrf, render=render)
     register_outreach(app=app, rt=rt, require_session=require_session, require_csrf=require_csrf, render=render)

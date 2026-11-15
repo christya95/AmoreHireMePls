@@ -14,6 +14,32 @@
   <form method="post" action="/applications/{{ a._id }}/signin/allow" id="signin-allow" data-busy="Waiting for 1Password"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}"><button class="lg"><svg class="icon"><use href="#i-check"/></svg>{{ need.label }}</button></form>
   {% if need.confirm_same %}<form method="post" action="/applications/{{ a._id }}/signin/allow" id="signin-same" data-busy="Waiting for 1Password"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}"><input type="hidden" name="same" value="yes"><button class="secondary sm" title="Sends the login the site already refused, once">Send the same login once more</button></form>{% endif %}
   <form method="post" action="/applications/{{ a._id }}/signin/decline" id="signin-decline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}"><button class="ghost sm">{{ 'Not now' if need.links else 'Do not sign in this time' }}</button></form>
+  {% elif need.kind == 'account' %}
+  {% if account %}
+  <div class="account-card" id="account-card">
+    <p>{{ account.email }} on {{ account.host }}.</p>
+    <p>Saved in 1Password as <strong>{{ account.item_title }}</strong> in {{ account.vault }}.</p>
+    {% if account.typed %}<ul class="plain">{% for item in account.typed %}<li>{{ item.label }}: {{ item.value if item.value else 'a password from 1Password' }}</li>{% endfor %}</ul>{% endif %}
+    {% if account.ticked %}<ul class="plain">{% for box in account.ticked %}<li>Ticked: {{ box.label }}{% for link in box.links %} <a href="{{ link[1] }}" rel="noopener" target="_blank">{{ link[0] }}</a>{% endfor %}</li>{% endfor %}</ul>{% endif %}
+    {% if account.not_ticked %}<ul class="plain">{% for box in account.not_ticked %}<li>Not ticked: {{ box.label }}</li>{% endfor %}</ul>{% endif %}
+    {% if account.terms %}<p>{% for link in account.terms %}<a href="{{ link[1] }}" rel="noopener" target="_blank">{{ link[0] }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+  </div>
+  {% endif %}
+  {% if need.step in ('mail_code', 'mail_link') and not need.type_it %}
+  <form method="post" action="/applications/{{ a._id }}/account/mail" id="account-mail" data-busy="Checking your email"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}"><button class="lg">{{ need.label }}</button></form>
+  <form method="post" action="/applications/{{ a._id }}/account/code" id="account-type"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}"><label>{{ 'Link' if need.step == 'mail_link' else 'Code' }} <input name="value" autocomplete="one-time-code"></label><button class="secondary sm">{{ 'Use this link' if need.step == 'mail_link' else 'Use this code' }}</button></form>
+  {% else %}
+  <form method="post" action="/applications/{{ a._id }}/account/{{ 'code' if need.type_it else 'allow' }}" id="account-allow" data-busy="Waiting for 1Password"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}"><input type="hidden" name="offer" value="{{ account.offer if account else '' }}">
+    {% if account and account.questions %}{% for q in account.questions %}<label>{{ q.label }} <input name="q_{{ q.key }}" autocomplete="off" required></label>{% endfor %}{% endif %}
+    {% if need.type_it %}<label>{{ 'Link' if need.step == 'mail_link' else 'Code' }} <input name="value" autocomplete="one-time-code" required></label>{% endif %}
+    <button class="lg">{{ need.label }}</button></form>
+  {% endif %}
+  {% if need.resend %}<form method="post" action="/applications/{{ a._id }}/account/resend" id="account-resend"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}"><button class="ghost sm">Resend the code</button></form>{% endif %}
+  {% if need.step in ('account', 'account_ask', 'password') %}<form method="post" action="/applications/{{ a._id }}/account/decline" id="account-decline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}"><button class="ghost sm">Do not create an account</button></form>{% endif %}
+  {% elif need.kind == 'account_resolve' %}
+  <p><a href="{{ need.href or '#' }}" rel="noopener" target="_blank">Open the site and check</a></p>
+  <form method="post" action="/applications/{{ a._id }}/account/resolve" id="account-exists"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="exists" value="yes"><button class="lg">The account exists</button></form>
+  <form method="post" action="/applications/{{ a._id }}/account/resolve" id="account-none"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="exists" value="no"><button class="secondary sm">No account was created</button></form>
   {% elif need.kind == 'field' and need.code %}
   <form method="post" action="/applications/{{ a._id }}/field-answer" id="field-answer"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="material_hash" value="{{ a.material_hash }}">
     <label>{{ hold.field_label }} <input class="code-input" name="answer" autocomplete="one-time-code" inputmode="numeric" autofocus required></label>
@@ -65,6 +91,7 @@
   <a class="btn secondary" href="/outreach"><svg class="icon"><use href="#i-arrow"/></svg>Contact recruiters</a>
   {% endif %}
 {% endcall %}
+{% if account_pending %}<form method="post" action="/applications/{{ a._id }}/account/mark" class="mt" id="account-mark"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary sm">Update the saved login in 1Password</button></form>{% endif %}
 
 {% include "_stop_record.html" %}
 

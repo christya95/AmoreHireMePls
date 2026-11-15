@@ -140,8 +140,8 @@ class HumanHold:
         self._closed = False
 
 
-_ASK_TEXT = ("ask_id", "host", "step", "key", "key_sig", "fingerprint")
-_ASK_FLAGS = ("offer_code", "resend", "fix")
+_ASK_TEXT = ("ask_id", "host", "step", "key", "key_sig", "fingerprint", "offer", "account", "sent_at", "senders", "next_check_at", "mail_why")
+_ASK_FLAGS = ("offer_code", "resend", "fix", "type_it")
 
 
 def _signin_ask(evidence: dict) -> dict:
@@ -156,8 +156,8 @@ def _signin_ask(evidence: dict) -> dict:
 
 def _field_hold_fields(evidence: dict) -> dict:
     """Label and difficulty for a field wait. The typed answer is not stored here."""
-    if evidence.get("purpose") == "signin":
-        return {"purpose": "signin", **_signin_ask(evidence)}
+    if evidence.get("purpose") in ("signin", "account"):
+        return {"purpose": evidence.get("purpose"), **_signin_ask(evidence)}
     if evidence.get("purpose") != "field":
         return {}
     return {
@@ -185,7 +185,7 @@ def request_continue(store: Store, application: dict) -> str:
     Returns `ok`, `missing`, or `changed`.
     """
     hold = active_hold(store, application["_id"])
-    if hold is None or hold.get("purpose") in ("field", "signin"):
+    if hold is None or hold.get("purpose") in ("field", "signin", "account"):
         return "missing"
     if hold.get("material_hash") != application.get("material_hash"):
         return "changed"

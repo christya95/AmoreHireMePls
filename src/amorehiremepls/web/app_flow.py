@@ -40,8 +40,12 @@ KIND_LABEL = {
     "retry": "Retry with the app",
     "site": OPEN_SITE,
     "verify": "Save the result",
+    "account": "Create this account",
+    "account_resolve": "The account exists",
 }
-WAITS_ON_YOU = frozenset({"manual", "human_check", "signin", "field", "answer", "answers", "resume", "approve", "fill", "run", "retry", "site", "verify"})
+WAITS_ON_YOU = frozenset(
+    {"manual", "human_check", "signin", "field", "answer", "answers", "resume", "approve", "fill", "run", "retry", "site", "verify", "account", "account_resolve"}
+)
 
 STEPS: tuple[tuple[str, str], ...] = (
     ("prepared", "Prepared"),
@@ -152,6 +156,7 @@ def _signin_seen(app: dict, hold: dict | None) -> tuple[bool, bool]:
     ask = (hold or {}).get("signin") if isinstance((hold or {}).get("signin"), dict) else None
     signin = bool(record) or wall in ("login", "code") or bool(ask)
     code = bool(record.get("codes_asked")) or wall == "code" or bool(ask and (hold or {}).get("purpose") == "field")
+    code = code or bool(ask and str(ask.get("step") or "").startswith("mail_"))
     return signin, code
 
 
@@ -175,6 +180,9 @@ def flow_steps(app: dict, show_status: str, need: dict, hold: dict | None = None
     elif hold:
         if purpose == "signin":
             at = "signin"
+        elif purpose == "account":
+            step = str(((hold or {}).get("signin") or {}).get("step") or "")
+            at = "code" if step.startswith("mail_") else "signin"
         elif purpose == "field" and (signin_code or email_code):
             at = "code"
         elif purpose == "field":
@@ -281,9 +289,12 @@ def site_status(memory: Any, app: dict, job: dict | None, signin_on: bool, local
     if last:
         lines.append(f"The app last signed in to {host} on {local(last, '%Y-%m-%d %H:%M')}. It tries that saved session first.")
     elif missing == "account_needed":
-        lines.append(f"Last time {host} only offered sign up. The app does not create accounts. Create one on the job site yourself and save its login in 1Password first.")
+        lines.append(
+            f"Last time {host} only offered sign up. Turn on Create an account when a job site needs one, under Settings, "
+            "or create the account yourself and save its login in 1Password."
+        )
     elif missing == "no_login":
-        lines.append(f"Last time {host} asked to sign in and no saved login for it was found in 1Password. Save one there first, or the application stops at the sign-in page.")
+        lines.append(f"Last time {host} asked to sign in and no saved login was found. Turn on Create an account when a job site needs one, or save a login in 1Password first.")
     elif asked or wall:
         lines.append(f"{host} has asked the app to sign in before, and no sign-in there has worked yet.")
     if last or asked or wall or missing:
@@ -414,4 +425,53 @@ STATES: tuple[State, ...] = (
     State("Stopped after the final click, no confirmation seen", "manual", "Record the confirmation", _stopped("human_check", evidence={"final_clicked": True})),
     State("Unclear after the final click", "verify", "Save the result", _app("needs_verification")),
     State("Sent and confirmed", "", "", _app("submitted"), waits=False),
+    State("Create an account, waiting for you", "account", "Create this account", _app("executing"), {"live": True}, {"purpose": "account", "signin": {**_ASK, "step": "account"}}),
+    State(
+        "1Password prompt missed while creating an account",
+        "account",
+        "Create this account",
+        _app("executing"),
+        {"live": True},
+        {"purpose": "account", "signin": {**_ASK, "step": "account"}, "signin_missed": 1},
+    ),
+    State(
+        "Create-account form needs answers",
+        "account",
+        "Save these answers",
+        _app("executing"),
+        {"live": True},
+        {"purpose": "account", "signin": {**_ASK, "step": "account_ask"}},
+    ),
+    State(
+        "Site refused the generated password",
+        "account",
+        "Make a new password",
+        _app("executing"),
+        {"live": True},
+        {"purpose": "account", "signin": {**_ASK, "step": "password"}},
+    ),
+    State("Verification email can be read", "account", "Check my email", _app("executing"), {"live": True}, {"purpose": "account", "signin": {**_ASK, "step": "mail_code"}}),
+    State(
+        "Type the verification code",
+        "account",
+        "Use this code",
+        _app("executing"),
+        {"live": True},
+        {"purpose": "account", "signin": {**_ASK, "step": "mail_code", "type_it": True, "mail_why": "off"}},
+    ),
+    State(
+        "Paste the verification link",
+        "account",
+        "Use this link",
+        _app("executing"),
+        {"live": True},
+        {"purpose": "account", "signin": {**_ASK, "step": "mail_link", "type_it": True}},
+    ),
+    State("Stopped: create-account page asked for a human check", "retry", "Retry with the app", _stopped("login", evidence=_signin("signup_captcha")), {"can_retry": True}),
+    State("Stopped: create-account page asked for a phone", "retry", "Retry with the app", _stopped("login", evidence=_signin("signup_phone")), {"can_retry": True}),
+    State("Stopped: email already has an account", "site", OPEN_SITE, _stopped("login", evidence=_signin("signup_email_exists")), {"can_retry": True}),
+    State("Stopped: password rules cannot be met", "retry", "Retry with the app", _stopped("login", evidence=_signin("signup_password_rules")), {"can_retry": True}),
+    State("Stopped: three passwords were refused", "retry", "Retry with the app", _stopped("login", evidence=_signin("signup_password_limit")), {"can_retry": True}),
+    State("Stopped: security question on the create-account form", "retry", "Retry with the app", _stopped("login", evidence=_signin("signup_security")), {"can_retry": True}),
+    State("Stopped: sign-up result could not be read", "account_resolve", "The account exists", _stopped("login", evidence=_signin("signup_unclear")), {"can_retry": True}),
 )

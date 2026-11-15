@@ -126,9 +126,9 @@ def test_site_status_says_where_the_form_is_and_what_is_known_about_signing_in()
     assert "last signed in to jobs.example.test on 2026-11-12 09:30" in known["text"] and "asks you to allow 1Password first" in known["text"]
     # A site that stopped an earlier application for want of an account is named before approval.
     need = site_status(_Memory(), same, {}, True, local, "account_needed")
-    assert need["warn"] and "only offered sign up. The app does not create accounts." in need["text"]
+    assert need["warn"] and "Turn on Create an account when a job site needs one" in need["text"]
     none = site_status(_Memory(), same, {}, True, local, "no_login")
-    assert none["warn"] and "no saved login for it was found in 1Password" in none["text"]
+    assert none["warn"] and "no saved login was found" in none["text"]
     assert not site_status(_Memory(last=datetime(2026, 11, 12, 9, 30, tzinfo=UTC)), same, {}, True, local, "no_login")["warn"]  # a later sign-in worked
     off = site_status(_Memory(asked=True), same, {}, False, local)
     assert "no sign-in there has worked yet" in off["text"] and "is off under Settings" in off["text"]
@@ -280,7 +280,7 @@ def test_the_page_says_before_approval_that_the_site_has_asked_to_sign_in(client
     rt.store.c("site_signins").delete_many({})
     _seed(rt, app_id="app_other", job_id="job_other", handoff_kind="login", evidence={"signin": {"host": "boards.greenhouse.io", "outcome": "no_login"}})
     warned = client.get(f"/applications/{app_id}").text.split('id="site-signin"', 1)
-    assert "site-note warn" in warned[0][-60:] and "no saved login for it was found in 1Password" in warned[1].split("</p>", 1)[0]
+    assert "site-note warn" in warned[0][-60:] and "no saved login was found" in warned[1].split("</p>", 1)[0]
     rt.store.c("site_signins").insert_one(
         {"_id": "signin_flow2", "host": "boards.greenhouse.io", "domain": "greenhouse.io", "fingerprint": "f", "status": "signed_in", "started_at": now, "finished_at": now}
     )

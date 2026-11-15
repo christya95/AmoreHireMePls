@@ -33,6 +33,19 @@ from amorehiremepls.web.chrome import (
 )
 
 
+def _mail_line(rt) -> str:
+    saved = rt.store.get_control("mail_access") or {}
+    state = str(saved.get("state") or "not_connected")
+    address = str(saved.get("address") or "")
+    if state == "connected" and address:
+        return f"Mail is connected for {address}."
+    if state == "needs_reconnect":
+        return "Mail access needs to be connected again."
+    if state == "locked":
+        return "Mail access is saved and will be asked for when you press Check my email."
+    return "Mail is not connected yet."
+
+
 def register(app, rt, ui_store, require_session, require_csrf, set_ui_cookie, safe_next, render) -> None:
     # -- dashboard settings (theme, accent, name, avatar) ------------------------------------------
     @app.get("/settings", response_class=HTMLResponse)
@@ -58,6 +71,11 @@ def register(app, rt, ui_store, require_session, require_csrf, set_ui_cookie, sa
             site_signin_env_default=rt.settings.site_signin,
             site_signin_reader=rt.credential_source().available(),
             signin_sites=SignInMemory(rt.store).sites(),
+            site_account=rt.site_account_create_enabled(),
+            mail_verify=rt.mail_verification_enabled(),
+            account_vault=rt.settings.site_account_vault,
+            account_email=rt.account_email(),
+            mail_line=_mail_line(rt),
             notify_email=rt.notifier().email_ready(),
             notify_webhook=rt.notifier().webhook_ready(),
         )
@@ -79,6 +97,24 @@ def register(app, rt, ui_store, require_session, require_csrf, set_ui_cookie, sa
         rt.store.set_control("site_signin", enabled)
         rt.store.audit("site_signin_changed", None, enabled=enabled)
         return RedirectResponse(f"/settings?ok={'signin_on' if enabled else 'signin_off'}", status_code=303)
+
+    @app.post("/settings/account")
+    def settings_account(request: Request, session: dict = Depends(require_session), csrf: str = Form(...), create: str = Form("")):
+        """Opt-in account creation. Off by default. It does nothing unless sign-in is on as well."""
+        require_csrf(request, session, csrf)
+        enabled = create in ("on", "1", "true")
+        rt.store.set_control("site_account_create", enabled)
+        rt.store.audit("site_account_create_changed", None, enabled=enabled)
+        return RedirectResponse(f"/settings?ok={'account_on' if enabled else 'account_off'}", status_code=303)
+
+    @app.post("/settings/mail")
+    def settings_mail(request: Request, session: dict = Depends(require_session), csrf: str = Form(...), mail: str = Form("")):
+        """Opt-in reading of a verification email. Off by default. Connecting the mailbox is a separate command."""
+        require_csrf(request, session, csrf)
+        enabled = mail in ("on", "1", "true")
+        rt.store.set_control("mail_verification", enabled)
+        rt.store.audit("mail_verification_changed", None, enabled=enabled)
+        return RedirectResponse(f"/settings?ok={'mail_on' if enabled else 'mail_off'}", status_code=303)
 
     @app.post("/settings/notify-test")
     def settings_notify_test(request: Request, session: dict = Depends(require_session), csrf: str = Form(...)):
