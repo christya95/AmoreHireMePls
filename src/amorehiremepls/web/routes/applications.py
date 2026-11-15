@@ -194,11 +194,15 @@ def application_view(rt, a: dict, job: dict, session: dict, runs: list[dict] | N
             }
     clicked = any(final_click_noted(run) for run in runs if run.get("status") in LIVE_RUN_STATES)
     flow = flow_steps(a, show_status, need, hold, working=filling, final_noted=clicked, live=live)
+    limit = hold_limit(hold, _local)
+    ask = (hold or {}).get("signin") if hold and hold.get("purpose") == "account" else None
+    if ask and str(ask.get("step") or "").startswith("mail_") and hold.get("expires_at"):
+        limit = f"The app waits for you until {_local(hold['expires_at'], '%H:%M')}. The create-account form was already sent and will not be sent again."
     return dict(
         flow=flow,
         flow_key=flow_key(flow, need),
         attempt=attempt_line(runs, _local),
-        hold_limit=hold_limit(hold, _local),
+        hold_limit=limit,
         a=a,
         job=job,
         action=action,

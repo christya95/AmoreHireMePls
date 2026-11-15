@@ -862,6 +862,12 @@ html[data-checklist="folded"] .checklist-body { max-height: 0; opacity: 0; margi
 .next-action .fix-links a { font-weight: 600; }
 .next-action .fix-links small, .next-action .fix-links span { color: var(--text-2); }
 .next-action .act { display: flex; flex-direction: column; align-items: flex-end; gap: var(--s-2); max-width: 100%; min-width: 0; }
+.next-action:has(#account-card) { grid-template-columns: minmax(0, 1fr); align-items: start; }
+.next-action:has(#account-card) .act { align-items: stretch; }
+.next-action:has(#account-card) .act form { justify-content: flex-start; }
+.next-action #account-card { text-align: left; display: grid; gap: var(--s-2); padding: var(--s-3); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.next-action #account-card p, .next-action #account-card ul { margin: 0; }
+.next-action #account-card ul { padding-left: 1.1rem; }
 .next-action .act form { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: flex-end; gap: var(--s-2); margin: 0; }
 .next-action .act form.ask-form { flex-direction: column; align-items: stretch; width: min(420px, 100%); }
 .next-action .act form.ask-form .field.narrow { flex: 0 1 auto; }

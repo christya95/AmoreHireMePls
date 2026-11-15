@@ -432,7 +432,10 @@ def test_every_stop_has_its_own_plain_sentence_and_none_is_hidden_from_the_timel
         line = stop.reason.format(site="jobs.example.com")
         assert line.endswith(".") and not _HIDDEN_WORDS.search(line), (code, line)
         assert "—" not in line + stop.title + stop.text and " - " not in line + stop.title + stop.text
-        assert "Nothing was sent" in stop.text, code
+        if code == "signup_unclear":
+            assert "will not send the form again" in stop.text
+        else:
+            assert "Nothing was sent" in stop.text, code
     assert len({STOPS[c].reason for c in ("off", "no_login", "several", "rejected", "locked", "cycle_cap", "captcha", "passkey", "account_needed", "code_timeout")}) == 10
     assert {WALLS[w].reason for w in ("login", "code", "checkpoint", "blocked")}.__len__() == 4  # the old combined sentence is gone
     assert secure_page("https://example.com/login") and secure_page("http://127.0.0.1:8000/login") and not secure_page("http://example.com/login")

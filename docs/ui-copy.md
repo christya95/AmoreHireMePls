@@ -324,10 +324,12 @@ Rules:
   main step, labelled "Record the confirmation".
 - Start over and Remove unused resumes sit under the same More, each closed until opened.
 - The label of a `handoff` reads "Stopped before sending" on the application and job pages while the app can still
-  act (retry, a wait that has to pass). It reads "Finish on the site yourself" only when the main button opens the
-  job site. The list pages keep the status label.
+  act (retry, a wait that has to pass). An unclear sign-up reads "Check the account" instead, because that form was
+  already sent. It reads "Finish on the site yourself" only when the main button opens the job site. The list pages
+  keep the status label.
 - A wait in the block (1Password, a code, a human check) shows its time limit: "The app waits for you until HH:MM.
-  After that this attempt stops with nothing sent, and you can start it again here."
+  After that this attempt stops with nothing sent, and you can start it again here." After the create-account form
+  has been sent, that sentence says the form was already sent and will not be sent again.
 - A new attempt shows "Attempt N · started YYYY-MM-DD HH:MM" beside the status, so its lines are not read as the
   last attempt's stop. Earlier attempts are one line each in the fold "Earlier attempts"; the full stop record is
   kept only for the latest stop.

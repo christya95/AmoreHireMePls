@@ -135,7 +135,13 @@ def finish_need(
         out["label"] = ("Use this code" if out.get("code") else "Use this answer") if out.get("kind") == "field" else KIND_LABEL.get(str(out.get("kind") or ""), "")
     out["waits_on_you"] = out.get("kind") in WAITS_ON_YOU
     # "Finish on the site yourself" is true only when the main button opens the job site.
-    out["status_label"] = STOPPED_UNSENT if status == "handoff" and out.get("kind") not in ("site", "manual") and not _sent(app) else ""
+    # An unclear sign-up already sent the create-account form, so it is not "before sending".
+    if status == "handoff" and out.get("kind") == "account_resolve" and not _sent(app):
+        out["status_label"] = "Check the account"
+    elif status == "handoff" and out.get("kind") not in ("site", "manual") and not _sent(app):
+        out["status_label"] = STOPPED_UNSENT
+    else:
+        out["status_label"] = ""
     return out
 
 
