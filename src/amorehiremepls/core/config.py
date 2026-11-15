@@ -115,6 +115,9 @@ class Settings(BaseSettings):
     # received, unmasked, in the job's private artifact folder until the next attempt. It can hold a site password.
     stop_record: bool = True
     stop_record_trace: bool = True
+    # Dashboard that ran the attempt, when this one did not. Empty: a file that is not already here stays missing.
+    # Files are read only through that dashboard's hash-verified download route and stored under this artifact folder.
+    stop_record_origin: str = ""
     # One fresh-session try after a human check, before the owner is notified. 0 sends the note immediately.
     # Skipped while a hold is still open. The later try never clicks submit if the first try already did.
     challenge_retry_minutes: int = Field(default=180, ge=0, le=1440)

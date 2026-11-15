@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from amorehiremepls.apply.stop_fetch import FAILED, bring_stop_files, drop_brought_copies, verified_copy
 from amorehiremepls.apply.stop_record import BODY_CAP, DIAGNOSTIC_SHOTS, FILE_CAP, FILES, KIND
 from amorehiremepls.core.util import sha256_file
 
@@ -37,13 +38,10 @@ LIMITS = (
 
 
 def _local_path(rt, art: dict | None) -> Path | None:
-    """The file, when it is on this computer and inside the artifact folder."""
-    if not art or not art.get("path"):
+    """The file, when it is on this computer, inside the artifact folder, and the hash still matches."""
+    if not art:
         return None
-    path = Path(str(art["path"])).resolve()
-    if not path.is_relative_to(rt.settings.artifact_dir.resolve()) or not path.is_file():
-        return None
-    return path
+    return verified_copy(rt.settings.artifact_dir, art)
 
 
 def _read_json(rt, art: dict | None) -> Any | None:
@@ -64,11 +62,13 @@ def _records(rt, a: dict) -> list[dict]:
 
 def stop_record_view(rt, a: dict) -> dict:
     """What the application page needs: the newest record's pictures, counts and downloads. No request rows."""
+    drop_brought_copies(rt.store, rt.settings.artifact_dir, a.get("job_id"))
     arts = _records(rt, a)
     if not arts:
-        return {"state": "none", "expected": a.get("status") in STOPPED}
+        return {"state": "none", "expected": a.get("status") in STOPPED, "fetch_error": ""}
     attempt = arts[0].get("attempt")
     mine = {x.get("label"): x for x in arts if x.get("attempt") == attempt}
+    fetch_error = bring_stop_files(rt, list(mine.values())) or ""
     summary = (mine.get("record") or {}).get("summary") or {}
     manifest = _read_json(rt, mine.get("record")) or {}
     page = manifest.get("page") or {}
@@ -96,7 +96,8 @@ def stop_record_view(rt, a: dict) -> dict:
         "view": href("view", "png", True) if _local_path(rt, mine.get("view")) else None,
         "full": href("page", "png", True) if _local_path(rt, mine.get("page")) else None,
         "has_picture": bool(mine.get("view") or mine.get("page")),
-        "files": files,
+        "files": [f for f in files if f["here"]],
+        "fetch_error": fetch_error,
         "page_url": str(page.get("url") or ""),
         "page_title": str(page.get("title") or ""),
         "older": len({x.get("attempt") for x in arts}) - 1,
@@ -165,15 +166,17 @@ def _row_view(row: dict) -> dict:
 
 def stop_network_view(rt, a: dict) -> dict:
     """The request list and the console lines of the newest record, for the panel."""
+    drop_brought_copies(rt.store, rt.settings.artifact_dir, a.get("job_id"))
     arts = _records(rt, a)
     if not arts:
         return {"state": "none"}
     attempt = arts[0].get("attempt")
     mine = {x.get("label"): x for x in arts if x.get("attempt") == attempt}
+    bring_stop_files(rt, list(mine.values()))
     network = _read_json(rt, mine.get("network"))
     console = _read_json(rt, mine.get("console")) or {}
     if network is None:
-        return {"state": "elsewhere"}
+        return {"state": "elsewhere", "fetch_error": FAILED}
     rows = [_row_view(r) for r in network.get("rows") or []]
     problems = [r for r in rows if r["problem"]]
     return {

@@ -323,7 +323,8 @@ def test_the_page_shows_the_record_as_text_with_a_notice_and_serves_files_by_has
     assert world.client.get(f"/documents/{arts['html']['_id']}/download?kind=pdf").status_code == 400
     Path(arts["network"]["path"]).write_text('{"rows": []}')
     assert world.client.get(f"/documents/{arts['network']['_id']}/download?kind=file").status_code == 409
-    assert 'id="net-elsewhere"' in world.client.get("/applications/app_s/stop-record?part=1").text  # a changed file is not shown either
+    changed = world.client.get("/applications/app_s/stop-record?part=1").text
+    assert 'id="stop-fetch"' in changed and "not on this computer" not in changed  # a changed file is not shown either
     stranger = TestClient(create_app(world.rt), follow_redirects=False)
     assert stranger.get(f"/documents/{arts['html']['_id']}/download?kind=file").status_code in (303, 401)
     assert stranger.get("/applications/app_s/stop-record?part=1").status_code in (303, 401)
@@ -342,8 +343,10 @@ def test_the_page_says_when_the_files_are_on_another_computer_and_when_nothing_w
     for art in arts.values():  # state two: the record is known, its files are on the computer that ran the attempt
         Path(art["path"]).unlink()
     page = world.client.get("/applications/app_s").text
-    assert 'id="stop-elsewhere"' in page and "shot-missing" in page and "not on this one" in page and "data-load" not in page
-    assert "not on this computer" in page and 'id="net-elsewhere"' in world.client.get("/applications/app_s/stop-record?part=1").text
+    assert 'id="stop-fetch"' in page and "Try again" in page and "shot-missing" in page and "data-load" not in page
+    assert "not on this computer" not in page and "not on this one" not in page and NOTICE in page
+    panel = world.client.get("/applications/app_s/stop-record?part=1").text
+    assert 'id="stop-fetch"' in panel and "Try again" in panel and "not on this computer" not in panel
     assert world.client.get(f"/documents/{arts['html']['_id']}/download?kind=file").status_code == 404
 
 

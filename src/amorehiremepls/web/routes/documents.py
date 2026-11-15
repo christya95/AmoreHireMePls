@@ -70,16 +70,27 @@ def register(app, rt, require_session, render) -> None:
             raise HTTPException(400, "kind must be docx, pdf, png or file")
         if not raw or not expected:
             raise HTTPException(404, f"no {kind} recorded for this document")
-        path = Path(raw).resolve()
-        root = rt.settings.artifact_dir.resolve()
-        if not path.is_relative_to(root):
-            rt.store.audit("document_path_refused", artifact_id, kind=kind)
-            raise HTTPException(403, "document path is outside the artifact directory")
-        if not path.is_file():
-            raise HTTPException(404, "file missing on this host")
-        if sha256_file(path) != expected:
-            rt.store.audit("document_hash_mismatch", artifact_id, kind=kind)
-            raise HTTPException(409, "file on disk no longer matches the reviewed hash; not serving it")
+        if art.get("kind") == "stop_record":
+            from amorehiremepls.apply.stop_fetch import open_for_download
+
+            opened = open_for_download(rt, art)
+            if opened.mismatch:
+                rt.store.audit("document_hash_mismatch", artifact_id, kind=kind)
+                raise HTTPException(409, "file on disk no longer matches the reviewed hash; not serving it")
+            if opened.path is None:
+                raise HTTPException(404, "file missing on this host")
+            path = opened.path
+        else:
+            path = Path(raw).resolve()
+            root = rt.settings.artifact_dir.resolve()
+            if not path.is_relative_to(root):
+                rt.store.audit("document_path_refused", artifact_id, kind=kind)
+                raise HTTPException(403, "document path is outside the artifact directory")
+            if not path.is_file():
+                raise HTTPException(404, "file missing on this host")
+            if sha256_file(path) != expected:
+                rt.store.audit("document_hash_mismatch", artifact_id, kind=kind)
+                raise HTTPException(409, "file on disk no longer matches the reviewed hash; not serving it")
         filename = re.sub(r"[^A-Za-z0-9._-]+", "_", name or path.name) or f"document.{kind}"
         disposition = "inline" if inline and kind in ("pdf", "png") else "attachment"
         headers = {"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}

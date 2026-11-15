@@ -6,7 +6,7 @@
   <p class="stop-notice" id="stop-notice"><svg class="icon"><use href="#i-stop"/></svg><span><strong>{{ stop_notice }}</strong> {{ stop_where }}</span></p>
   <div class="stop-grid">
     {% if stop.view %}<a class="shot-pic stop-pic" href="{{ stop.full or stop.view }}" target="_blank" rel="noopener" title="Open the whole page full size in a new tab"><img src="{{ stop.view }}" alt="The page when the attempt stopped" loading="lazy"></a>
-    {% elif stop.has_picture %}<div class="shot-pic shot-missing stop-pic">The picture is on the computer that ran this attempt, not on this one.</div>
+    {% elif stop.has_picture %}<div class="shot-pic shot-missing stop-pic" id="stop-picture-missing" aria-hidden="true"></div>
     {% else %}<div class="shot-pic shot-missing stop-pic">The page could not be photographed.</div>{% endif %}
     <div class="stop-facts">
       <dl class="stop-kv">
@@ -15,8 +15,8 @@
         <div><dt>Requests</dt><dd>{{ stop.counts.requests or 0 }} in all{% if stop.counts.failed %} · <span class="pill bad">{{ stop.counts.failed }} failed</span>{% endif %}{% if stop.counts.blocked %} · <span class="pill warn">{{ stop.counts.blocked }} refused by the app</span>{% endif %}{% if stop.counts.errors %} · {{ stop.counts.errors }} error replies{% endif %}</dd></div>
         <div><dt>Console</dt><dd>{{ stop.counts.console or 0 }} lines{% if stop.counts.page_errors %} · {{ stop.counts.page_errors }} page errors{% endif %}</dd></div>
       </dl>
-      {% if not stop.here %}<p class="note" id="stop-elsewhere">The files of this record are on the computer that ran the attempt. Open this page on that dashboard to see the picture, the requests and the downloads.</p>{% endif %}
-      {% if stop.files %}<ul class="stop-files">{% for f in stop.files %}<li>{% if f.here %}<a href="{{ f.href }}" download>{{ f.title }}</a>{% else %}<span>{{ f.title }}</span>{% endif %} <small>{{ f.size }}{% if not f.here %} · not on this computer{% endif %}</small></li>{% endfor %}</ul>{% endif %}
+      {% if stop.fetch_error %}<p class="note" id="stop-fetch">{{ stop.fetch_error }} <a href="/applications/{{ a._id }}">Try again</a></p>{% endif %}
+      {% if stop.files %}<ul class="stop-files">{% for f in stop.files %}<li><a href="{{ f.href }}" download>{{ f.title }}</a> <small>{{ f.size }}</small></li>{% endfor %}</ul>{% endif %}
       <p class="note">{{ stop.limits }}</p>
       {% for line in stop.notes %}<p class="note">{{ line }}</p>{% endfor %}
       {% if stop.errors %}<p class="note">Parts that could not be recorded: {{ stop.errors|join(', ') }}. The attempt stopped for the reason shown above, not because of this.</p>{% endif %}
@@ -24,7 +24,7 @@
   </div>
   <details class="disclosure stop-net" id="stop-network"{% if stop.here %} data-load="/applications/{{ a._id }}/stop-record?part=1"{% endif %}>
     <summary>Requests the page made{% if stop.counts.failed %} <span class="pill bad">{{ stop.counts.failed }} failed</span>{% endif %}{% if stop.counts.blocked %} <span class="pill warn">{{ stop.counts.blocked }} refused</span>{% endif %} <span class="sum-meta">{{ stop.counts.requests or 0 }} in all</span></summary>
-    <div class="stop-net-body">{% if stop.here %}<p class="note"><a href="/applications/{{ a._id }}/stop-record">Open the request list on its own page</a></p>{% else %}<p class="note">The request list is on the computer that ran the attempt.</p>{% endif %}</div>
+    <div class="stop-net-body">{% if stop.here %}<p class="note"><a href="/applications/{{ a._id }}/stop-record">Open the request list on its own page</a></p>{% endif %}</div>
   </details>
   {% if stopped_shots %}<details class="disclosure" id="stop-pictures"><summary>Pictures taken during this attempt <span class="sum-meta">{{ stopped_shots|length }}</span></summary>
     {% with shots = stopped_shots, shots_id = 'stop-shots' %}{% include "_shots.html" %}{% endwith %}</details>{% endif %}

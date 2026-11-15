@@ -873,7 +873,7 @@ class ApplicationService:
             raise ApplicationRefused(reason)
         self._stop_unsent_work(app)
         delete_tailored_files(self.store, self.tailor.artifact_dir, app["job_id"])
-        clear_stop_records(self.store, app)
+        clear_stop_records(self.store, app, self.tailor.artifact_dir)
         backup_dir.mkdir(parents=True, exist_ok=True)
         path = backup_dir / f"{app_id}-{utcnow().strftime('%Y%m%dT%H%M%SZ')}.json"
         path.write_text(json_util.dumps(app), encoding="utf-8")
@@ -916,7 +916,7 @@ class ApplicationService:
         self._stop_unsent_work(app)
         job = self.jobs.get(app["job_id"])
         delete_tailored_files(self.store, self.tailor.artifact_dir, app["job_id"])
-        clear_stop_records(self.store, app)
+        clear_stop_records(self.store, app, self.tailor.artifact_dir)
         self.apps.update_one(
             {"_id": app_id},
             {

@@ -371,7 +371,7 @@ def register(app, rt, require_session, require_csrf, render) -> None:
             from amorehiremepls.core.orchestration import queue_approved_send
             from amorehiremepls.core.runtime import RealServices
 
-            queue_approved_send(rt.store, a, RealServices(rt).has_authorization(a))
+            queue_approved_send(rt.store, a, RealServices(rt).has_authorization(a), artifact_dir=rt.settings.artifact_dir)
         return RedirectResponse(f"/applications/{app_id}", status_code=303)
 
     @app.post("/applications/{app_id}/fill")
@@ -385,7 +385,7 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         from amorehiremepls.core.runtime import RealServices
 
         if not continue_waiting_runs(rt, a):
-            queue_approved_send(rt.store, a, RealServices(rt).has_authorization(a), replace_repeat=True)
+            queue_approved_send(rt.store, a, RealServices(rt).has_authorization(a), replace_repeat=True, artifact_dir=rt.settings.artifact_dir)
         return RedirectResponse(f"/applications/{app_id}", status_code=303)
 
     @app.post("/applications/{app_id}/manual")
@@ -432,7 +432,7 @@ def register(app, rt, require_session, require_csrf, render) -> None:
                 raise HTTPException(409, "nothing to retry in this state")
             if rt.store.c("runs").find_one({"params.job_id": a["job_id"], "status": {"$in": ["queued", "claimed", "running", "waiting", "paused"]}}):
                 return RedirectResponse(f"/applications/{app_id}?err=retry_busy", status_code=303)
-            queue_approved_send(rt.store, a, True, replace_repeat=True)
+            queue_approved_send(rt.store, a, True, replace_repeat=True, artifact_dir=rt.settings.artifact_dir)
             return RedirectResponse(f"/applications/{app_id}?ok=apply_queued", status_code=303)
         if a and _same_package_retry(a) and not approval_stale(rt, a):
             from amorehiremepls.apply.ats import adapter_for
@@ -452,7 +452,7 @@ def register(app, rt, require_session, require_csrf, render) -> None:
                 now = utcnow()
                 taken = rt.store.c("applications").update_one({"_id": app_id, "status": "handoff"}, {"$set": {"status": "authorized", "updated_at": now}})
                 fresh = rt.store.c("applications").find_one({"_id": app_id})
-                if taken.modified_count != 1 or not queue_approved_send(rt.store, fresh, True, replace_repeat=True):
+                if taken.modified_count != 1 or not queue_approved_send(rt.store, fresh, True, replace_repeat=True, artifact_dir=rt.settings.artifact_dir):
                     if fresh and fresh.get("status") == "authorized":
                         rt.store.c("applications").update_one({"_id": app_id, "status": "authorized"}, {"$set": {"status": "handoff", "updated_at": utcnow()}})
                     return RedirectResponse(f"/applications/{app_id}?err=retry_busy", status_code=303)
@@ -480,7 +480,7 @@ def register(app, rt, require_session, require_csrf, render) -> None:
         )
         from amorehiremepls.apply.stop_record import clear_stop_records
 
-        clear_stop_records(rt.store, a)  # a new attempt starts without the earlier attempt's stop record
+        clear_stop_records(rt.store, a, rt.settings.artifact_dir)  # a new attempt starts without the earlier attempt's stop record
         run = rt.store.create_run("application", {"job_id": job["_id"], "retry_of": app_id})
         rt.store.audit("application_retry", app_id, run_id=run["_id"])
         return RedirectResponse(f"/applications/{app_id}?ok=retry_started", status_code=303)

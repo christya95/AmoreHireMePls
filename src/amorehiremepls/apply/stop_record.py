@@ -399,13 +399,24 @@ def _job_file(raw: Any, job_id: str, folder: str) -> Path | None:
     return None
 
 
-def clear_stop_records(store: Any, app: dict | None) -> int:
+def attempt_dir(artifact_dir: Path, job_id: str, attempt: str) -> Path | None:
+    """`jobs/<job_id>/stop/<attempt>` under an artifact folder, or None when that path would leave the folder."""
+    if not job_id or not attempt:
+        return None
+    root = Path(artifact_dir).resolve()
+    folder = (root / "jobs" / _SAFE.sub("_", job_id) / "stop" / _SAFE.sub("_", attempt)).resolve()
+    if not folder.is_relative_to(root):
+        return None
+    return folder
+
+
+def clear_stop_records(store: Any, app: dict | None, artifact_dir: Path | None = None) -> int:
     """Delete this application's stop records and the pictures of where an unsent attempt stopped.
 
-    Called when a new attempt is queued or starts, and by Start over and Remove. Records and files go together; a
-    file that lives on another computer is removed there when that computer next starts an attempt. Proof of a
-    sent application, a receipt, and everything from an unclear result are never touched. Returns how many
-    records were removed."""
+    Called when a new attempt is queued or starts, and by Start over and Remove. Records and files go together.
+    A copy brought onto this computer is removed here too. A file that lives only on another computer is removed
+    there when that computer next starts an attempt. Proof of a sent application, a receipt, and everything from
+    an unclear result are never touched. Returns how many records were removed."""
     if not app or not app.get("job_id") or not app.get("_id") or _kept_as_evidence(store, app):
         return 0
     job_id = str(app["job_id"])
@@ -413,7 +424,8 @@ def clear_stop_records(store: Any, app: dict | None) -> int:
     query = {"job_id": job_id, "$or": [{"kind": KIND}, {"kind": "screenshot", "application_id": app["_id"], "label": {"$in": list(DIAGNOSTIC_SHOTS)}}]}
     removed = 0
     folders: set[Path] = set()
-    for art in list(arts.find(query, {"path": 1, "kind": 1})):
+    attempts: set[str] = set()
+    for art in list(arts.find(query, {"path": 1, "kind": 1, "attempt": 1})):
         path = _job_file(art.get("path"), job_id, "stop" if art.get("kind") == KIND else "screenshots")
         try:
             if path is not None and path.is_file():
@@ -422,10 +434,17 @@ def clear_stop_records(store: Any, app: dict | None) -> int:
                 folders.add(path.parent)
         except OSError:
             pass
+        if art.get("kind") == KIND and art.get("attempt"):
+            attempts.add(str(art["attempt"]))
         arts.delete_one({"_id": art["_id"]})
         removed += 1
     for folder in folders:
         shutil.rmtree(folder, ignore_errors=True)
+    if artifact_dir is not None:
+        for attempt in attempts:
+            local = attempt_dir(artifact_dir, job_id, attempt)
+            if local is not None and local.is_dir():
+                shutil.rmtree(local, ignore_errors=True)
     store.c("applications").update_one(
         {"_id": app["_id"], "evidence.screenshots": {"$type": "array"}},
         {"$pull": {"evidence.screenshots": {"label": {"$in": list(DIAGNOSTIC_SHOTS)}}}},
@@ -452,7 +471,8 @@ class StopRecords:
         if not self.enabled or not job_id:
             return None
         try:
-            clear_stop_records(self.store, self._app(job_id))
+            clear_stop_records(self.store, self._app(job_id), self.artifact_dir)
+            self.drop_unreferenced(job_id)
             self.sweep(job_id)
         except Exception as exc:
             log.warning("could not clear an earlier stop record: %s", type(exc).__name__)
@@ -498,6 +518,26 @@ class StopRecords:
         if run:
             self.store.run_event(run["_id"], SAVED_LINE)
         return ids
+
+    def drop_unreferenced(self, job_id: str) -> int:
+        """Remove this job's stop folders whose record is already gone. A new attempt calls this at once."""
+        root = self.artifact_dir / "jobs" / _SAFE.sub("_", job_id) / "stop"
+        if not root.is_dir():
+            return 0
+        removed = 0
+        base = self.artifact_dir.resolve()
+        for folder in list(root.iterdir()):
+            try:
+                resolved = folder.resolve()
+            except OSError:
+                continue
+            if not folder.is_dir() or not resolved.is_relative_to(base):
+                continue
+            if self.store.c("artifacts").find_one({"kind": KIND, "attempt": folder.name}, {"_id": 1}):
+                continue
+            shutil.rmtree(resolved, ignore_errors=True)
+            removed += 1
+        return removed
 
     def sweep(self, job_id: str = "") -> int:
         """Remove files whose record is gone: cleared from another computer, or never registered."""

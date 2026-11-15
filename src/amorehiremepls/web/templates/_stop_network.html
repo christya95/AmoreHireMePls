@@ -19,7 +19,7 @@
 {% endmacro %}
 <div class="net-panel" id="stop-net-panel">
 {% if net.state == 'elsewhere' %}
-  <p class="note" id="net-elsewhere">The request list is on the computer that ran the attempt, not on this one.</p>
+  <p class="note" id="stop-fetch">{{ net.fetch_error }} <a href="/applications/{{ a._id }}/stop-record?part=1">Try again</a></p>
 {% elif net.state != 'saved' %}
   <p class="note" id="net-none">No stop record is saved for this application.</p>
 {% elif not net.total %}

@@ -261,7 +261,7 @@ class Worker:
             except Exception:
                 log.exception("could not check approval for %s", app.get("_id"))
                 continue
-            queue_approved_send(self.rt.store, app, allowed)
+            queue_approved_send(self.rt.store, app, allowed, artifact_dir=self.rt.settings.artifact_dir)
 
     # -- schedule ------------------------------------------------------------------------
     def due_slots(self, now: datetime | None = None) -> list[str]:
