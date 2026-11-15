@@ -11,7 +11,7 @@ The app creates an account only when all of these hold: the owner turned on both
 
 1. Never create while any login exists for the site's registrable domain (`account_items.existing_logins`). The owner signs in or resets the password instead.
 2. The login is saved in 1Password, marked unconfirmed, before the form is sent. A run that dies after the save leaves an item and no account; it is found again by its App record and reused, never doubled.
-3. The form is sent once. Replay, retry, restart and a second worker must not send it again (`ActionStore.prepare/execute` with `site_account_key`). An unclear result becomes `needs_verification`.
+3. The form is sent once. Replay, retry, restart and a second worker must not send it again (`ActionStore.prepare/execute` with `site_account_key`, and `AccountStore.claim_send` before the click). An unreadable result is `unclear`: the page asks whether the account exists and the form is not sent again. That is not the job application's "Save the result".
 4. A password the site refuses for a rule gets a new one on the same item: 3 passwords in all (`AMORE_SITE_ACCOUNT_PASSWORD_TRIES`, 1 to 3).
 5. A field the profile cannot answer is a question for the owner. More than 5 questions and the form is the owner's to fill.
 6. No model sees a form or a mail. Both are untrusted and are read by fixed rules.
@@ -29,17 +29,20 @@ The app creates an account only when all of these hold: the owner turned on both
 | Mail grant and read-only calls | `core/mail_access.py` (`MailAccess`, `run_consent`, `OpGrantStore`, `FileGrantStore`) | the computer the owner sits at, never the server |
 | Narrow lookup and wait | `core/mail_codes.py` (`find_verification`, `wait_for_verification`, `answer_mail_ask`) | same |
 | Commands | `amore mail connect`, `amore mail status`, `amore mail disconnect` (`web/cli.py`) | same |
+| The run | `apply/account_run.py` (`SiteSignUp`) from `apply/browser.py` `_pass_wall`, when sign-in stops with `no_login` or `account_needed` and the switch is on | the worker |
+| The record | `core/site_accounts.py` (`AccountStore`, `approve`, `apply_item_mark`, `resolve_unclear`) | the dashboard writes 1Password; the worker writes the row |
+| The page | `web/routes/accounts.py`, the card on `web/templates/application.html`, Settings switches on `web/templates/settings.html` | the Mac dashboard. The NAS dashboard says it cannot open 1Password |
 
-The worker holds no 1Password tool and no mail grant. It asks through a hold; the dashboard answers with a sealed box that only the asking task can open.
+The worker holds no 1Password tool and no mail grant. It asks through a hold whose purpose is `account`; the dashboard answers with a sealed box that only the asking task can open. The confirmed tag is applied at the next press (`item_pending`), so the application form is not held up for another 1Password window.
 
 ## How it works on a new company's site
 
 1. The sign-in step ends with no saved login. `signup_control` finds the site's own Create account control on the same site; a control that leaves the site is not followed.
 2. `PAGE_JS` describes the page and `plan_signup` returns what would be typed and ticked: the account email (`rt.account_email()`: `AMORE_SITE_ACCOUNT_EMAIL`, else the profile email), the legal name from the profile, the password's place (never its value), the consent box ticked, marketing never ticked.
-3. The owner sees the plan and presses Create. That press is the approval and the 1Password prompt. `answer_account_ask` checks again that no login exists, creates the item with a generated password that fits the page's rules, and seals it to the task.
+3. The application page shows the card: site and host, account email, every typed value, every box (terms and privacy ticked, marketing not), the terms links, the exact item title and vault, and any questions. The owner presses Create this account. That press grants `site_account_create` for that offer (`approve`). A changed plan invalidates it. `answer_account_ask` checks again that no login exists, creates the item with a generated password, and seals it to the task.
 4. The task types and sends the form once, then reads the page with `read_page(description, before=page_lines(earlier))`.
 5. Verification: an emailed code or link is looked up by `find_verification` on the owner's computer and returned sealed. Without mail access, the owner types the code or opens the link.
-6. Confirmed: the item's state tag becomes `account-confirmed` and its Status says so. Refused by the site: `account-not-created`, which the sign-in lookup skips.
+6. Confirmed: the row is `confirmed` and `item_pending` is `confirmed`. The tag in 1Password changes when the owner next presses Update the saved login. Not created: `account-not-created`, which the sign-in lookup skips, and the unused item is archived from that press.
 
 Adding a site needs no code when its form is ordinary. For one that is not, add a hint to its adapter (whether one account serves many employers, documented mail sender domains, a sign-up path) and a fixture page to `tests/fixtures/signup_pages.py`. Vendor names stay in adapters, never in `apply/signup.py`.
 
@@ -66,10 +69,12 @@ An item is the app's own only when it carries both tags and its App record match
 | `captcha`, `phone_verification`, `blocked` | A human check, a code sent to a phone, a block page | Create the account by hand |
 | `email_first`, `social_only`, `not_signup`, `no_submit` | The page is not an ordinary create-account form | Create the account by hand |
 | `password_rules` | The page names the only symbols it accepts, or a length the generator cannot make | Create the account by hand |
+| `signup_security` | The form asks a security question | Create the account by hand. A concealed 1Password field was not verified, so the answer is not saved |
 | `too_many_questions`, `not_secure`, `no_email` | More than 5 questions, a page that is not https, no account email | Fill the form by hand, or set the email |
 | Password limit | The site refused 3 generated passwords | Create the account by hand; archive the unused item |
+| `signup_unclear` | The form was sent and the page could not be read | Open the site, then press The account exists or No account was created. Do not send the form again |
 
-A question (`plan.state == "ask"`) is not a stop: a security question, a date of birth, a username, a required box that is not plain consent, a name the profile lacks.
+A question (`plan.state == "ask"`) is not a stop: a date of birth, a username, a required box that is not plain consent, a name the profile lacks. The first press saves those answers. The second press is Create this account.
 
 ## Diagnose a mail lookup
 
@@ -88,6 +93,10 @@ Run `amore mail status` on the owner's computer. It prints the state and the add
 
 A message counts only when all hold: sent after the form was (60 seconds of slack), to the account email, from the site's registrable domain or a sender the site's own page named, with a signature that passed for that domain, among at most 5 messages. A code is 4 to 8 characters next to a word like code. A link is https, on the site's own registrable domain, and says verify, confirm or activate. A retry never widens any of this. If a site's mail fails these rules, the answer is the owner typing the code, not a looser rule.
 
+## Diagnose an unclear outcome
+
+The page says the form was sent and the result could not be read, with the site link and two buttons. The account action is `needs_verification` and the row is `unclear`. Nothing in the app sends the form again. The owner looks at the site. The account exists confirms the saved login. No account was created archives it. Do not use Save the result on the application: that records the job as sent.
+
 ## Diagnose a half-made 1Password item
 
 - An item tagged `account-unconfirmed` whose account does not exist: the save worked and the form was never sent, or the result was unclear. Start the application again; the same item is reused when its App record matches. Do not make a second one.
@@ -98,11 +107,11 @@ A message counts only when all hold: sent after the form was (60 seconds of slac
 ## What to run
 
 ```bash
-uv run pytest tests/test_account_items.py tests/test_mail_codes.py tests/test_signup.py tests/test_signin.py tests/test_actions_authorization.py
+uv run pytest tests/test_account_run.py tests/test_account_items.py tests/test_mail_codes.py tests/test_signup.py tests/test_signin.py tests/test_app_flow.py
 uv run ruff check src tests && uv run ruff format --check src tests
 ```
 
-Doubles: `tests/fixtures/fake_op.py` (an in-memory `op`), `FakeGoogle` and `FakeMailbox` in `tests/test_mail_codes.py`, page descriptions and HTML in `tests/fixtures/signup_pages.py`. A change must pass for both fictional candidates.
+Doubles: `tests/fixtures/fake_op.py` (an in-memory `op`), `tests/fixtures/account_site.py` (a local sign-up site), `FakeGoogle` and `FakeMailbox` in `tests/test_mail_codes.py`, page descriptions in `tests/fixtures/signup_pages.py`. Tests must not open a window, call the real `op`, or contact a real host. The guard is `tests/conftest.py`.
 
 ## Never
 

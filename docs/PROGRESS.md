@@ -594,7 +594,9 @@ Open questions for the owner:
 2. Symbols. The 1Password generator uses a fixed set (`!@.-_*`) and cannot be limited. When a site names the only symbols it accepts and requires one, the app stops and the owner creates that account by hand.
 3. Google marks a consent screen in testing as expiring after 7 days. Publishing the screen, or connecting again weekly, is the owner's choice.
 
-Exact next step (the wiring): `core/site_accounts.py` (rows and statuses, the offer hash from `SignUpPlan.material()`), a `SiteSignUp.run` step that acts on a plan and is called from `apply/browser.py: _pass_wall` when sign-in ends with no saved login, `web/routes/accounts.py` for the presses, the account and mail asks kept by `core/human_check.py`, granting `site_account_create` at the press, the Settings, Profile, Approvals and Help copy with `docs/ui-copy.md`, the stack variables, and the two sentences that still say the app never creates an account. The owner connects mail first (`docs/HANDOFF.md`).
+Wired 2026-11-14. `SiteSignUp` runs from `_pass_wall` when sign-in stops with `no_login` or `account_needed` and the switch is on. The application page shows the card; the press grants `site_account_create` for that offer, saves the login first, and the form is sent once (`AccountStore.claim_send`). Settings has both switches, off until the owner turns them on. A security question stops (a concealed 1Password field was not verified). The confirmed tag waits for the next press. Fixture tested in `tests/test_account_run.py` with the local sign-up site and the in-memory `op`. The live 1Password check of one throwaway item was not approved: `op item list` returned an authorization timeout twice, so create, section edit, regenerate, read-back and archive were not verified and no item was created by this check. No mailbox was read.
+
+Exact next step for the owner: turn the two switches on, on the Mac dashboard, and run `amore mail connect` before relying on Check my email. See `docs/HANDOFF.md`.
 
 ## Exact next step
 

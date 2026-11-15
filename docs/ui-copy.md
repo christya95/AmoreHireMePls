@@ -340,10 +340,10 @@ Rules:
   "If the site asks to sign in, this page asks you to allow 1Password first." or "Signing in with saved logins is off
   under Settings, so a sign-in page stops the application for you." Nothing is said when nothing is known.
   When an earlier application stopped on the same site for want of an account, and no sign-in there has worked
-  since, the note is amber and says which: "Last time <site> only offered sign up. The app does not create accounts.
-  Create one on the job site yourself and save its login in 1Password first." or "Last time <site> asked to sign in
-  and no saved login for it was found in 1Password. Save one there first, or the application stops at the sign-in
-  page."
+  since, the note is amber and says which: "Last time <site> only offered sign up. Turn on Create an account when a
+  job site needs one, under Settings, or create the account yourself and save its login in 1Password." or "Last time
+  <site> asked to sign in and no saved login was found. Turn on Create an account when a job site needs one, or save
+  a login in 1Password first."
 - Settings lists the job sites the app has signed in on: site, last signed in, last try.
 
 Section order: status block, what the app saw when it stopped, the job header, Still needed, What would be sent,
@@ -393,6 +393,20 @@ is missing). "none" means the page shows no button because the app is working or
 | Stopped after the final click, no confirmation seen | Record the confirmation | The form was sent, but the app saw no confirmation. |
 | Unclear after the final click | Save the result | Check the job site, then record whether it went through. |
 | Sent and confirmed | none | (the app is working or waiting; no ask) |
+| Create an account, waiting for you | Create this account | Create an account on <site>. |
+| 1Password prompt missed while creating an account | Create this account | Create an account on <site>. |
+| Create-account form needs answers | Save these answers | <site> needs a few answers before an account can be created. |
+| Site refused the generated password | Make a new password | <site> did not accept the password. |
+| Verification email can be read | Check my email | <site> sent a code. |
+| Type the verification code | Use this code | <site> sent a code. |
+| Paste the verification link | Use this link | <site> sent a link. |
+| Stopped: create-account page asked for a human check | Retry with the app | Create the account on the job site yourself. The page asked for a human check. |
+| Stopped: create-account page asked for a phone | Retry with the app | Create the account on the job site yourself. It asked for a phone. |
+| Stopped: email already has an account | Open the job site | <site> says this email already has an account. |
+| Stopped: password rules cannot be met | Retry with the app | Create the account on the job site yourself. Its password rules cannot be met. |
+| Stopped: three passwords were refused | Retry with the app | Create the account on the job site yourself. Three passwords were refused. |
+| Stopped: security question on the create-account form | Retry with the app | Create the account on the job site yourself. It asks a security question. |
+| Stopped: sign-up result could not be read | The account exists | The create-account form on <site> was sent, and the result could not be read. |
 
 ## Rules applied everywhere
 
