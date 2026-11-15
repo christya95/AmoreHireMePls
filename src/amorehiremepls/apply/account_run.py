@@ -433,4 +433,3 @@ class SiteSignUp:
             raise SignUpStop("signup_declined")
         reply = {**reply, "ask_id": ask["ask_id"]}
         return key, reply
-

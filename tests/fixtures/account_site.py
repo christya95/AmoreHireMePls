@@ -93,7 +93,10 @@ def create(sc: str, password: str = Form("")):
     if sc == "blank":
         return HTMLResponse("<html><body></body></html>")
     if sc == "code":
-        return _page("Check your email", '<p>We emailed you a verification code.</p><form method="post" action="/join/code/code"><label>Code <input name="code" autocomplete="one-time-code"></label><button>Continue</button></form><form method="post" action="/join/code/resend"><button>Resend the code</button></form>')
+        return _page(
+            "Check your email",
+            '<p>We emailed you a verification code.</p><form method="post" action="/join/code/code"><label>Code <input name="code" autocomplete="one-time-code"></label><button>Continue</button></form><form method="post" action="/join/code/resend"><button>Resend the code</button></form>',
+        )
     if sc == "link":
         return _page("Check your email", "<p>We emailed you a link. Check your email to verify your account.</p>")
     return _session(sc, f"/join/{sc}/job")
@@ -103,14 +106,20 @@ def create(sc: str, password: str = Form("")):
 def code(code: str = Form("")):
     STATE["code"]["codes"].append(code)
     if code != CODE:
-        return _page("Check your email", '<p>We emailed you a verification code.</p><form method="post" action="/join/code/code"><label>Code <input name="code" autocomplete="one-time-code"></label><button>Continue</button></form>')
+        return _page(
+            "Check your email",
+            '<p>We emailed you a verification code.</p><form method="post" action="/join/code/code"><label>Code <input name="code" autocomplete="one-time-code"></label><button>Continue</button></form>',
+        )
     return _session("code", "/join/code/job")
 
 
 @app.post("/join/code/resend")
 def resend():
     STATE["code"]["resends"] += 1
-    return _page("Check your email", '<p>We emailed you a verification code.</p><form method="post" action="/join/code/code"><label>Code <input name="code" autocomplete="one-time-code"></label><button>Continue</button></form>')
+    return _page(
+        "Check your email",
+        '<p>We emailed you a verification code.</p><form method="post" action="/join/code/code"><label>Code <input name="code" autocomplete="one-time-code"></label><button>Continue</button></form>',
+    )
 
 
 @app.get("/join/link/open", response_class=HTMLResponse)
