@@ -4,8 +4,9 @@ Local job-search assistant for one candidate in any profession: discovers jobs, 
 
 ## Session
 - Start: read `~/Obsidian/AI-Memory/01-Active-State/AmoreHireMePls.md` (`docs/HANDOFF.md` points there). End: update it in place.
-- Update `docs/PROGRESS.md` (done list, open questions, exact next step) at every increment boundary. Search it; never read it whole.
+- Update `docs/PROGRESS.md` (done list, open questions, exact next step) at every increment boundary. Search it; never read it whole. Sections before 2026-11-12 are in `docs/PROGRESS-archive.md`.
 - Preserve useful work and data. Inspect before changing infrastructure. Continue independent work when one integration is blocked.
+- Report implemented, fixture-tested and live-verified separately, with failed syncs and blockers.
 
 ## Stack
 - Python with `uv`. LangChain for model and tool calls, LangGraph for resumable orchestration, server-rendered Jinja, Docker Compose. Keep the architecture small. Check current official docs before choosing a package API; pin dependencies.
@@ -58,16 +59,5 @@ Privacy and secrets
 - Never ask for secret values in chat. Never rotate NAS credentials without instruction. Keep private candidate context out of public research caches and model logs.
 - Do not alter other NAS services, expose database or browser ports, or mount the Docker socket. Stack variables change through Portainer or `--set`, never SSH.
 
-Profession neutrality
-- No role family, city, region, currency, employer, recruiter title, technology word, person's name or timezone as a literal in `src/`. Such values come from `Profile`, `Settings` or deploy variables. Tests enforce it.
-- `candidate/profile.toml` is the one customization surface: applied explicitly, never reloaded silently, values never printed. `default_preferences()` stays neutral. New host-specific values are variables, never constants.
-- Model prompts carry no profession or technology words. Bump the skill version when a prompt or input shape changes.
-- A change to parsing, tailoring, qualification, answers or outreach keeps both fixture candidates passing. Read "Profession neutrality" in `docs/agent-rules.md` before changing grounding, resume rules or form rules.
-
-Code conventions
-- Model steps: a `SkillSpec` in `core/skills.py`, called through `AIRunner`. Deterministic checks, filtering and deduplication come before inference. Keep configured providers and models, per-run limits, caches and usage recording.
-- New job site: an adapter in `apply/ats/` (`matches`, `fetch_questions`, `map_answers`, `build_plan`), registered in `apply/ats/__init__.py`, with a receipt tied to the requisition. Extend `apply/browser.py`; no site-specific clicking. `HandoffRequired` only when nothing was sent.
-- UI: Jinja templates, tokens in `web/static/app.css`, plain-language copy (`docs/ui-copy.md`), no third-party assets, CSRF on every POST, no raw browser-control routes.
-- Documents and screenshots live under `runtime/artifacts/jobs/<job_id>/`, hashed and served by the hash-verified route. Regenerating documents revokes approvals by design.
-- Test failure paths with deterministic model and network doubles and local browser fixtures. Live applications and messages are never test fixtures.
-- Report implemented, fixture-tested and live-verified separately, with failed syncs and blockers.
+Code in `src/`, `tests/` and `candidate/`
+- Profession neutrality and code conventions are in `.cursor/rules/src-conventions.mdc`. Cursor attaches it with those files; if it is not in your context, read it before editing them.

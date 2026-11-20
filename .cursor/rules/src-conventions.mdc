@@ -1,0 +1,21 @@
+---
+description: Profession neutrality and code conventions for application code and tests
+globs: src/**,tests/**,candidate/**
+alwaysApply: false
+---
+# Code in `src/` and `tests/`
+
+Part of the project rules in `AGENTS.md`, kept here so it loads only with the code. Full text with reasons: `docs/agent-rules.md`.
+
+## Profession neutrality
+- No role family, city, region, currency, employer, recruiter title, technology word, person's name or timezone as a literal in `src/`. Such values come from `Profile`, `Settings` or deploy variables. Tests enforce it.
+- `candidate/profile.toml` is the one customization surface: applied explicitly, never reloaded silently, values never printed. `default_preferences()` stays neutral. New host-specific values are variables, never constants.
+- Model prompts carry no profession or technology words. Bump the skill version when a prompt or input shape changes.
+- A change to parsing, tailoring, qualification, answers or outreach keeps both fixture candidates passing. Read "Profession neutrality" in `docs/agent-rules.md` before changing grounding, resume rules or form rules.
+
+## Code conventions
+- Model steps: a `SkillSpec` in `core/skills.py`, called through `AIRunner`. Deterministic checks, filtering and deduplication come before inference. Keep configured providers and models, per-run limits, caches and usage recording.
+- New job site: an adapter in `apply/ats/` (`matches`, `fetch_questions`, `map_answers`, `build_plan`), registered in `apply/ats/__init__.py`, with a receipt tied to the requisition. Extend `apply/browser.py`; no site-specific clicking. `HandoffRequired` only when nothing was sent.
+- UI: Jinja templates, tokens in `web/static/app.css`, plain-language copy (`docs/ui-copy.md`), no third-party assets, CSRF on every POST, no raw browser-control routes.
+- Documents and screenshots live under `runtime/artifacts/jobs/<job_id>/`, hashed and served by the hash-verified route. Regenerating documents revokes approvals by design.
+- Test failure paths with deterministic model and network doubles and local browser fixtures. Live applications and messages are never test fixtures.

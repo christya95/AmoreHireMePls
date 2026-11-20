@@ -1,3 +1,4 @@
 # Left readable for commands (uv needs the lockfile), kept out of the index.
 uv.lock
 *.png
+docs/PROGRESS-archive.md
