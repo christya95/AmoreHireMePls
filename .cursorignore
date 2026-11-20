@@ -1,0 +1,5 @@
+# Never useful to an agent. Everything in .gitignore is already out of the index.
+node_modules/
+.DS_Store
+*.har
+*.zip
